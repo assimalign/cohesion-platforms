@@ -1,0 +1,36 @@
+<Project>
+
+    <!-- Cohesion Specific Build Flags for all all projects in the repository -->
+	<PropertyGroup>
+		<CohesionRepositoryDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)\..\..'))\</CohesionRepositoryDirectory>
+		<CohesionOutputPath>$(CohesionRepositoryDirectory)_out</CohesionOutputPath>
+		<CohesionOutputPathForSdk>$(CohesionOutputPath)\dotnet\sdk</CohesionOutputPathForSdk>
+		<CohesionOutputPathForCli>$(CohesionOutputPath)\dotnet</CohesionOutputPathForCli>
+		<CohesionOutputPathForFramework>$(CohesionOutputPath)\dotnet\shared</CohesionOutputPathForFramework>
+		<CohesionOutputPathForPacks>$(CohesionOutputPath)\dotnet\packs</CohesionOutputPathForPacks>
+		<CohesionOutputPathForLibraries>$(CohesionOutputPath)\packages</CohesionOutputPathForLibraries>
+		<CohesionOutputPathForDevScripts>$(CohesionRepositoryDirectory)scripts\modules</CohesionOutputPathForDevScripts>
+	</PropertyGroup>
+
+	<!-- TODO: Need to verify if this is the correct way for generating the Intermediate path  -->
+	<PropertyGroup>
+        <_CohesionIntermediateOutputPath Condition=" '$(PlatformName)' == 'AnyCPU' ">$(MSBuildProjectDirectory)\obj$(IntermediateOutputPath)$(Configuration)\</_CohesionIntermediateOutputPath>
+        <_CohesionIntermediateOutputPath Condition=" '$(PlatformName)' != 'AnyCPU' ">$(MSBuildProjectDirectory)\obj$(IntermediateOutputPath)$(PlatformName)\$(Configuration)\</_CohesionIntermediateOutputPath>
+    </PropertyGroup>
+
+    <!-- Language specific Configuration -->
+	<PropertyGroup>
+		<Nullable>enable</Nullable>
+		<LangVersion>preview</LangVersion>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+	</PropertyGroup>
+
+	<!-- Cohesion Build Properties -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<DebugType>none</DebugType>
+	</PropertyGroup>
+	
+	<ItemGroup Condition="Exists('$(CohesionRepositoryDirectory).editorconfig')">
+		<AdditionalFiles Include="$(CohesionRepositoryDirectory).editorconfig" />
+	</ItemGroup>
+</Project>

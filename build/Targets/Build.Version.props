@@ -1,0 +1,53 @@
+<Project>
+    <PropertyGroup>
+        <!-- Major version tracks the targeted .NET runtime release for simpler release management. -->
+        <CohesionMajorVersion>$([System.Version]::Parse('$(TargetFrameworkLatest.TrimStart('net'))').Major)</CohesionMajorVersion>
+        <CohesionMinorVersion>0</CohesionMinorVersion>
+        <!--
+            Patch may carry an optional semver prerelease tag after a single '-',
+            e.g. "0", "2", "2-preview.1", "5-rc.3". Splitting it here lets the
+            tag flow through to PackageVersion / InformationalVersion (where
+            semver is welcome) while the numeric core feeds AssemblyVersion /
+            FileVersion (where the C# compiler enforces numeric-only via CS7034).
+        -->
+        <CohesionPatchVersion>1-preview.2</CohesionPatchVersion>
+
+        <!-- Numeric core. Suitable for AssemblyVersion / FileVersion. -->
+        <_CohesionPatchCore>$(CohesionPatchVersion.Split('-')[0])</_CohesionPatchCore>
+        <CohesionVersionPrefix>$(CohesionMajorVersion).$(CohesionMinorVersion).$(_CohesionPatchCore)</CohesionVersionPrefix>
+
+        <!--
+            Optional semver suffix. Single split on the first '-' matches semver
+            convention (the suffix may contain dots, e.g. "preview.1", but not a
+            second '-'). Empty for stable releases.
+        -->
+        <CohesionVersionSuffix Condition="$(CohesionPatchVersion.Contains('-'))">$(CohesionPatchVersion.Split('-')[1])</CohesionVersionSuffix>
+
+        <!--
+            Full semver. "X.Y.Z" stable, "X.Y.Z-suffix" prerelease.
+            This is the canonical "the version this build produces" string,
+            consumed by Install-Local.ps1, the framework workflow's read-version
+            step, and the .nupkg filenames.
+        -->
+        <CohesionVersion Condition="'$(CohesionVersionSuffix)' != ''">$(CohesionVersionPrefix)-$(CohesionVersionSuffix)</CohesionVersion>
+        <CohesionVersion Condition="'$(CohesionVersionSuffix)' == ''">$(CohesionVersionPrefix)</CohesionVersion>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(IsPackable)' != 'false'">
+        <!--
+            Use VersionPrefix + VersionSuffix instead of setting <Version> directly.
+            The .NET SDK then derives:
+              Version              = $(VersionPrefix)[-$(VersionSuffix)]
+              AssemblyVersion      = $(VersionPrefix)          (numeric only)
+              FileVersion          = $(VersionPrefix)          (numeric only)
+              InformationalVersion = $(Version)
+              PackageVersion       = $(Version)                (when not set)
+            Setting <Version> directly to a semver string causes CS7034 because
+            the value is fed straight to [assembly: AssemblyVersion], which
+            rejects the prerelease suffix.
+        -->
+        <VersionPrefix Condition="'$(VersionPrefix)' == '' or '$(VersionPrefix)' == '1.0.0'">$(CohesionVersionPrefix)</VersionPrefix>
+        <VersionSuffix Condition="'$(VersionSuffix)' == '' and '$(CohesionVersionSuffix)' != ''">$(CohesionVersionSuffix)</VersionSuffix>
+        <PackageOutputPath Condition="'$(PackageOutputPath)' == ''">$(CohesionOutputPathForLibraries)</PackageOutputPath>
+    </PropertyGroup>
+</Project>
