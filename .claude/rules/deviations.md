@@ -29,7 +29,7 @@ The user may ask for an approach that contradicts one of the repo coding rules (
 
 These are architectural commitments, not stylistic preferences — deviating has cascading consequences. Restate the architectural reason the rule exists and ask the user to confirm they understand the trade-off before proceeding:
 
-- AOT compatibility (`<IsAotCompatible>true</IsAotCompatible>`; the Kubernetes gateway is the one sanctioned exception — see `general-rules.md`)
+- Reintroducing a repo-wide AOT mandate (this repo deliberately does **not** carry cohesion's `IsAotCompatible` requirement — see `general-rules.md § AOT posture`)
 - No `Microsoft.Extensions.*` references
 - The `$(CohesionVersion)` single-source-of-truth chain
 - Never hardcoding a version on `<Import Sdk>`

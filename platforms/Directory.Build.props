@@ -13,11 +13,11 @@
 		     projects, and package props import after Directory.Build.props anyway. -->
 		<IsSourceProject>$(MSBuildProjectDirectory.EndsWith('src'))</IsSourceProject>
 	</PropertyGroup>
-	<PropertyGroup>
-		<!-- AOT: hard requirement repo-wide. Sanctioned exception: Gateway.Kubernetes opts out in
-		     its own csproj while it depends on KubernetesClient (see .claude/rules/platform-areas.md). -->
-		<IsAotCompatible>true</IsAotCompatible>
-	</PropertyGroup>
+	<!-- AOT: unlike the cohesion repo, this repo carries NO IsAotCompatible mandate (owner
+	     decision, 2026-07-20). Gateways are deploy-time control planes, not hot-path services;
+	     the cohesion libraries (the deployed runtimes) keep the hard requirement. Keep the
+	     hygiene where it is free: source-generated serialization, no gratuitous reflection.
+	     See .claude/rules/general-rules.md § AOT. -->
 	<!-- #endregion -->
 
 	<!-- #region Packaging (Nuget): General Props -->

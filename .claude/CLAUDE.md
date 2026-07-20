@@ -3,7 +3,7 @@
 This repository is the **deployment/hosting plane** for [Cohesion](https://github.com/assimalign/cohesion) — Assimalign's code-first, multi-service application framework for .NET. Where the cohesion repo defines the application model (`Assimalign.Cohesion.ApplicationModel`) and the gateway contract + guided base (`Assimalign.Cohesion.ApplicationModel.Gateway`), **this repo implements those contracts for concrete platforms**: a gateway realizes an `IApplicationModel` (an immutable desired-state graph of resources) onto a deployment target — Kubernetes and Docker here, with `LocalGateway` (child processes) remaining in the cohesion repo.
 
 - Everything targets `net10.0` (`LangVersion=Preview`, `EnablePreviewFeatures=true`), .NET SDK pinned in `global.json`.
-- **NativeAOT compatibility is a standing requirement** (`IsAotCompatible=true`). Sanctioned exception: the Kubernetes gateway (`KubernetesClient` is not trim-safe) — see `.claude/rules/general-rules.md`.
+- **AOT: unlike the cohesion repo, this repo carries no `IsAotCompatible` mandate** (owner decision, 2026-07-20) — gateways are deploy-time control planes; the cohesion libraries (the deployed runtimes) keep the hard requirement. Source-generated serialization stays the default; the sample resource runtime follows the cohesion AOT posture. See `.claude/rules/general-rules.md § AOT posture`.
 - **No `Microsoft.Extensions.*` packages** — standing architectural commitment inherited from cohesion.
 - The canonical coding standard lives in `.claude/rules/` and auto-loads when matching files are touched. `platform-areas.md` is this repo's core architecture rule.
 

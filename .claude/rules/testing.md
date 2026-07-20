@@ -71,7 +71,7 @@ platforms/{Platform}/Assimalign.Cohesion.{Library}/tests/
 
 - Add or update tests for behavior changes.
 - Spec-driven services (protocol implementations, RFC-backed features) need unit tests **plus** compliance or interoperability tests.
-- Preserve NativeAOT and trimming compatibility in code and tests.
+- This repo has no hard AOT mandate (see `general-rules.md § AOT posture`); still avoid gratuitous reflection in test infrastructure, and keep sample/workload runtimes AOT-publishable.
 
 ## Cancellation in async tests
 

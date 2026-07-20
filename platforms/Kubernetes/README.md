@@ -15,9 +15,9 @@ informer as the sole writer of observed state.
 
 - Depends on: ApplicationModel contracts + Gateway base (NuGet), `platforms/Containers`, and
   `KubernetesClient` (centrally pinned).
-- **AOT:** this project is the repo's one sanctioned `IsAotCompatible` exception while it depends on
-  `KubernetesClient` (not trim-safe). The standing fallback is a typed REST client on Cohesion's own
-  HTTP stack — see the AOT spike ([#15](https://github.com/assimalign/cohesion-platforms/issues/15)).
+- **AOT:** this repo carries no `IsAotCompatible` mandate (owner decision, 2026-07-20) — gateways
+  are deploy-time control planes, so `KubernetesClient` needs no exception machinery. A typed REST
+  client on Cohesion's own HTTP stack remains a dependency-hygiene option, not an AOT necessity.
 - Development target: **Kind on Podman** (`KIND_EXPERIMENTAL_PROVIDER=podman`), daemon-load image
   path first; registry topologies later ([#22](https://github.com/assimalign/cohesion-platforms/issues/22)).
 

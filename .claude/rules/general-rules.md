@@ -34,7 +34,7 @@ Version goes in `build/Targets/Build.References.Packages.targets` first.
 
 ### Target framework
 - Libraries target `net10.0` — but the target framework is centrally managed via `TargetFrameworkLatest` in `build/Targets/Build.TargetFramework.props`, so per-project overrides are normally not needed.
-- Sanctioned exception: MSBuild task projects (e.g., `build/Tasks/`) target `netstandard2.0` so they load in-process under both VS (Framework MSBuild) and `dotnet` (Core MSBuild). If an `analyzers/` tree is ever added, it follows the same `netstandard2.0` + `IsAotCompatible=false` exception the cohesion repo uses.
+- Sanctioned exception: MSBuild task projects (e.g., `build/Tasks/`) target `netstandard2.0` so they load in-process under both VS (Framework MSBuild) and `dotnet` (Core MSBuild); `analyzers/` projects, if ever added, do the same.
 
 ### Preview language features
 ```xml
@@ -276,11 +276,14 @@ This repo implements the deployment/hosting plane for Cohesion's application mod
 2. Use `Span<T>` and `Memory<T>` for buffer operations.
 3. Avoid allocations in hot paths.
 
-## AOT compatibility
+## AOT posture
 
-`<IsAotCompatible>true</IsAotCompatible>` is a hard repo-wide requirement. Sanctioned exceptions: MSBuild task projects, and `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` (the `KubernetesClient` dependency is not trim-safe — documented AOT exception carried over from the cohesion ApplicationModel DESIGN.md; a typed-REST fallback on Cohesion's own HTTP stack is the standing alternative if the exception must be removed). Preserve NativeAOT and trimming compatibility in code **and tests**. Avoid:
+**This repo does not carry cohesion's AOT mandate** (owner decision, 2026-07-20). Gateways are deploy-time control planes, not hot-path services — the cohesion repo's libraries (the deployed runtimes that need the performance) keep the hard `IsAotCompatible` requirement; this repo does not, and `KubernetesClient`-style dependencies need no exception machinery.
 
-- Reflection-based serialization
-- Dynamic code generation at runtime
-- `Assembly.LoadFrom()`
-- Runtime type inspection without source generators — source generators are the sanctioned path
+Keep the hygiene where it is free, because it also buys startup time and smaller closures:
+
+- Prefer source-generated `System.Text.Json` serializers over reflection-based serialization
+- No dynamic code generation at runtime, no `Assembly.LoadFrom()`
+- Exception: any code in this repo that ships *inside* deployed workloads (e.g., the sample resource runtime used by E2E tests) models a cohesion service and follows the cohesion AOT posture (`IsAotCompatible=true`, AOT-publishable)
+
+Reintroducing a repo-wide AOT mandate is an architectural decision requiring explicit owner confirmation.

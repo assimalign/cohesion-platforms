@@ -21,8 +21,7 @@ Mark each applicable item ✅ or ❌. If anything is ❌, fix it before reportin
 - [ ] No new references to any `Microsoft.Extensions.*` package
 - [ ] No per-project `<Version>` overrides — `$(CohesionVersion)` chain intact
 - [ ] No hardcoded versions on `<Import Sdk>` elements
-- [ ] `<IsAotCompatible>true</IsAotCompatible>` not removed or weakened (sanctioned exceptions: MSBuild task projects; `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` — see `general-rules.md`)
-- [ ] No new reflection-based serialization, runtime code generation, or `Assembly.LoadFrom()`; runtime type inspection goes through source generators
+- [ ] No new reflection-based serialization, runtime code generation, or `Assembly.LoadFrom()`; serializers are source-generated where practical (this repo has no hard AOT mandate — see `general-rules.md § AOT posture`; sample/workload runtimes keep the cohesion AOT posture)
 - [ ] If a new project was added, it is wired into the `.slnx` solution and covered by a CI workflow matrix
 
 ## Code surface

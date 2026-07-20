@@ -14,8 +14,9 @@ socket is the supported local target.
 ## Layering & posture
 
 - Depends on: ApplicationModel contracts + Gateway base (NuGet) and `platforms/Containers`.
-- The engine client is hand-rolled and AOT-safe (source-generated serialization); `Docker.DotNet`
-  is ruled out by the repo AOT mandate.
+- The engine client is hand-rolled with source-generated serialization; `Docker.DotNet` remains
+  disfavored on dependency-hygiene grounds (large surface, external serializer dependency) — no
+  longer an AOT question, since this repo carries no AOT mandate.
 - Shares ~80% of its machinery with the Kubernetes gateway via `platforms/Containers` by design.
 
 See `.claude/rules/platform-areas.md` for the binding architecture rules and

@@ -50,6 +50,6 @@ Closes #
 - [ ] Each resolved work item (the parent feature **and** its sub-issues) has its own `Closes #` line; deferred/backlog items are linked without a closing keyword.
 - [ ] Follows the repo coding rules (`.claude/rules/`): file-scoped namespaces; `CohesionProjectReference` / `CohesionPackageReference` (no raw references, no `Microsoft.Extensions.*`); interface-first with `internal` implementations; `extension(...)` members; area-scoped exception roots.
 - [ ] Public APIs have XML docs; new libraries include `docs/OVERVIEW.md` and `docs/DESIGN.md`.
-- [ ] Remains NativeAOT- and trimming-safe (`IsAotCompatible`; `Gateway.Kubernetes` is the sanctioned exception).
+- [ ] No gratuitous reflection; serialization is source-generated where practical (this repo has no hard AOT mandate; sample/workload runtimes stay AOT-publishable).
 - [ ] Tests added/updated and passing; any new project is wired into its area `.slnx` and a CI workflow.
 - [ ] No dangling solution/project references left behind (renamed or moved projects updated everywhere).

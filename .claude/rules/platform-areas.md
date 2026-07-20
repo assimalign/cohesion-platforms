@@ -32,7 +32,7 @@ A platform gateway package is `Assimalign.Cohesion.ApplicationModel.Gateway.<Pla
 
 ## AOT posture
 
-`IsAotCompatible=true` everywhere, with **one sanctioned exception**: `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` while it depends on `KubernetesClient` (not trim-safe). The standing fallback — a hand-rolled typed REST client over Cohesion's own HTTP stack — removes the exception; treat any expansion of the exception's scope as an architecture deviation requiring explicit user confirmation.
+**No hard AOT mandate in this repo** (owner decision, 2026-07-20): gateways are deploy-time control planes, so `KubernetesClient` and similar dependencies need no exception machinery. The cohesion repo's libraries — the deployed runtimes — keep the hard `IsAotCompatible` requirement, and any code in this repo that ships *inside* deployed workloads (the sample resource runtime) follows that cohesion posture. Keep source-generated serialization as the default for startup/perf hygiene. Reintroducing a repo-wide mandate requires explicit owner confirmation (see `deviations.md`).
 
 ## Relaxing these rules
 

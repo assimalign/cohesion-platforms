@@ -27,9 +27,11 @@ dotnet build Assimalign.Cohesion.Platforms.slnx
 dotnet test platforms/<Area>/<Project>/tests/
 ```
 
-- .NET SDK is pinned in `global.json`; everything targets `net10.0` with `LangVersion=Preview` and
-  NativeAOT compatibility as a standing requirement (the Kubernetes gateway is the one sanctioned
-  exception while it depends on `KubernetesClient`).
+- .NET SDK is pinned in `global.json`; everything targets `net10.0` with `LangVersion=Preview`.
+  Unlike the cohesion repo — whose libraries are hard-required to be AOT-compatible because they
+  are the deployed, performance-critical runtimes — the platform gateways carry **no AOT
+  mandate**: they are deploy-time control planes. Source-generated serialization remains the
+  default for hygiene.
 - The build system mirrors the cohesion repo: centralized MSBuild under `build/Targets/`,
   name-only `CohesionProjectReference` items, centrally pinned `CohesionPackageReference`
   versions, and a single `$(CohesionVersion)`.

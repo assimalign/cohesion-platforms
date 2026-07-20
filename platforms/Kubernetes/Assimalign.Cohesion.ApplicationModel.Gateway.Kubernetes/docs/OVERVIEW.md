@@ -13,8 +13,8 @@ realizes an `IApplicationModel` onto a cluster.
 
 **Dependencies:** ApplicationModel + Gateway base (NuGet), `platforms/Containers`, `KubernetesClient`.
 
-**AOT:** the repo's one sanctioned `IsAotCompatible` exception (see `docs/DESIGN.md` once the
-[#15](https://github.com/assimalign/cohesion-platforms/issues/15) spike lands).
+**AOT:** no mandate in this repo (owner decision, 2026-07-20) — `KubernetesClient` needs no
+exception; see `docs/DESIGN.md § AOT posture`.
 
 **Status:** in progress — the gateway skeleton
 ([#16](https://github.com/assimalign/cohesion-platforms/issues/16)) has landed: `KubernetesGateway`,

@@ -73,7 +73,7 @@ sub-issue, and records the item in a per-branch manifest for PR close-out.
 .claude/skills/cohesion-work-items/scripts/New-CohesionWorkItem.ps1 -As task `
   -Title "Validate kubeconfig context selection against in-cluster config" `
   -Summary "Hardening discovered while wiring the gateway skeleton; outside the original feature scope." `
-  -Acceptance "Reject ambiguous contexts with an actionable error.","Add targeted unit tests.","NativeAOT-safe." `
+  -Acceptance "Reject ambiguous contexts with an actionable error.","Add targeted unit tests." `
   -Status "In progress"
 
 # Out-of-feature → sibling FEATURE under the area epic:

@@ -79,7 +79,7 @@ passed). `Kind` comes from the WBS depth (Feature/Task), `Origin` from the scope
 ## Acceptance Criteria
 - <observable, testable outcome>
 - Tests cover the new behavior.
-- The implementation remains NativeAOT-safe and trimming-safe.
+- No gratuitous reflection; serialization is source-generated where practical.
 
 ### Standards and Compliance
 - <OCI Distribution/Image spec, Docker Registry HTTP API v2, or Kubernetes API conventions where applicable; else note it is a runtime-contract concern>

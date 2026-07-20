@@ -28,8 +28,10 @@ so each platform gateway supplies only its reconcile/observe specifics.
 
 ## AOT posture
 
-`IsAotCompatible=true`; serialization is source-generated (`System.Text.Json` source-gen for the
-image index). No reflection.
+No mandate (repo-wide owner decision, 2026-07-20 — see `.claude/rules/general-rules.md § AOT
+posture`); serialization stays source-generated (`System.Text.Json` source-gen for the image
+index) for startup/perf hygiene, and the sample resource runtime — which models a deployed
+cohesion service — keeps the cohesion AOT posture.
 
 ## Non-goals
 

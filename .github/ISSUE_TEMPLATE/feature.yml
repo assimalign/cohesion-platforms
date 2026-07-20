@@ -32,7 +32,7 @@ body:
       value: |
         - <observable, testable outcome>
         - Tests cover the new behavior.
-        - The implementation remains NativeAOT-safe and trimming-safe.
+        - No gratuitous reflection; serialization is source-generated where practical.
     validations:
       required: true
   - type: textarea

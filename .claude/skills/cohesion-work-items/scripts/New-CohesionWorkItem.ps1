@@ -335,7 +335,7 @@ function New-BodyTemplate {
     else {
         [void]$sb.AppendLine('- <observable, testable outcome>')
         [void]$sb.AppendLine('- Tests cover the new behavior.')
-        [void]$sb.AppendLine('- The implementation remains NativeAOT-safe and trimming-safe.')
+        [void]$sb.AppendLine('- No gratuitous reflection; serialization is source-generated where practical.')
     }
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('### Standards and Compliance')

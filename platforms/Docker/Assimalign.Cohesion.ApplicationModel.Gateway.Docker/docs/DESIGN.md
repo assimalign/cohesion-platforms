@@ -13,9 +13,11 @@ and the event observer.
 
 ## Why-this-not-that (initial commitments)
 
-- **Hand-rolled engine client, not Docker.DotNet.** Docker.DotNet's reflection-based serialization
-  violates the repo AOT mandate; the gateway needs a small, fixed API surface (images, containers,
-  networks, events), which a typed client over Cohesion's own connection stack covers AOT-cleanly.
+- **Hand-rolled engine client, not Docker.DotNet.** The gateway needs a small, fixed API surface
+  (images, containers, networks, events), which a typed client over Cohesion's own connection
+  stack covers without pulling in Docker.DotNet's large surface and external serializer
+  dependency. (Originally also an AOT concern; the repo's AOT mandate was dropped 2026-07-20, so
+  this is now purely a dependency-hygiene choice — revisit if the hand-rolled client grows.)
 - **Ownership labels over name conventions.** Containers/networks carry `cohesion.application` /
   `cohesion.resource` labels so reconcile and teardown identify owned objects robustly; names stay
   human-friendly but are not the identity.
@@ -25,7 +27,8 @@ and the event observer.
 
 ## AOT posture
 
-`IsAotCompatible=true` — no exception here; the client is built for it.
+No mandate (repo-wide owner decision, 2026-07-20 — see `.claude/rules/general-rules.md § AOT
+posture`); serialization stays source-generated for startup/perf hygiene.
 
 ## Non-goals
 

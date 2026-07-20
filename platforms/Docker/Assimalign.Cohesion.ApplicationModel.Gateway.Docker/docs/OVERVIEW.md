@@ -5,7 +5,7 @@ The Docker platform gateway: `DockerGateway : ApplicationGateway` (`Name = "dock
 
 **Scope (per the [program plan](../../../../docs/PLATFORMS_PROGRAM_PLAN.md)):**
 
-- Minimal typed, AOT-safe Docker Engine API client (npipe/unix socket, source-generated
+- Minimal typed Docker Engine API client (npipe/unix socket, source-generated
   serialization). ([#24](https://github.com/assimalign/cohesion-platforms/issues/24))
 - Gateway + digest-verified image load from OCI tarballs, `UseDockerGateway()`. ([#25](https://github.com/assimalign/cohesion-platforms/issues/25))
 - Container controller: app-scoped network, env/mounts/ports from capability interfaces,

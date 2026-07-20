@@ -44,11 +44,14 @@ must never re-implement or bypass it.
 
 ## AOT posture
 
-`IsAotCompatible=false` — the repo's one sanctioned exception while `KubernetesClient` (not
-trim-safe) is the client. The [#15](https://github.com/assimalign/cohesion-platforms/issues/15)
-spike records the verdict; the standing fallback is a hand-rolled typed REST client over Cohesion's
-own HTTP stack, which would remove the exception. Restore currently flags GHSA-w7r3-mgwf-4mqq
-(moderate) on 17.0.4 — version bump to be coordinated with the cohesion central pin.
+No mandate: the repo-wide AOT requirement was dropped by owner decision on 2026-07-20 (gateways
+are deploy-time control planes; the cohesion libraries — the deployed runtimes — keep the hard
+requirement). `KubernetesClient` therefore needs no exception machinery, and the formerly gating
+AOT spike ([#15](https://github.com/assimalign/cohesion-platforms/issues/15)) was closed as
+obsolete. A hand-rolled typed REST client over Cohesion's own HTTP stack remains a
+dependency-hygiene option, not an AOT necessity. Restore currently flags GHSA-w7r3-mgwf-4mqq
+(moderate) on `KubernetesClient` 17.0.4 — version bump to be coordinated with the cohesion
+central pin.
 
 ## Non-goals
 
