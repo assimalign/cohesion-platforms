@@ -18,4 +18,6 @@ Shared container-gateway infrastructure for Cohesion platform gateways (Docker, 
 (NuGet, cohesion repo). No platform client libraries — platform gateways depend on this package,
 never the reverse.
 
-**Status:** scaffolded; no implementation yet.
+**Status:** in progress — `GatewayResourceStateManager` (the public `IApplicationResourceStateManager`
+implementation, [#9](https://github.com/assimalign/cohesion-platforms/issues/9)) has landed; the
+artifact/index model, OCI store, and shared test primitives are pending.

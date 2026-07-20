@@ -25,6 +25,23 @@ must never re-implement or bypass it.
 - **Service DNS for discovery** — dependents get stable Service DNS via observed endpoints, never
   NodePort/Ingress allocations.
 
+## Why-this-not-that decisions
+
+- **Namespace lifecycle is gateway-level, not a resource controller.** The upstream base routes
+  each resource to exactly ONE controller (first `CanControl` match wins), so a namespace
+  "controller" matching every resource would shadow the workload controller. The namespace is
+  per-*application*, not per-resource: it is ensured in `StartObserverAsync` (before any
+  provisioning) and deleted best-effort in `StopObserverAsync` (after all resource teardown),
+  via the internal `KubernetesNamespaceManager`. Rejected alternative: an
+  `IApplicationResourceController` for namespaces — incompatible with first-match-wins routing.
+- **Teardown never throws.** Namespace deletion tolerates 404 and swallows all other failures
+  (RBAC, conflicts, unreachable cluster) bounded by `StopGrace` — a leftover namespace is
+  re-ensured idempotently on the next start. Rejected alternative: surfacing delete failures —
+  would turn best-effort teardown into a hard failure path the base contract forbids.
+- **`KUBECONFIG` is a path list.** Resolution mirrors kubectl: explicit `KubeConfigPath` →
+  `KUBECONFIG` (first existing file of the `Path.PathSeparator`-separated list) → default
+  `~/.kube/config` → in-cluster config; anything else fails with an actionable error.
+
 ## AOT posture
 
 `IsAotCompatible=false` — the repo's one sanctioned exception while `KubernetesClient` (not

@@ -16,4 +16,8 @@ realizes an `IApplicationModel` onto a cluster.
 **AOT:** the repo's one sanctioned `IsAotCompatible` exception (see `docs/DESIGN.md` once the
 [#15](https://github.com/assimalign/cohesion-platforms/issues/15) spike lands).
 
-**Status:** scaffolded; no implementation yet.
+**Status:** in progress — the gateway skeleton
+([#16](https://github.com/assimalign/cohesion-platforms/issues/16)) has landed: `KubernetesGateway`,
+`KubernetesGatewayOptions`, `UseKubernetesGateway()`, kubeconfig/in-cluster resolution, and the
+namespace ensure/delete lifecycle. The workload controller, informer, image path, and E2E harness
+are pending ([#17](https://github.com/assimalign/cohesion-platforms/issues/17)–[#20](https://github.com/assimalign/cohesion-platforms/issues/20)).
