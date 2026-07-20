@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Cohesion work-item helper (preferred)
+    url: https://github.com/assimalign/cohesion-platforms/blob/main/.claude/skills/cohesion-work-items/SKILL.md
+    about: >-
+      Prefer New-CohesionWorkItem.ps1 — it computes the next WBS code, links the native
+      sub-issue, adds the item to Project #13, and tags its Origin. Use the forms below only
+      when the script isn't available.

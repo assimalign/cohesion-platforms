@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CohesionPackageReference Include="coverlet.collector" />
+    <CohesionPackageReference Include="Microsoft.NET.Test.Sdk" />
+    <CohesionPackageReference Include="xunit" />
+    <CohesionPackageReference Include="xunit.runner.visualstudio" />
+    <CohesionPackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Docker" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,57 @@
+<Project>
+    <!--
+        Project Reference By Name Only.
+
+        Lets a library/resource/analyzer csproj reference another by its
+        assembly name instead of by relative csproj path. Resolution walks
+        libraries/ + resources/ (for code refs) and analyzers/ (for analyzer
+        refs) once, matches each item's Include to the csproj whose filename
+        matches, and emits a regular <ProjectReference Include="<resolved-path>" />
+        with the appropriate per-flavor metadata.
+
+        Three flavours:
+
+          CohesionProjectReference        - PUBLIC code reference. Resulting
+                                            <ProjectReference> has default
+                                            semantics: compiled against,
+                                            CopyLocal'd into bin/, AND appears
+                                            as a <dependency> in this library's
+                                            .nupkg .nuspec (flows to consumers).
+
+          CohesionPrivateProjectReference - PRIVATE code reference. Same compile
+                                            + CopyLocal behaviour, but the
+                                            resulting <ProjectReference> carries
+                                            PrivateAssets="all", which suppresses
+                                            the <dependency> entry in the .nuspec.
+                                            Consumers of this library's .nupkg
+                                            never learn about the target.
+
+                                            Use for "this library needs X as an
+                                            internal implementation detail but
+                                            should not expose X to its consumers".
+                                            Pair with a matching
+                                            <CohesionFrameworkPrivateAssembly>
+                                            entry in
+                                            frameworks/Assimalign.Cohesion.App.props
+                                            so the containing framework's
+                                            Runtime pack still ships X.dll at
+                                            run time.
+    -->
+    <ItemGroup>
+        <!-- Index code projects ONCE. This repo's code trees are platforms/ and sdks/. -->
+        <_CohesionProject Include="$(CohesionRepositoryDirectory)platforms\**\*.csproj;$(CohesionRepositoryDirectory)sdks\**\*.csproj" />
+        <_CohesionProject Update="@(_CohesionProject)" ProjectId="%(_CohesionProject.Filename)" ProjectPath="%(_CohesionProject.Identity)" />
+
+        <!-- Public refs -->
+        <CohesionProjectReference Update="@(_CohesionProject->'%(ProjectId)')" ProjectPath="%(_CohesionProject.ProjectPath)" />
+        <ProjectReference Include="@(CohesionProjectReference->'%(ProjectPath)')" />
+        <CohesionProjectReference Remove="@(CohesionProjectReference->HasMetadata('ProjectPath'))" />
+
+        <!-- Private refs: PrivateAssets='all' suppresses .nuspec <dependency> flow. -->
+        <CohesionPrivateProjectReference Update="@(_CohesionProject->'%(ProjectId)')" ProjectPath="%(_CohesionProject.ProjectPath)" />
+        <ProjectReference Include="@(CohesionPrivateProjectReference->'%(ProjectPath)')" PrivateAssets="all" />
+        <CohesionPrivateProjectReference Remove="@(CohesionPrivateProjectReference->HasMetadata('ProjectPath'))" />
+
+        <_CohesionProject Remove="@(_CohesionProject)" />
+    </ItemGroup>
+</Project>

@@ -1,0 +1,58 @@
+name: "Cohesion Platforms Build"
+description: "Restores, builds, tests, and (on main/Linux) packs + publishes one platform project."
+
+inputs:
+  area:
+    description: "Top-level tree the project lives in (e.g. platforms)."
+    required: true
+  category:
+    description: "Area folder name (e.g. Kubernetes, Docker, Containers)."
+    required: true
+  project:
+    description: "Project/assembly name (e.g. Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes)."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET (from global.json)
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    # Assimalign.Cohesion.* packages come from the GitHub Packages staging feed. The workflow
+    # GITHUB_TOKEN authenticates (packages published from public assimalign repos are readable
+    # with any valid token).
+    - name: Add GitHub Packages source
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+          --name github --username "${{ github.actor }}" --password $env:GITHUB_TOKEN --store-password-in-clear-text
+
+    - name: Build
+      shell: pwsh
+      run: |
+        dotnet restore ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj
+        dotnet build ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj --configuration Release --no-restore
+
+    - name: Test
+      if: ${{ hashFiles(format('./{0}/{1}/{2}/tests/{2}.Tests.csproj', inputs.area, inputs.category, inputs.project)) != '' }}
+      shell: pwsh
+      run: |
+        dotnet restore ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/tests/${{ inputs.project }}.Tests.csproj
+        dotnet test ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/tests/${{ inputs.project }}.Tests.csproj --configuration Release --no-restore
+
+    # Publish once per matrix (Linux) and only from main. The feed is QA/UAT staging with
+    # delete-then-replace semantics on a constant version (see .github/scripts/Publish-Nupkg.ps1).
+    - name: Pack & publish (main, Linux only)
+      if: ${{ github.ref == 'refs/heads/main' && runner.os == 'Linux' }}
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        dotnet pack ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj --configuration Release --no-build
+        $nupkg = Get-ChildItem ./_out/packages/${{ inputs.project }}.*.nupkg -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $nupkg) { Write-Host "No nupkg produced (IsPackable=false?); skipping publish."; exit 0 }
+        ./.github/scripts/Publish-Nupkg.ps1 -NupkgPath $nupkg.FullName

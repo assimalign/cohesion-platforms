@@ -1,0 +1,7 @@
+<Project>
+    <PropertyGroup>
+        <DefineConstants Condition="$([System.OperatingSystem]::IsWindows())">$(DefineConstants);IS_WINDOWS</DefineConstants>
+        <DefineConstants Condition="$([System.OperatingSystem]::IsLinux())">$(DefineConstants);IS_LINUX</DefineConstants>
+        <DefineConstants Condition="$([System.OperatingSystem]::IsMacOS())">$(DefineConstants);IS_MAC</DefineConstants>
+    </PropertyGroup>
+</Project>

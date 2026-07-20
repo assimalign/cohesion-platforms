@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel" />
+		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
+		<CohesionPackageReference Include="KubernetesClient" />
+	</ItemGroup>
+	<ItemGroup>
+		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Containers" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests" />
+	</ItemGroup>
+</Project>
