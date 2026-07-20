@@ -1,14 +1,16 @@
 ---
 name: cohesion-work-items
-description: Create and link GitHub work items (area epics / features / tasks) for assimalign/cohesion-platforms in the shared org Project #13 "Cohesion" using the gh CLI — following the L04.01.NN WBS scheme, native parent/sub-issue links, the Summary / Acceptance Criteria body template, and the Repo=cohesion-platforms project field. Use whenever new development is requested, and ESPECIALLY when scope creep is discovered mid-branch: file the out-of-scope work as its own tracked work item so one PR can attach and close several items. Triggers include "create a work item", "file an issue for this", "capture this scope creep", "track this extra change", "open a Cohesion issue", "this is out of scope — log it", or "assemble the Closes list for my PR". Use only in the assimalign/cohesion-platforms repo.
+description: Create and link GitHub work items (area epics / features / tasks) for assimalign/cohesion-platforms in the shared org Project #13 "Cohesion" using the gh CLI — following the L04.01.NN WBS scheme, native parent/sub-issue links, the Summary / Acceptance Criteria body template, and the Codebase=cohesion-platforms project field. Use whenever new development is requested, and ESPECIALLY when scope creep is discovered mid-branch: file the out-of-scope work as its own tracked work item so one PR can attach and close several items. Triggers include "create a work item", "file an issue for this", "capture this scope creep", "track this extra change", "open a Cohesion issue", "this is out of scope — log it", or "assemble the Closes list for my PR". Use only in the assimalign/cohesion-platforms repo.
 ---
 
 # Cohesion Work Items (cohesion-platforms)
 
 Capture development as tracked GitHub work items in **Project #13 "Cohesion"** under the `assimalign` org,
 using the `gh` CLI. Items for this repo are **issues on `assimalign/cohesion-platforms`** filed under
-program root **`L04.01` (Cohesion - Deployment Platforms)** with the project's **`Repo` field set to
-`cohesion-platforms`** (the cohesion repo's items use `L01.*`–`L03.*` and `Repo=cohesion`). The defining
+program root **`L04.01` (Cohesion - Deployment Platforms)** with the project's **`Codebase` field set to
+`cohesion-platforms`** (the cohesion repo's items use `L01.*`–`L03.*` and `Codebase=cohesion`). The
+shared `Area` field stays **unset** on platform items — adding platform options to it would wipe existing
+cohesion selections (option-id churn) — grouping comes from `Codebase` + the WBS prefix. The defining
 use case is **scope-creep capture**: while implementing a feature you do extra work that falls outside the
 original item; this skill turns that work into its own properly-placed issue so the eventual PR closes
 *every* item it actually resolved — not just the one you started with.
@@ -93,7 +95,7 @@ Key options: `-Search "<keywords>"` (find existing items, then exit), `-As task|
 
 The script also: **searches for duplicates** and blocks on a likely match (Step 1); **validates placement**
 (refuses a parent that isn't an area epic or feature, and refuses to infer off a non-feature branch); sets
-**Kind / Area / Origin / Repo** project fields and the **`scope-creep`** label automatically; stamps discovered items
+**Kind / Origin / Codebase** project fields and the **`scope-creep`** label automatically; stamps discovered items
 with a `> Discovered while implementing [<feature>] (#N)` provenance line; records each item (with its Origin)
 in a per-branch manifest under `.git/cohesion/`; and **backs off and retries on GitHub rate limits**
 (honoring `Retry-After` / the reset, else exponential backoff).

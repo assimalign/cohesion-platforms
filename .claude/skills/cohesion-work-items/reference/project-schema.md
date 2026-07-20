@@ -2,7 +2,7 @@
 
 Reference for the `cohesion-work-items` skill in the **cohesion-platforms** repo. The project is the
 same shared org project the cohesion repo uses; only the issue repo, the WBS program root, and the
-`Repo` field value differ. The helper script resolves IDs **dynamically**, so the ids here are for
+`Codebase` field value differ. The helper script resolves IDs **dynamically**, so the ids here are for
 the manual path and for understanding the model. If an ID stops working, re-run the discovery
 commands at the bottom.
 
@@ -15,7 +15,7 @@ commands at the bottom.
 | Project | **#13 "Cohesion"** (shared with the cohesion repo) |
 | Project node id | `PVT_kwDOA9eCcc4AwTRy` |
 | Program root | `L04.01` — Cohesion - Deployment Platforms |
-| `Repo` field value for this repo's items | `cohesion-platforms` |
+| `Codebase` field value for this repo's items | `cohesion-platforms` |
 
 ## WBS taxonomy
 
@@ -38,14 +38,16 @@ The WBS in the branch names the **feature** currently in flight.
 
 ### Current area epics (parents for new sibling features)
 
-<!-- AREA-EPICS:BEGIN — updated by the session that creates them; re-list with the command below -->
+<!-- AREA-EPICS:BEGIN — created 2026-07-20; re-list with the command below -->
 | Issue | Code | Area |
 | --- | --- | --- |
-| (pending creation) | L04.01.01 | Delivery |
-| (pending creation) | L04.01.02 | Containers |
-| (pending creation) | L04.01.03 | Kubernetes |
-| (pending creation) | L04.01.04 | Docker |
+| #2 | L04.01.01 | Delivery |
+| #7 | L04.01.02 | Containers |
+| #14 | L04.01.03 | Kubernetes |
+| #23 | L04.01.04 | Docker |
 <!-- AREA-EPICS:END -->
+
+Program root: **#1 `[L04.01.00] Cohesion - Deployment Platforms`**.
 
 (Re-list with: `gh issue list --repo assimalign/cohesion-platforms --state open --search '"Platforms -" in:title' --json number,title`)
 
@@ -60,14 +62,13 @@ script resolves these **by name** at runtime.
 | **Priority** | `PVTSSF_lADOA9eCcc4AwTRyzgmmAXc` | P001=`b310d11b` … P007=`3637977d` |
 | **Wave** | `PVTSSF_lADOA9eCcc4AwTRyzhBivEo` | W01=`e74c191b`, W02=`9fbf32aa`, W03=`c8f13de9`, W04=`8db9e325`, W05=`e04894c2`, W06=`c1ccc362` |
 | **Kind** | `PVTSSF_lADOA9eCcc4AwTRyzhWf6Os` | Program=`2fe515c1`, Area Epic=`50b6b808`, Feature=`5e827738`, Task=`9d3e180d` |
-| **Area** | `PVTSSF_lADOA9eCcc4AwTRyzhWf6Jc` | one option per area; platforms areas: Delivery, Containers, Kubernetes, Docker (plus the 18 cohesion foundation areas) |
+| **Area** | `PVTSSF_lADOA9eCcc4AwTRyzhWf6Jc` | cohesion foundation areas only. **Platform items leave Area UNSET** — `updateProjectV2Field` regenerates every option id and wipes existing selections (verified 2026-07-20), so platform options were deliberately not added. Group platform items by `Codebase` + the WBS title prefix instead. |
 | **Origin** | `PVTSSF_lADOA9eCcc4AwTRyzhWf6JY` | Planned=`19e7b7e6`, DiscoveredTask=`89001270`, DiscoveredFeature=`9d353cbc` |
-| **Repo** | (resolve by name) | `cohesion`, `cohesion-platforms` — separates the two repos' requirements on the shared board |
+| **Codebase** | `PVTSSF_lADOA9eCcc4AwTRyzhYZcME` | cohesion=`4028c6a8`, cohesion-platforms=`ec8d54bf` — separates the two repos' requirements on the shared board ("Repo" is a reserved field name) |
 
-The script sets **Status, Kind, Area, Origin, Repo** on every item it creates (plus Priority/Wave when
-passed). `Kind` comes from the WBS depth (Feature/Task), `Area` from the area-epic ancestor's
-`Platforms - X` title, `Origin` from the scope-creep classification, `Repo` is always
-`cohesion-platforms` here.
+The script sets **Status, Kind, Origin, Codebase** on every item it creates (plus Priority/Wave when
+passed). `Kind` comes from the WBS depth (Feature/Task), `Origin` from the scope-creep classification,
+`Codebase` is always `cohesion-platforms` here.
 
 ## Body template (same de-facto standard as the cohesion repo)
 
@@ -108,9 +109,9 @@ NUM=${URL##*/}
 # 4. Add to project, capture the project item id
 ITEM=$(gh project item-add $PROJ --owner $OWNER --url "$URL" --format json --jq .id)
 
-# 5. Set fields (Status, Kind, Area, Origin, Repo, [Priority, Wave]) — resolve option ids by name:
+# 5. Set fields (Status, Kind, Origin, Codebase, [Priority, Wave]) — resolve option ids by name:
 gh project field-list $PROJ --owner $OWNER --format json \
-  --jq '.fields[] | select(.name=="Repo") | {id, options:[.options[]|{name,id}]}'
+  --jq '.fields[] | select(.name=="Codebase") | {id, options:[.options[]|{name,id}]}'
 gh project item-edit --id "$ITEM" --project-id $PROJECT_ID \
   --field-id <fieldId> --single-select-option-id <optionId>
 

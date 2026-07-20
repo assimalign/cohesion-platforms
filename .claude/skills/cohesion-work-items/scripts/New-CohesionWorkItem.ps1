@@ -15,8 +15,10 @@
       3. Look for EXISTING items that may already cover the request; block on a likely duplicate
          unless -Force (reuse beats re-filing).
       4. Create the issue ([<wbs>] <title> + templated body) with `gh issue create`.
-      5. Add it to Project #13 and set Status / Priority / Wave / Kind / Area / Origin / Repo fields
-         (Repo is always 'cohesion-platforms' for items created from this repo).
+      5. Add it to Project #13 and set Status / Priority / Wave / Kind / Origin / Codebase fields
+         (Codebase is always 'cohesion-platforms' for items created from this repo). The shared Area
+         field is left unset: adding platform options to it would wipe existing cohesion selections
+         (option-id churn, verified 2026-07-20), so platform grouping uses Codebase + the WBS prefix.
       6. Link it to its parent as a native GitHub sub-issue (addSubIssue mutation, error-checked).
       7. Record it (with its Origin) in a per-branch manifest so the eventual PR can close every
          captured item and report how much of the work was scope creep.
@@ -123,7 +125,7 @@ Set-StrictMode -Version Latest
 $Owner       = 'assimalign'
 $Repo        = 'assimalign/cohesion-platforms'
 $ProjectNum  = 13
-$RepoField   = 'cohesion-platforms'   # value for the project's Repo single-select field
+$RepoField   = 'cohesion-platforms'   # value for the project's Codebase single-select field
 $IssueLimit  = 5000
 $script:AllIssuesCache = $null
 $StopWords = @('add','the','and','for','with','to','of','a','an','is','are','be','via','use','new',
@@ -504,7 +506,7 @@ if ($DryRun) {
     Write-Host "DRYRUN gh $($createArgs -join ' ')" -ForegroundColor DarkYellow
     Write-Host "DRYRUN body:`n$body" -ForegroundColor DarkGray
     Remove-Item $tmp -Force
-    $extra = @("Status=$Status", "Kind=$kindOpt", "Area=$areaName", "Origin=$Origin", "Repo=$RepoField")
+    $extra = @("Status=$Status", "Kind=$kindOpt", "Origin=$Origin", "Codebase=$RepoField")
     if ($Priority) { $extra += "Priority=$Priority" }
     if ($Wave)     { $extra += "Wave=$Wave" }
     Write-Host "DRYRUN would: add to Project #$ProjectNum, set $($extra -join ', '); labels [$($labels -join ', ')]; link as sub-issue of #$($parentIssue.number); record in branch manifest." -ForegroundColor DarkYellow
@@ -528,9 +530,10 @@ Write-Host "Added to Project #$ProjectNum (item $itemId)" -ForegroundColor Green
 $fieldMap = Get-FieldMap
 Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Status'   -OptionName $Status
 Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Kind'     -OptionName $kindOpt
-Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Area'     -OptionName $areaName
+# Area intentionally NOT set: the shared Area field has no platform options (adding options would
+# regenerate option ids and wipe existing cohesion selections). Codebase + WBS prefix group us.
 Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Origin'   -OptionName $Origin
-Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Repo'     -OptionName $RepoField
+Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Codebase' -OptionName $RepoField
 Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Priority' -OptionName $Priority
 Set-ProjectField -FieldMap $fieldMap -ProjectId $projectId -ItemId $itemId -FieldName 'Wave'     -OptionName $Wave
 
