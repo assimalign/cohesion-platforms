@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<!-- Deviates from the repo AOT compatibility rule per design decision: KubernetesClient is
+		     not trim-safe, and Gateway.Kubernetes is the one sanctioned exception while the
+		     typed-REST fallback remains unbuilt (see .claude/rules/platform-areas.md and the
+		     KubernetesClient AOT spike, work item L04.01.03.01). -->
+		<IsAotCompatible>false</IsAotCompatible>
+	</PropertyGroup>
+	<ItemGroup>
+		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel" />
+		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
+		<CohesionPackageReference Include="KubernetesClient" />
+	</ItemGroup>
+	<ItemGroup>
+		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Containers" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests" />
+	</ItemGroup>
+</Project>

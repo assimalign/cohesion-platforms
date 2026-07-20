@@ -1,0 +1,76 @@
+<Solution>
+	<Configurations>
+		<Platform Name="Any CPU" />
+		<Platform Name="x64" />
+		<Platform Name="x86" />
+	</Configurations>
+	<Folder Name="/cohesion-platforms/">
+		<File Path="Directory.Build.props" />
+		<File Path="Directory.Build.targets" />
+		<File Path="global.json" />
+		<File Path="nuget.config" />
+		<File Path="README.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/build/">
+		<File Path="build/Build.props" />
+		<File Path="build/Build.targets" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/build/Targets/">
+		<File Path="build/Targets/Build.Branding.props" />
+		<File Path="build/Targets/Build.Constants.props" />
+		<File Path="build/Targets/Build.Global.props" />
+		<File Path="build/Targets/Build.References.Analyzers.targets" />
+		<File Path="build/Targets/Build.References.Packages.targets" />
+		<File Path="build/Targets/Build.References.Projects.targets" />
+		<File Path="build/Targets/Build.Rules.targets" />
+		<File Path="build/Targets/Build.SharedFiles.targets" />
+		<File Path="build/Targets/Build.TargetFramework.props" />
+		<File Path="build/Targets/Build.Version.props" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/docs/">
+		<File Path="docs/PLATFORMS_PROGRAM_PLAN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/">
+		<File Path="platforms/Directory.Build.props" />
+		<File Path="platforms/Directory.Build.targets" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Containers/">
+		<File Path="platforms/Containers/README.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/">
+		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/OVERVIEW.md" />
+		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/">
+		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/">
+		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/">
+		<File Path="platforms/Docker/README.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/">
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/OVERVIEW.md" />
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/src/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/src/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/">
+		<File Path="platforms/Kubernetes/README.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/">
+		<File Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/OVERVIEW.md" />
+		<File Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/src/">
+		<Project Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/src/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/">
+		<Project Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests.csproj" />
+	</Folder>
+</Solution>

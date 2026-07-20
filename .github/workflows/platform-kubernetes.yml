@@ -1,0 +1,33 @@
+name: Platform Kubernetes
+
+on:
+  push:
+    paths:
+      - "platforms/Kubernetes/**"
+      - "platforms/Containers/**"
+      - "build/**"
+      - "global.json"
+      - "nuget.config"
+      - ".github/actions/build/**"
+      - ".github/workflows/platform-kubernetes.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        projects:
+          - Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build
+        with:
+          area: platforms
+          category: Kubernetes
+          project: ${{ matrix.projects }}

@@ -1,5 +1,24 @@
 <Project>
+    <!--
+        Local inner-loop feed: when a sibling cohesion checkout has packed nupkgs
+        (installer/scripts/Install-Local.ps1 or dotnet pack -> _out/packages), restore
+        resolves Assimalign.Cohesion.* from it. Exists-guarded so CI and machines
+        without the sibling checkout are unaffected.
+    -->
+    <PropertyGroup>
+        <_CohesionSiblingFeed>$(CohesionRepositoryDirectory)..\cohesion\_out\packages</_CohesionSiblingFeed>
+        <!-- Claude worktrees live at <repo>\.claude\worktrees\<name>; probe the outer checkout's sibling too. -->
+        <_CohesionSiblingFeed Condition="!Exists('$(_CohesionSiblingFeed)')">$(CohesionRepositoryDirectory)..\..\..\..\cohesion\_out\packages</_CohesionSiblingFeed>
+        <RestoreAdditionalProjectSources Condition="Exists('$(_CohesionSiblingFeed)')">$(RestoreAdditionalProjectSources);$(_CohesionSiblingFeed)</RestoreAdditionalProjectSources>
+    </PropertyGroup>
+
     <!-- #region Packages & Dependencies -->
+    <ItemGroup>
+        <!-- Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). -->
+        <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="10.0.1-preview.2" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="10.0.1-preview.2" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="10.0.1-preview.2" />
+    </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="Sharprompt" Version="3.1.1" />
         <_CohesionPackage Include="KubernetesClient" Version="17.0.4" />

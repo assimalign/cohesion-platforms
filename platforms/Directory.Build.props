@@ -1,0 +1,66 @@
+<Project>
+	<Import Project="..\Directory.Build.props" />
+	<!-- #region Platforms Specific Props
+			All projects should follow the same directory pattern
+			/ Platform
+				/ Library
+					/src
+					/tests
+	-->
+	<PropertyGroup>
+		<TargetFramework>$(TargetFrameworkForLibraries)</TargetFramework>
+		<!-- No IsTestProject here: Microsoft.NET.Test.Sdk's package props set it for test
+		     projects, and package props import after Directory.Build.props anyway. -->
+		<IsSourceProject>$(MSBuildProjectDirectory.EndsWith('src'))</IsSourceProject>
+	</PropertyGroup>
+	<PropertyGroup>
+		<!-- AOT: hard requirement repo-wide. Sanctioned exception: Gateway.Kubernetes opts out in
+		     its own csproj while it depends on KubernetesClient (see .claude/rules/platform-areas.md). -->
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
+	<!-- #endregion -->
+
+	<!-- #region Packaging (Nuget): General Props -->
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(IsSourceProject)">
+		<PackageVersion>$(CohesionVersion)</PackageVersion>
+		<!-- Numeric prefix only: AssemblyVersion is numeric major.minor.build.revision
+		     (CS7034). The full semver including prerelease suffix lives on
+		     PackageVersion / InformationalVersion. -->
+		<AssemblyVersion>$(CohesionVersionPrefix)</AssemblyVersion>
+		<FileVersion>$(CohesionVersionPrefix)</FileVersion>
+		<!--
+		    GeneratePackageOnBuild is deliberately NOT set true. With it true,
+		    `dotnet pack` triggers a pack-during-build that runs Pack against
+		    bin/ before CopyToOutput has finished, producing NU5026 ("file to
+		    be packed was not found") for the .dll or runtimeconfig.json when
+		    the build graph includes an analyzer-style ProjectReference.
+		    Use `dotnet pack` to pack; `dotnet build` should just build.
+		-->
+	</PropertyGroup>
+	<!-- #endregion -->
+
+	<!-- #region Packaging (Nuget): README-->
+	<PropertyGroup Condition="$(IsSourceProject) and Exists('$(MSBuildProjectDirectory)\..\README.md') and $([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\README.md')) != ''">
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+	</PropertyGroup>
+	<ItemGroup Condition="$(IsSourceProject) and Exists('$(MSBuildProjectDirectory)\..\README.md') and $([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\README.md')) != ''">
+		<None Include="..\README.md">
+			<Pack>true</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+	</ItemGroup>
+	<!-- #endregion -->
+
+	<!-- #region Packaging (Nuget): License File -->
+	<PropertyGroup Condition="$(IsSourceProject) and Exists('$(MSBuildProjectDirectory)\..\..\..\..\LICENSE')">
+		<PackageLicenseFile>LICENSE</PackageLicenseFile>
+	</PropertyGroup>
+	<ItemGroup Condition="$(IsSourceProject) and Exists('$(MSBuildProjectDirectory)\..\..\..\..\LICENSE')">
+		<None Include="..\..\..\..\LICENSE">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+	</ItemGroup>
+	<!-- #endregion-->
+</Project>
