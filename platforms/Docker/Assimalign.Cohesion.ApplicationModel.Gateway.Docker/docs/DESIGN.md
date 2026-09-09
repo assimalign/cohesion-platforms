@@ -1,15 +1,17 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Docker — Design
 
 > Scaffold-stage document: records the design intent this package is being built to; sections grow
-> as features land. The authoritative upstream design is `libraries/ApplicationModel/DESIGN.md`
-> (cohesion repo, v2.x); nothing here may contradict it.
+> as features land. The authoritative upstream direction is
+> `docs/DEVELOPER_EXPERIENCE_DESIGN.md` and the plan contract is
+> `docs/REALIZATION_PLAN.md` in the cohesion repo.
 
 ## Design intent
 
-The smaller container-gateway sibling: same gathered digest-pinned images, same base algorithm,
-with the engine's containers/networks as the realization target. Everything image-shaped comes
-from `platforms/Containers`; this package owns only the engine client, the container controller,
-and the event observer.
+The smaller container-gateway sibling: same gathered digest-pinned images and base algorithm, with
+the engine's containers/networks as the realization target. One pure `DockerPlanCompiler`
+translates every validated `ResourcePlan`; one level-triggered controller applies those operations.
+Everything image-shaped comes from `platforms/Containers`; this package owns only compilation,
+engine I/O, and event observation.
 
 ## Why-this-not-that (initial commitments)
 
@@ -24,6 +26,13 @@ and the event observer.
 - **Events + inspect, not polling alone.** The events stream drives responsiveness; periodic
   inspect re-sync keeps the state level-true across stream drops (mirror of the informer re-list
   rule on Kubernetes).
+- **One compiler, not capability dispatch.** The compiler consumes plan specification without
+  selecting on resource kind, area, or CLR type. Resolved inputs, artifacts, observed dependency
+  snapshots, and platform options are explicit compiler inputs beside the plan. Unknown plan
+  specification or schema is rejected; unknown hints warn once and are ignored.
+- **Stop is not teardown.** Stop releases supervision and observation while retaining persistent
+  engine state. `UninstallAsync` removes containers, volumes selected for teardown, and the
+  application network in best-effort reverse order.
 
 ## AOT posture
 

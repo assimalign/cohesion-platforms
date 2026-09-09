@@ -4,9 +4,9 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
 /// <summary>
 /// Options controlling how the <see cref="KubernetesGateway"/> connects to a cluster,
-/// applies objects, and bounds readiness and teardown.
+/// registers controller overrides, applies objects, and bounds readiness and teardown.
 /// </summary>
-public sealed class KubernetesGatewayOptions
+public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 {
     /// <summary>
     /// An explicit kubeconfig file path. When <see langword="null"/>, the gateway resolves
@@ -29,15 +29,8 @@ public sealed class KubernetesGatewayOptions
     public string FieldManager { get; set; } = "cohesion-gateway";
 
     /// <summary>
-    /// The maximum time to wait for a resource to become ready before treating startup as
-    /// failed. Defaults to 60&#160;seconds.
-    /// </summary>
-    public TimeSpan ReadinessBudget { get; set; } = TimeSpan.FromSeconds(60);
-
-    /// <summary>
-    /// The budget for deleting the application namespace when the gateway stops. Deletion
-    /// still in progress when the budget elapses is abandoned best-effort. Defaults to
-    /// 30&#160;seconds.
+    /// The legacy scaffold budget for namespace cleanup during observer shutdown. The plan
+    /// controller moves namespace deletion to uninstall/teardown. Defaults to 30&#160;seconds.
     /// </summary>
     public TimeSpan StopGrace { get; set; } = TimeSpan.FromSeconds(30);
 }

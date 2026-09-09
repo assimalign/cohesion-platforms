@@ -1,8 +1,9 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Containers — Design
 
 > Scaffold-stage document: records the design intent this package is being built to; sections grow
-> as features land. The authoritative upstream design is `libraries/ApplicationModel/DESIGN.md`
-> (cohesion repo, v2.x); nothing here may contradict it.
+> as features land. The authoritative upstream direction is
+> `docs/DEVELOPER_EXPERIENCE_DESIGN.md` and the plan contract is
+> `docs/REALIZATION_PLAN.md` in the cohesion repo.
 
 ## Design intent
 
@@ -16,15 +17,16 @@ so each platform gateway supplies only its reconcile/observe specifics.
 - **Digest-pinned always.** An image reference is `{repository}@sha256:{digest}`; tags exist only
   as human-readable metadata. Rejected alternative: tag-based deploys — mutable tags break the
   desired-state model's immutability guarantee (upstream decision, inherited).
-- **A public state manager rather than upstream internals.** The Gateway package's reference
-  `InMemoryResourceStateManager` is `internal`. We re-implement its documented contract publicly
-  (one lock; waiter registration under the lock; events/waiters completed outside; terminal-set
-  waits; timeout returns last observed state) instead of using `InternalsVisibleTo`, and propose
-  upstreaming the public type. Rejected alternative: asking cohesion for `InternalsVisibleTo` —
-  couples two repos' assembly identities for a contract that is deliberately public.
+- **Use the public reference state manager.** Platform gateways consume
+  `InMemoryResourceStateManager` from `Assimalign.Cohesion.ApplicationModel.Gateway`. Rejected
+  alternative: retaining a Containers-owned copy — duplicate lifecycle behavior would drift from
+  the gateway contract and force this repo to repeat upstream's state-manager test matrix.
 - **Gather, never build.** `GatherAsync` locates/validates artifacts produced upstream by
   `PublishContainer`. Rejected alternative: building images inside the gateway — collapses the
   build/run boundary the upstream design draws deliberately.
+- **No compiler here.** Docker and Kubernetes each own exactly one compiler for `ResourcePlan`;
+  shared Containers code owns only artifact/image/registry mechanics and test primitives. A shared
+  compiler would erase platform-specific validation and object construction boundaries.
 
 ## AOT posture
 

@@ -2,7 +2,7 @@
 
 Multi-session orchestration index for implementing Cohesion's **Kubernetes and Docker platform gateways** in this repo. One issue = one session = one branch = one PR. Stages are dependency gates; lanes inside a stage can run in parallel. Durable design outcomes get folded into per-project `docs/DESIGN.md` files as they land; this document tracks sequencing and cross-repo dependencies.
 
-The upstream architecture this program implements is `libraries/ApplicationModel/DESIGN.md` (v2.x) in the **cohesion** repo — the contract package `Assimalign.Cohesion.ApplicationModel`, the guided base `Assimalign.Cohesion.ApplicationModel.Gateway` (`ApplicationGateway`), and the planned container-gateway design (per-resource pre-built OCI tarballs, digest-pinned images, embedded OCI registry, single-informer observation). Phases 1–2 (contracts + base/LocalGateway) are done upstream; this program is the platform half of Phase 6, plus the shared container machinery it needs.
+The authoritative architecture is `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed off 2026-09-06) in the **cohesion** repo, with `docs/REALIZATION_PLAN.md` defining the `cohesion/plan/v1` compiler input and `docs/RUNTIME_CONTRACT.md` defining the frozen gateway/resource wire contract. Cohesion owns planning and the guided `ApplicationGateway` base; this repository owns exactly one compiler and controller per target platform plus their shared container machinery. Older ApplicationModel design text yields where it disagrees.
 
 ## Work-item map
 
@@ -15,6 +15,7 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 | L04.01.01.02 | Consume cohesion packages (feed + central pins) | W01 | P001 | [#4](https://github.com/assimalign/cohesion-platforms/issues/4) |
 | L04.01.01.03 | CI pipelines (composite action + per-area workflows) | W01 | P002 | [#5](https://github.com/assimalign/cohesion-platforms/issues/5) |
 | L04.01.01.04 | Repo governance: README, templates, labels | W01 | P003 | [#6](https://github.com/assimalign/cohesion-platforms/issues/6) |
+| L04.01.01.05 | Re-pin, public state manager, platform rules + COHPLT001 (design item 33) | Off-gate | — | [#30](https://github.com/assimalign/cohesion-platforms/issues/30) |
 | **L04.01.02** | **Platforms - Containers** (area epic) | W02 | P002 | [#7](https://github.com/assimalign/cohesion-platforms/issues/7) |
 | L04.01.02.01 | Container artifact + image-index model | W02 | P002 | [#8](https://github.com/assimalign/cohesion-platforms/issues/8) |
 | L04.01.02.02 | Gateway state manager + shared test primitives | W02 | P002 | [#9](https://github.com/assimalign/cohesion-platforms/issues/9) |
@@ -24,8 +25,8 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 | L04.01.02.06 | Embedded OCI Distribution registry (Registry HTTP API v2) | W04 | P004 | [#13](https://github.com/assimalign/cohesion-platforms/issues/13) |
 | **L04.01.03** | **Platforms - Kubernetes** (area epic) | W02 | P002 | [#14](https://github.com/assimalign/cohesion-platforms/issues/14) |
 | L04.01.03.01 | ~~KubernetesClient AOT/trim spike~~ (closed — obsolete once the AOT mandate was dropped, 2026-07-20) | W02 | P002 | [#15](https://github.com/assimalign/cohesion-platforms/issues/15) |
-| L04.01.03.02 | Kubernetes gateway skeleton + namespace controller | W02 | P002 | [#16](https://github.com/assimalign/cohesion-platforms/issues/16) |
-| L04.01.03.03 | Kubernetes resource controller (SSA ConfigMap/Deployment/Service) | W03 | P002 | [#17](https://github.com/assimalign/cohesion-platforms/issues/17) |
+| L04.01.03.02 | Kubernetes connection/options + namespace skeleton (pre-plan) | W02 | P002 | [#16](https://github.com/assimalign/cohesion-platforms/issues/16) |
+| L04.01.03.03 | Kubernetes plan compiler + controller (`ResourcePlan` → platform objects) | W03 | P002 | [#17](https://github.com/assimalign/cohesion-platforms/issues/17) |
 | L04.01.03.04 | Informer + readiness observer (single list+watch) | W03 | P002 | [#18](https://github.com/assimalign/cohesion-platforms/issues/18) |
 | L04.01.03.05 | Development image path: daemon-load for Kind | W03 | P002 | [#19](https://github.com/assimalign/cohesion-platforms/issues/19) |
 | L04.01.03.06 | Kind-on-Podman end-to-end harness | W03 | P002 | [#20](https://github.com/assimalign/cohesion-platforms/issues/20) |
@@ -34,30 +35,35 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 | **L04.01.04** | **Platforms - Docker** (area epic) | W03 | P003 | [#23](https://github.com/assimalign/cohesion-platforms/issues/23) |
 | L04.01.04.01 | Docker Engine API client (AOT-safe, npipe/unix socket) | W03 | P003 | [#24](https://github.com/assimalign/cohesion-platforms/issues/24) |
 | L04.01.04.02 | Docker gateway + image load | W03 | P003 | [#25](https://github.com/assimalign/cohesion-platforms/issues/25) |
-| L04.01.04.03 | Docker container controller (network, containers, ports) | W04 | P003 | [#26](https://github.com/assimalign/cohesion-platforms/issues/26) |
+| L04.01.04.03 | Docker plan compiler + controller (network, containers, volumes, ports) | W04 | P003 | [#26](https://github.com/assimalign/cohesion-platforms/issues/26) |
 | L04.01.04.04 | Docker observer (events + inspect → lifecycle) | W04 | P003 | [#27](https://github.com/assimalign/cohesion-platforms/issues/27) |
 | L04.01.04.05 | Podman end-to-end harness | W04 | P003 | [#28](https://github.com/assimalign/cohesion-platforms/issues/28) |
 
 ## Stages
 
-- **Stage 0 — Delivery gate (W01).** `L04.01.01.01/.02` are hard blockers for all code work: the build chain must import, and `Assimalign.Cohesion.ApplicationModel.Gateway` must restore from the feed. `.03/.04` can trail inside the stage.
+- **Stage 0 — Delivery gate (W01 + off-gate re-pin).** `L04.01.01.01/.02` establish the build and feed. Design item 33 (`L04.01.01.05`) then advances the contract floor to `10.0.1-preview.3`, adopts the public state manager, and lands COHPLT001; it must complete before the Kubernetes or Docker plan compilers. `.03/.04` can trail inside the original stage.
 - **Stage 1 — Container foundation + K8s bring-up (W02).** Two lanes: (a) Containers `.01/.02/.03`; (b) Kubernetes `.02` (`.01`, the AOT spike, was closed as obsolete when the repo's AOT mandate was dropped — the skeleton codes against `KubernetesClient` directly).
-- **Stage 2 — Kubernetes end-to-end (W03).** Kubernetes `.03/.04/.05/.06/.07` + Containers `.04/.05`. Exit criterion: the sample application reaches `Running` on a Kind-on-Podman cluster through `Application.CreateBuilder → UseKubernetesGateway → RunAsync`, with dependency ordering, Blocked propagation, and namespace teardown proven by tests. Docker lane `.01/.02` may start in parallel.
+- **Stage 2 — Kubernetes end-to-end (W03).** Kubernetes `.03/.04/.05/.06/.07` + Containers `.04/.05`, after item 33. Exit criterion: the sample application reaches `Running` on Kind-on-Podman through its validated `ResourcePlan`, with dependency ordering, `Blocked` propagation, non-destructive `StopAsync`, and namespace removal through teardown/`UninstallAsync` proven separately. Docker lane `.01/.02` may start in parallel after the same re-pin.
 - **Stage 3 — Docker end-to-end + registry topologies (W04).** Docker `.03/.04/.05`; Containers `.06`; Kubernetes `.08`.
 
 ## Requirements by area
 
 ### L04.01.01 — Delivery
 
-The repo builds and consumes cohesion exactly like the cohesion repo builds itself: two-line root `Directory.Build.props/.targets` → `build/Build.props|targets` → `build/Targets/*` chain; name-only `CohesionProjectReference` (globbing `platforms/**`); central `CohesionPackageReference` pins; `$(CohesionVersion)` single source. New here: `nuget.config` mapping `Assimalign.Cohesion.*` → GitHub Packages (`nuget.pkg.github.com/assimalign`) with delete-then-replace staging semantics, and a documented local sibling-feed override (`../cohesion/_out/packages`) for inner-loop work. CI mirrors cohesion's composite-action + thin path-filtered per-area workflow pattern (`platform-*.yml`, 3-OS matrix, `main`+Linux-gated nupkg publish via `Publish-Nupkg.ps1`).
+The repo uses a two-line root `Directory.Build.props/.targets` → `build/Build.props|targets` → `build/Targets/*` chain, name-only `CohesionProjectReference`, central `CohesionPackageReference` pins, and one `$(CohesionVersion)` for its own outputs. Cohesion dependencies use the immutable release floor `[10.0.1-preview.3, )`; consuming a newer line requires bumping that floor, never replacing an existing package identity. A sibling `../cohesion/_out/packages` feed is appended automatically, and a developer may select a complete `Install-Local.ps1` pack set exactly with `CohesionSiblingPackageVersion=10.0.1-preview.3.local`. CI has no sibling checkout and restores the floor from GitHub Packages. COHPLT001 validates shipped platform projects after reference resolution.
 
 ### L04.01.02 — Containers (shared, platform-neutral)
 
 Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` (+ siblings):
 
 - **Artifact/index model:** `IContainerImageArtifact` implementation; `application.images.json` (ResourceName → `{repository, digest, tag?, archivePath}`) with a source-generated serializer; strict `sha256:` digest validation. Images are **always digest-pinned** — a tag is never a pull reference.
-- **State manager:** the Gateway package's reference `InMemoryResourceStateManager` is `internal` upstream, so this repo ships a public equivalent honoring the documented contract (one lock for reads/writes/waiter-registration; waiters completed and `StateChanged` raised outside the lock; terminal-set waits; timeout returns last observed state). Port the upstream test matrix. *(Candidate upstream issue: make the reference implementation public and retire this copy.)*
-- **Sample resource:** a minimal HTTP echo runtime + `.ApplicationModel` manifest (implements `IExecutableResource` + `IEndpointResource` + `IMountResource`) with a `PublishContainer` OCI tarball build — keeps platform E2E independent of cohesion's pending Phase-5 manifest codegen.
+- **State manager:** use the public `InMemoryResourceStateManager` from
+  `Assimalign.Cohesion.ApplicationModel.Gateway`. The former Containers-owned
+  `GatewayResourceStateManager` and its duplicated tests are retired; cohesion owns the reference
+  behavior and test matrix.
+- **Sample resource:** a minimal enabled HTTP resource that produces the generic manifest and
+  `ResourcePlan`, plus a `PublishContainer` OCI image — platform E2E consumes the same facts/plan
+  path as customer resources without loading a resource-area assembly into the platform gateway.
 - **OCI store + registry:** unpack OCI image-layout tarballs into a content-addressed blob/manifest store (digest-verified); later serve it over the Docker Registry HTTP API v2 on Cohesion's own HTTP stack (`Http.Connections` + `Connections.Tcp` + `Web.Routing` — no ASP.NET Core). Registry implementation notes from the upstream stack: use the `HttpResponseStreaming` interceptor for blob GET (default response path buffers whole bodies); raise `MaxRequestBodySize` (default ~28.6 MB) for blob PUT; HEAD semantics come free from the HTTP/1.1 writer.
 - **Build seam:** `CohesionResourceImageArtifact` item contract + `CohesionBuildResourceContainers` gather target merging advertised tarballs into `<out>/images/` + `application.images.json`, packaged so orchestrator projects can consume it (`sdks/`). Upstream reserves the seam (`Assimalign.Cohesion.Sdk` ships an inert `ApplicationModel.Build.targets` stub); the metadata-advertising half lives in cohesion manifest packages.
 
@@ -65,13 +71,14 @@ Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel
 
 `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` derives from `ApplicationGateway` and supplies:
 
-- **Gateway/namespace:** options (kubeconfig path, context, in-cluster); `KubernetesNamespaceController` ensures namespace = `model.Name` (+ pull secret / registry trust when registry topologies land); `StopAsync` deletes the namespace; `UseKubernetesGateway()` extension.
-- **Resource controller:** matches `IExecutableResource && IEndpointResource`; server-side-applies `V1ConfigMap` (environment variables), `V1Deployment` (image `{repository}@sha256:{digest}` from `GetArtifact<IContainerImageArtifact>()`), `V1Service` from declared endpoints, mounts → volumes; fixed field manager; pure level-triggered idempotent apply.
-- **Observer:** the single list+watch informer is the sole `State` writer; `Running` ⇔ `observedGeneration == generation && updatedReplicas == readyReplicas == spec.replicas`; auto-relist on `410 Gone`; publishes **observed endpoints** (stable Service DNS + ports) on `Running`. Note: observed-endpoint publication exists upstream only as contract surface — no production writer/reader exists yet; this is the first real implementation.
+- **One compiler/controller:** `KubernetesPlanCompiler` purely translates `cohesion/plan/v1` into ConfigMap/Secret/PVC plus the exact Deployment, StatefulSet, DaemonSet, or Job named by `plan.Workload.Kind`, Services (including a governing headless Service), exposures, probes, runtime-contract values, and `cohesion.io/plan-hash`. `KubernetesPlanController` applies the compiled objects idempotently. Neither selects on resource kind, area, or CLR type; unsupported specification/schema fails before gathering or cluster contact, while unknown hints warn once and are ignored.
+- **Registered-first escape hatch:** domain-authored controllers from `ApplicationGatewayOptions.Controllers` are consulted in registration order before the built-in plan controller; the framework registers none. The base external controller remains responsible for external-resource observations.
+- **Observer:** the single list+watch informer is the sole writer for locally realized Kubernetes observations through the public `InMemoryResourceStateManager`; it auto-re-lists on `410 Gone`. It combines plan probes with workload/pod status, observes liveness failure as non-gating `Degraded`, surfaces exit/restart information, and publishes stable Service-DNS endpoint observations. Dependency compilation consumes the immutable `ObservedDependencies` snapshot supplied by the base.
+- **Lifecycle/ownership:** namespace = application and carries `cohesion.io/owner` under the gateway's field manager; foreign ownership is refused unless adopted. `StopAsync` releases supervision/observation while preserving objects. Teardown/`UninstallAsync` removes objects and the namespace in best-effort reverse order, attempting all deletions and reporting the first failure afterward.
 - **Dev image path:** when `IsDevelopment` and the cluster is Kind, load tarballs via `kind load image-archive` (`KIND_EXPERIMENTAL_PROVIDER=podman`), `imagePullPolicy: IfNotPresent`, digest-keyed skip; registry topologies are the W04 production path.
-- **Discovery:** dependents receive dependency endpoints at reconcile time from `State.GetObservedEndpoints` — on Kubernetes, inject Service DNS, never NodePort/Ingress allocations.
-- **AOT:** none required — the repo-wide AOT mandate was dropped by owner decision (2026-07-20); `KubernetesClient` 17.0.4 (centrally pinned) needs no exception. `.01` was closed as obsolete; the typed-REST fallback survives only as a dependency-hygiene option, and the 17.0.4 CVE (GHSA-w7r3-mgwf-4mqq) bump is coordinated with the cohesion central pin.
-- **E2E:** Kind on Podman (Podman 5.x machine, Kind ≥ 0.30, `kubectl` present). Cluster lifecycle scripted by the test harness; full up/down with dependency ordering, readiness gating, Blocked propagation, reverse teardown.
+- **Discovery:** observed endpoints are projected through Core's `System.Uri` contract. Kubernetes injects Service DNS (the governing Service for StatefulSets), never NodePort/Ingress allocations for in-cluster dependencies.
+- **AOT:** none required — the repo-wide AOT mandate was dropped by owner decision (2026-07-20); the locally pinned `KubernetesClient` needs no exception. `.01` was closed as obsolete, and a typed-REST fallback remains only a dependency-hygiene option. Cohesion's stale, unused central `KubernetesClient` pin is not a coordination point.
+- **E2E:** Kind on Podman (Podman 5.x machine, Kind ≥ 0.30, `kubectl` present). Cluster lifecycle scripted by the test harness; readiness uses the plan-derived gate (`{Running, Failed, Stopped}` for long-running workloads), `Degraded` never re-gates dependents, stop preserves state, and teardown removes it.
 
 ### L04.01.04 — Docker
 
@@ -79,17 +86,17 @@ Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel
 
 - **Client:** minimal typed Docker Engine REST client over named pipe (Windows) / Unix socket on Cohesion's own connection stack — source-generated serialization; Podman's Docker-compatible API is the supported local target. Scope: images (load/inspect), containers (create/start/stop/remove/inspect), networks, events. *(Docker.DotNet is disfavored on dependency-hygiene grounds — large surface, external serializer dependency; with the AOT mandate dropped it is no longer categorically excluded.)*
 - **Gateway:** `GatherAsync` from `application.images.json`; image load from OCI tarball with digest verification; `UseDockerGateway()`.
-- **Controller:** app-scoped network named after `model.Name`; containers created with env/mounts/published ports from capability interfaces; ownership labels; idempotent reconcile.
-- **Observer:** Docker events stream reconciled with inspect polling → `ResourceLifecycle`; observed endpoints from port bindings; sole `State` writer.
-- **E2E:** against the Podman socket — up/down, ordering, Blocked propagation, teardown removes containers + network.
+- **One compiler/controller:** `DockerPlanCompiler` compiles every generic plan to network/container or run-once operations, named claims, tmpfs inputs, ports, probes, and stop grace. It never selects on resource kind, area, or CLR type. `DockerPlanController` performs idempotent engine I/O; registered domain overrides are consulted first.
+- **Observer:** Docker events reconciled with inspect polling produce observed lifecycle/endpoints through the public state manager. Liveness failure becomes non-gating `Degraded`; dependency inputs come from the base's immutable observed snapshot.
+- **Lifecycle/E2E:** stop releases supervision and retains persistent engine state; teardown removes containers/network in best-effort reverse order. Podman E2E covers plan gates, ordering, `Blocked`, `Degraded`, stop, and teardown independently.
 
 ## Cross-repo dependencies (cohesion)
 
-1. **Package feed** — cohesion CI publishes `Assimalign.Cohesion.*` to GitHub Packages on `main` (delete-then-replace, constant version `10.0.1-preview.2`). Stage 0 consumes it; refreshing upstream bits requires cache-busting restore.
-2. **State manager visibility** — `InMemoryResourceStateManager` is internal upstream; we re-implement publicly in Containers. File a cohesion issue proposing it be made public.
-3. **Phase-5 manifest codegen + real resource images** — running a *real* resource (e.g., Database) on these gateways needs the cohesion side to add `PublishContainer`/`CohesionResourceImageArtifact` advertisement to its manifest packages. The sample resource (`L04.01.02.03`) decouples this program; wiring Database E2E becomes a follow-up spanning both repos.
+1. **Package feed** — immutable `10.0.1-preview.3` Cohesion packages are present in the sibling feed and GitHub Packages. This repo consumes a `>=` floor and optionally an exact, complete `.local` sibling identity; a newer line requires a new package version and a pin bump.
+2. **State manager visibility (resolved)** — cohesion made `InMemoryResourceStateManager` public in design item 18. This repo consumes it and has deleted the former Containers-owned copy.
+3. **Fresh package set before compiler work** — the preview.3 contracts needed by item 33 are packed. Items 34–37 begin only after a fresh, complete cohesion pack so the platform compilers exercise the latest gateway, plan, control-plane, and input-resolution surfaces.
 4. **HTTP stack for the registry** — `Http.Connections`, `Connections.Tcp`, `Web.Routing`, `Http.Streaming`, `Http.RequestLimits` packages must be on the feed by the time `L04.01.02.06` starts.
-5. **`LocalGateway` observed endpoints** — upstream LocalGateway never publishes observed endpoints; once this repo proves the pattern, propose the upstream adoption so all gateways behave uniformly.
+5. **Plan conformance fixtures** — vendor cohesion's checked-in `KindMatrixTests` plan fixtures when compiler implementation begins, so Docker and Kubernetes prove byte-equivalent generic-plan semantics without loading any `<Area>.ApplicationModel` assembly.
 
 ## Environment (local dev)
 
@@ -104,3 +111,4 @@ Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel
 | 2026-07-20 | Delivery (#3–#6) | Build chain, package feed, scaffold, CI landed; all three `platform-*` workflows green on the 3-OS matrix. |
 | 2026-07-20 | #9 / #16 | `GatewayResourceStateManager` + Kubernetes gateway skeleton landed (22 tests); Kind-on-Podman cluster `cohesion-dev` verified; upstream proposal cohesion#935 filed. |
 | 2026-07-20 | AOT decision | Owner decision: this repo carries **no** `IsAotCompatible` mandate (gateways are deploy-time control planes; cohesion libraries keep it). #15 closed as obsolete; rules/docs updated; sample resource runtime keeps the cohesion posture. |
+| 2026-09-09 | #30 / design item 33 | Re-pinned to preview.3, retired `GatewayResourceStateManager` for cohesion's public implementation, aligned plan-compiler rules/docs, and activated COHPLT001. This precedes the Kubernetes and Docker compiler items. |

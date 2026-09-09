@@ -9,7 +9,10 @@ This repository is the **deployment/hosting plane** for [Cohesion](https://githu
 
 ## Relationship to the cohesion repo
 
-- Sibling checkout: `C:\Source\repos\assimalign\cohesion`. The authoritative gateway/application-model design is `libraries/ApplicationModel/DESIGN.md` there (v2.x) — read it before changing gateway behavior.
+- Sibling checkout: `C:\Source\repos\assimalign\cohesion`. The authoritative direction is
+  `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed off 2026-09-06), with
+  `docs/REALIZATION_PLAN.md` defining the platform compiler input. Read both before changing
+  gateway behavior; older ApplicationModel design text yields where it disagrees.
 - This repo **consumes** `Assimalign.Cohesion.*` packages (ApplicationModel, Gateway, Core, Http stack, …) as NuGet packages — GitHub Packages (`https://nuget.pkg.github.com/assimalign/index.json`) is the staging feed; a local sibling-checkout feed (`../cohesion/_out/packages`) serves inner-loop development.
 - Work items live in the shared org GitHub Project #13 "Cohesion" under program root `L04.01`, as issues on `assimalign/cohesion-platforms` with the project `Codebase` field set to `cohesion-platforms`. Use the `cohesion-work-items` skill.
 

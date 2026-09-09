@@ -1,23 +1,33 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes — Overview
 
 The Kubernetes platform gateway: `KubernetesGateway : ApplicationGateway` (`Name = "kubernetes"`)
-realizes an `IApplicationModel` onto a cluster.
+compiles each validated `ResourcePlan` into Kubernetes objects and reconciles them onto a cluster.
 
-**Scope (per the [program plan](../../../../docs/PLATFORMS_PROGRAM_PLAN.md)):**
+<!-- Deviates from the prior Kubernetes stop/teardown and multi-cluster non-goal text per
+Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-approved 2026-09-06. -->
 
-- Gateway skeleton, options (kubeconfig/context/in-cluster), `UseKubernetesGateway()`. ([#16](https://github.com/assimalign/cohesion-platforms/issues/16))
-- `KubernetesNamespaceController` — namespace = `model.Name`; teardown deletes it. ([#16](https://github.com/assimalign/cohesion-platforms/issues/16))
-- `KubernetesResourceController` — server-side-applies ConfigMap/Deployment/Service, digest-pinned. ([#17](https://github.com/assimalign/cohesion-platforms/issues/17))
-- Single list+watch informer: readiness derivation, 410 re-list, observed-endpoint publication. ([#18](https://github.com/assimalign/cohesion-platforms/issues/18))
-- Kind-on-Podman daemon-load image path + E2E harness. ([#19](https://github.com/assimalign/cohesion-platforms/issues/19), [#20](https://github.com/assimalign/cohesion-platforms/issues/20))
+**Planned scope (after design item 33's package-contract gate):**
 
-**Dependencies:** ApplicationModel + Gateway base (NuGet), `platforms/Containers`, `KubernetesClient`.
+- `KubernetesPlanCompiler` — one pure compiler for `cohesion/plan/v1`, never keyed on kind, area,
+  or CLR type. It produces ConfigMap/Secret/PVC plus Deployment, StatefulSet, DaemonSet, or Job,
+  Services, exposures, probes, runtime-contract values, and plan hash.
+- `KubernetesPlanController` — idempotent server-side apply and best-effort reverse deletion.
+  Registered domain overrides from `ApplicationGatewayOptions.Controllers` are consulted before
+  this built-in controller.
+- One list+watch informer — per-workload readiness, `410 Gone` re-list, liveness-driven
+  `Degraded`, and observed Service-DNS endpoint publication through the public
+  `InMemoryResourceStateManager`.
+- Kind-on-Podman image loading, ownership/adoption, bootstrap output, render mode, and E2E coverage.
 
-**AOT:** no mandate in this repo (owner decision, 2026-07-20) — `KubernetesClient` needs no
-exception; see `docs/DESIGN.md § AOT posture`.
+**Dependencies:** the generic ApplicationModel + Gateway base packages, `platforms/Containers`,
+and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.Hosting`,
+`.Application` runtime, and `Microsoft.Extensions.*` assemblies from the resolved closure.
 
-**Status:** in progress — the gateway skeleton
-([#16](https://github.com/assimalign/cohesion-platforms/issues/16)) has landed: `KubernetesGateway`,
-`KubernetesGatewayOptions`, `UseKubernetesGateway()`, kubeconfig/in-cluster resolution, and the
-namespace ensure/delete lifecycle. The workload controller, informer, image path, and E2E harness
-are pending ([#17](https://github.com/assimalign/cohesion-platforms/issues/17)–[#20](https://github.com/assimalign/cohesion-platforms/issues/20)).
+**Lifecycle:** `StopAsync` leaves persistent cluster state in place; `UninstallAsync`
+(`--mode teardown`) removes managed objects and the namespace in best-effort reverse order.
+
+**AOT:** no mandate in this repo (owner decision, 2026-07-20); see `docs/DESIGN.md`.
+
+**Status:** the connection/options/namespace skeleton has landed. It predates the realization-plan
+contract and still couples namespace deletion to observer stop. The compiler/controller item that
+follows this re-pin replaces that behavior; it is not implemented by design item 33.

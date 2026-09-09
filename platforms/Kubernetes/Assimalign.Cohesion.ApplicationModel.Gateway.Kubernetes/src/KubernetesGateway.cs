@@ -5,25 +5,21 @@ using System.Threading.Tasks;
 
 using k8s;
 
-using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
 /// <summary>
 /// The gateway that realizes an <see cref="IApplicationModel"/> onto a Kubernetes cluster.
-/// It scopes the application to a namespace derived from the application name, applies
-/// objects via server-side apply under a single field manager, and tears the namespace
-/// down on stop.
+/// Its current scaffold establishes the cluster connection and an application-scoped namespace.
 /// </summary>
 /// <remarks>
-/// This skeleton establishes the cluster connection and namespace lifecycle. The workload
-/// controller lands with work item L04.01.03.03 and container-image gathering with work
-/// item L04.01.03.05.
+/// This pre-plan skeleton still couples namespace cleanup to observer shutdown. The plan compiler
+/// and controller in work item L04.01.03.03 replace that path with non-destructive stop and
+/// destructive uninstall; container-image gathering lands with work item L04.01.03.05.
 /// </remarks>
 public sealed class KubernetesGateway : ApplicationGateway
 {
     private readonly KubernetesGatewayOptions _options;
-    private readonly GatewayResourceStateManager _state = new();
+    private readonly InMemoryResourceStateManager _state = new();
 
     private IKubernetes? _client;
     private string? _namespace;
@@ -42,6 +38,7 @@ public sealed class KubernetesGateway : ApplicationGateway
     /// <param name="options">The options controlling cluster connection, apply, and teardown.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
     public KubernetesGateway(KubernetesGatewayOptions options)
+        : base(options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
@@ -51,8 +48,8 @@ public sealed class KubernetesGateway : ApplicationGateway
     public override ResourceName Name => "kubernetes";
 
     /// <summary>
-    /// The controllers this gateway routes resources to. Empty for now: the workload
-    /// controller lands with work item L04.01.03.03.
+    /// The built-in platform controllers. Registered overrides from the common options are
+    /// consulted first; the built-in plan controller lands with work item L04.01.03.03.
     /// </summary>
     protected override IReadOnlyList<IApplicationResourceController> Controllers => Array.Empty<IApplicationResourceController>();
 
@@ -111,11 +108,10 @@ public sealed class KubernetesGateway : ApplicationGateway
                 }
                 catch (Exception)
                 {
-                    // Teardown is best-effort (platform rule: teardown must be idempotent and
-                    // never throw past the gateway): the stop grace elapsed, stop was cancelled,
-                    // or the API server rejected/could not receive the delete (RBAC, conflict,
-                    // unreachable cluster). The namespace may be left behind; a subsequent start
-                    // re-ensures it idempotently.
+                    // Legacy scaffold behavior: namespace cleanup is suppressed here so observer
+                    // shutdown remains best-effort. The plan-controller item moves deletion to
+                    // UninstallAsync, where failures are aggregated and reported after every
+                    // reverse-order deletion has been attempted.
                 }
             }
         }

@@ -8,7 +8,7 @@ locating them, verifying them, indexing them, and (eventually) serving them — 
 
 | Project | Purpose |
 | --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Container artifact + `application.images.json` image-index model, public gateway state manager, OCI image store, shared test primitives. (Scaffolded — implementation tracked by [#8](https://github.com/assimalign/cohesion-platforms/issues/8), [#9](https://github.com/assimalign/cohesion-platforms/issues/9), [#11](https://github.com/assimalign/cohesion-platforms/issues/11).) |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Container artifact + `application.images.json` image-index model, OCI image store, registry infrastructure, and shared test primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
 
 Planned siblings per the [program plan](../../docs/PLATFORMS_PROGRAM_PLAN.md): the image-gathering
 build seam ([#12](https://github.com/assimalign/cohesion-platforms/issues/12)), the sample E2E
@@ -19,7 +19,9 @@ Distribution registry ([#13](https://github.com/assimalign/cohesion-platforms/is
 
 - This repo realizes Cohesion's L2 application model onto deployment targets; Containers is the
   shared substrate of that realization.
-- Depends on `Assimalign.Cohesion.ApplicationModel` + `.Gateway` (NuGet, from the cohesion repo).
+- Depends on the generic `Assimalign.Cohesion.ApplicationModel` contract and `.Gateway` base
+  (NuGet, from the cohesion repo). It never references an `<Area>.ApplicationModel`, `*.Hosting`,
+  an `<Area>.Application` runtime, or `Microsoft.Extensions.*`.
 - Platform gateways (`platforms/Kubernetes`, `platforms/Docker`) depend on this area — never the
   reverse, and the two platform areas never reference each other.
 

@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Shouldly;
 using Xunit;
@@ -33,18 +35,19 @@ public class KubernetesGatewayTests
         exception.ParamName.ShouldBe("options");
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - UseKubernetesGateway: Should build an application with the gateway selected")]
-    public void UseKubernetesGateway_OnBuilderWithResource_ShouldBuildApplication()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - UseKubernetesGateway: Should reject a resource until the platform compiler is registered")]
+    public void UseKubernetesGateway_OnBuilderWithoutPlatformController_ShouldRejectResource()
     {
         // Arrange
         var builder = Application.CreateBuilder();
         builder.AddResource(new FakeExecutableResource("web"));
 
         // Act
-        var application = builder.UseKubernetesGateway().Build();
+        var exception = Should.Throw<InvalidOperationException>(
+            () => builder.UseKubernetesGateway().Build());
 
         // Assert
-        application.ShouldNotBeNull();
+        exception.Message.ShouldContain("gateway 'kubernetes'");
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - UseKubernetesGateway: Should invoke the configure callback")]
@@ -61,6 +64,7 @@ public class KubernetesGatewayTests
             {
                 invoked = true;
                 options.FieldManager = "cohesion-test";
+                options.Controllers.Add(new AcceptingController());
             })
             .Build();
 
@@ -112,5 +116,26 @@ public class KubernetesGatewayTests
         // Assert
         options.KubeConfigPath.ShouldBeNull();
         options.ContextName.ShouldBeNull();
+    }
+
+    private sealed class AcceptingController : IApplicationResourceController
+    {
+        public bool CanRealize(ResourcePlan plan, out string? reason)
+        {
+            reason = null;
+            return true;
+        }
+
+        public Task ReconcileAsync(
+            IResourceControlContext context,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task StopAsync(
+            IResourceControlContext context,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task DeleteAsync(
+            IResourceControlContext context,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }
