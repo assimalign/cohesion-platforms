@@ -65,6 +65,16 @@ internal sealed class FakeDockerEngine : IAsyncDisposable
 
     public byte[]? LoadedArchive { get; private set; }
 
+    public bool ImageAvailableAfterPull { get; set; } = true;
+
+    public string ImageIdAfterPull { get; set; } = $"sha256:{new string('d', 64)}";
+
+    public string[]? RepoDigestsAfterPull { get; set; }
+
+    public string? ImagePullProgressError { get; set; }
+
+    public string? PulledImage { get; private set; }
+
     public IReadOnlyList<DockerEngineRequest> RecordedRequests
     {
         get
@@ -378,6 +388,11 @@ internal sealed class FakeDockerEngine : IAsyncDisposable
             {
                 await LoadImageAsync(body, response, cancellationToken).ConfigureAwait(false);
             }
+            else if (request.HttpMethod == "POST" && path == "/images/create")
+            {
+                await PullImageAsync(request.QueryString, response, cancellationToken)
+                    .ConfigureAwait(false);
+            }
             else if (request.HttpMethod == "GET" && path.StartsWith("/networks/", StringComparison.Ordinal))
             {
                 await InspectNetworkAsync(path, response, cancellationToken).ConfigureAwait(false);
@@ -496,6 +511,53 @@ internal sealed class FakeDockerEngine : IAsyncDisposable
         response.ContentType = "application/json";
         await WriteTextAsync(response, "{\"stream\":\"Loaded image\"}\n", cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task PullImageAsync(
+        NameValueCollection query,
+        HttpListenerResponse response,
+        CancellationToken cancellationToken)
+    {
+        string? repository = query["fromImage"];
+        string? digest = query["tag"];
+        if (string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(digest))
+        {
+            await WriteErrorAsync(
+                response,
+                400,
+                "fromImage and tag are required for an image pull.",
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        string canonical = $"{repository}@{digest}";
+        PulledImage = canonical;
+        if (ImagePullProgressError is string progressError)
+        {
+            await WriteJsonAsync(
+                response,
+                new DockerProgressMessage
+                {
+                    Error = progressError,
+                    ErrorDetail = new DockerProgressErrorDetail { Message = progressError },
+                },
+                DockerEngineJsonContext.Default.DockerProgressMessage,
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (ImageAvailableAfterPull)
+        {
+            string[] repoDigests = RepoDigestsAfterPull ?? [canonical];
+            AddImage(canonical, ImageIdAfterPull, repoDigests);
+            AddImage(ImageIdAfterPull, ImageIdAfterPull, repoDigests);
+        }
+
+        await WriteJsonAsync(
+            response,
+            new DockerProgressMessage { Status = "Pull complete" },
+            DockerEngineJsonContext.Default.DockerProgressMessage,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task InspectNetworkAsync(

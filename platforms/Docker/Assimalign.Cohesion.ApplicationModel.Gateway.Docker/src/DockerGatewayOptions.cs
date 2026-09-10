@@ -19,14 +19,31 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
     public Uri? EngineEndpoint { get; set; }
 
     /// <summary>
-    /// Gets or sets a custom image realizer. The default verifies an existing engine image by
-    /// digest or loads a configured OCI archive and verifies the resulting engine image.
+    /// Gets or sets a custom image realizer. The manifest is always digest-pinned; image-index
+    /// validation and late-bound registry resolution also occur when <see cref="ImageIndexPath"/>
+    /// is configured. The result must preserve the resulting repository and digest. The default
+    /// verifies an existing engine image by digest, loads an OCI archive, or pulls by digest.
     /// </summary>
     public IImageRealizer? ImageRealizer { get; set; }
 
     /// <summary>
+    /// Gets or sets the path to the application's <c>application.images.json</c> document. When
+    /// specified, the gateway resolves each resource's own index entry before custom or default
+    /// image realization.
+    /// </summary>
+    public string? ImageIndexPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the registry authority applied to image-index entries whose registry is
+    /// <c>&lt;late-bound&gt;</c>, for example <c>registry.example.test:5000</c>. URI schemes and paths
+    /// are not accepted.
+    /// </summary>
+    public string? ContainerRegistry { get; set; }
+
+    /// <summary>
     /// Gets digest-pinned image-reference to OCI archive-path mappings used by the default image
-    /// realizer. This is the narrow archive bridge used until the shared image index lands.
+    /// realizer when <see cref="ImageIndexPath"/> is absent. This is retained as a compatibility
+    /// bridge for callers that have not adopted the shared index.
     /// </summary>
     public IDictionary<string, string> ImageArchives { get; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
@@ -86,6 +103,20 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
 
         ArgumentException.ThrowIfNullOrWhiteSpace(PublicHost);
         _ = Uri.CreateEndpoint("http", PublicHost, 80);
+        if (ImageIndexPath is not null && string.IsNullOrWhiteSpace(ImageIndexPath))
+        {
+            throw new ArgumentException(
+                "ImageIndexPath must not be empty when specified.",
+                nameof(ImageIndexPath));
+        }
+
+        if (ContainerRegistry is not null && !IsRegistryAuthority(ContainerRegistry))
+        {
+            throw new ArgumentException(
+                "ContainerRegistry must be an authority without a URI scheme, path, query, fragment, or user information.",
+                nameof(ContainerRegistry));
+        }
+
         ArgumentNullException.ThrowIfNull(WarningHandler);
         RequirePositive(ObservationInterval, nameof(ObservationInterval));
         RequirePositive(ProbeInterval, nameof(ProbeInterval));
@@ -133,5 +164,19 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
         {
             throw new ArgumentOutOfRangeException(name, $"{name} must be greater than zero.");
         }
+    }
+
+    private static bool IsRegistryAuthority(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.IndexOfAny(['/', '\\', '@', '?', '#']) >= 0
+            || value.Contains("://", StringComparison.Ordinal)
+            || !Uri.TryCreate($"http://{value}", UriKind.Absolute, out Uri? uri))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(uri.Host)
+            && string.Equals(uri.Authority, value, StringComparison.Ordinal);
     }
 }

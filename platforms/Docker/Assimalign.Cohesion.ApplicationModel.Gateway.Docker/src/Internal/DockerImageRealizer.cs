@@ -37,56 +37,17 @@ internal sealed class DockerImageRealizer : IImageRealizer
 
         if (image is null)
         {
-            if (!TryFindArchive(canonicalReference, out string archivePath))
-            {
-                throw new FileNotFoundException(
-                    $"Docker image '{canonicalReference}' for resource '{resource}' is not present in the engine and no OCI archive is configured for it.");
-            }
-
-            OciImageArchiveVerification verification;
-            try
-            {
-                verification = await OciImageArchiveVerifier
-                    .VerifyAsync(archivePath, expected.Digest, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception) when (
-                exception is IOException or InvalidDataException or JsonException)
-            {
-                throw new InvalidDataException(
-                    $"Docker image archive '{archivePath}' for resource '{resource}' failed verification: {exception.Message}",
-                    exception);
-            }
-            await using (FileStream archive = new(
-                archivePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 131072,
-                useAsync: true))
-            {
-                await _engine.LoadImageAsync(archive, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            image = await _engine
-                .InspectImageAsync(verification.ImageId, cancellationToken)
-                .ConfigureAwait(false);
-            if (image is null)
-            {
-                throw new InvalidDataException(
-                    $"Docker loaded OCI archive '{archivePath}' for resource '{resource}', but verified image ID '{verification.ImageId}' is absent.");
-            }
-
-            if (!string.Equals(image.Id, verification.ImageId, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException(
-                    $"Docker loaded OCI archive '{archivePath}' for resource '{resource}', but inspected image ID '{image.Id}' does not match verified archive image ID '{verification.ImageId}'.");
-            }
+            image = TryFindArchive(canonicalReference, out string archivePath)
+                ? await LoadArchiveAsync(
+                    expected,
+                    archivePath,
+                    resource,
+                    cancellationToken).ConfigureAwait(false)
+                : await PullAsync(
+                    expected,
+                    canonicalReference,
+                    resource,
+                    cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -105,6 +66,132 @@ internal sealed class DockerImageRealizer : IImageRealizer
             expected.Digest,
             expected.Tag,
             image.Id);
+    }
+
+    private async Task<DockerImageInspectResponse> PullAsync(
+        IContainerImageArtifact expected,
+        string canonicalReference,
+        ResourceId resource,
+        CancellationToken cancellationToken)
+    {
+        await _engine
+            .PullByDigestAsync(expected.Repository, expected.Digest, cancellationToken)
+            .ConfigureAwait(false);
+        DockerImageInspectResponse? image = await _engine
+            .InspectImageAsync(canonicalReference, cancellationToken)
+            .ConfigureAwait(false);
+        if (image is null)
+        {
+            throw new InvalidDataException(
+                $"Docker pulled image '{canonicalReference}' for resource '{resource}', " +
+                "but the digest-pinned reference is absent from the selected engine.");
+        }
+
+        RequireDigest(image, canonicalReference);
+        return image;
+    }
+
+    private async Task<DockerImageInspectResponse> LoadArchiveAsync(
+        IContainerImageArtifact expected,
+        string archivePath,
+        ResourceId resource,
+        CancellationToken cancellationToken)
+    {
+        OciImageArchiveVerification verification;
+        try
+        {
+            await VerifyArchiveClosureAsync(
+                expected.Repository,
+                expected.Digest,
+                archivePath,
+                cancellationToken).ConfigureAwait(false);
+            verification = await OciImageArchiveVerifier
+                .VerifyAsync(archivePath, expected.Digest, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or JsonException)
+        {
+            throw new InvalidDataException(
+                $"Docker image archive '{archivePath}' for resource '{resource}' failed " +
+                $"verification: {exception.Message}",
+                exception);
+        }
+
+        await using (FileStream archive = new(
+            archivePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 131072,
+            useAsync: true))
+        {
+            await _engine.LoadImageAsync(archive, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        DockerImageInspectResponse? image = await _engine
+            .InspectImageAsync(verification.ImageId, cancellationToken)
+            .ConfigureAwait(false);
+        if (image is null)
+        {
+            throw new InvalidDataException(
+                $"Docker loaded OCI archive '{archivePath}' for resource '{resource}', " +
+                $"but verified image ID '{verification.ImageId}' is absent.");
+        }
+
+        if (!string.Equals(image.Id, verification.ImageId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                $"Docker loaded OCI archive '{archivePath}' for resource '{resource}', but " +
+                $"inspected image ID '{image.Id}' does not match verified archive image ID " +
+                $"'{verification.ImageId}'.");
+        }
+
+        return image;
+    }
+
+    private static async Task VerifyArchiveClosureAsync(
+        string repository,
+        string digest,
+        string archivePath,
+        CancellationToken cancellationToken)
+    {
+        string storeRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"cohesion-docker-image-{Guid.NewGuid():N}");
+        try
+        {
+            IOciImageStore store = OciImageStores.Create(storeRoot);
+            await store
+                .IngestAsync(repository, digest, archivePath, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            TryDeleteDirectory(storeRoot);
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private bool TryFindArchive(string canonicalReference, out string archivePath)
@@ -135,10 +222,31 @@ internal sealed class DockerImageRealizer : IImageRealizer
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalReference);
+        IContainerImageArtifact expected = ContainerImageArtifacts.Create(
+            default,
+            canonicalReference);
+        string expectedRepository = NormalizeDockerRepository(expected.Repository);
         string[] digests = image.RepoDigests ?? [];
         for (int index = 0; index < digests.Length; index++)
         {
-            if (string.Equals(digests[index], canonicalReference, StringComparison.OrdinalIgnoreCase))
+            IContainerImageArtifact candidate;
+            try
+            {
+                candidate = ContainerImageArtifacts.Create(default, digests[index]);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
+            if (string.Equals(
+                    NormalizeDockerRepository(candidate.Repository),
+                    expectedRepository,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    candidate.Digest,
+                    expected.Digest,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -146,5 +254,35 @@ internal sealed class DockerImageRealizer : IImageRealizer
 
         throw new InvalidDataException(
             $"Docker image inspection did not prove requested digest '{canonicalReference}'.");
+    }
+
+    private static string NormalizeDockerRepository(string repository)
+    {
+        int separator = repository.IndexOf('/');
+        if (separator < 0)
+        {
+            return $"docker.io/library/{repository}";
+        }
+
+        string first = repository[..separator];
+        bool hasRegistry = string.Equals(first, "localhost", StringComparison.OrdinalIgnoreCase)
+            || first.Contains('.', StringComparison.Ordinal)
+            || first.Contains(':', StringComparison.Ordinal);
+        if (!hasRegistry)
+        {
+            return $"docker.io/{repository}";
+        }
+
+        string registry = string.Equals(first, "index.docker.io", StringComparison.OrdinalIgnoreCase)
+            ? "docker.io"
+            : first;
+        string path = repository[(separator + 1)..];
+        if (string.Equals(registry, "docker.io", StringComparison.OrdinalIgnoreCase)
+            && !path.Contains('/', StringComparison.Ordinal))
+        {
+            path = $"library/{path}";
+        }
+
+        return $"{registry}/{path}";
     }
 }

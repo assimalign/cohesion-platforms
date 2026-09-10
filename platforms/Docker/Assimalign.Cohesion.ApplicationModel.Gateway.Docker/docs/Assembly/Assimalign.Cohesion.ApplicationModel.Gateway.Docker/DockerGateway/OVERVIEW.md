@@ -36,6 +36,21 @@ The gateway also inherits the public application-gateway lifecycle surface from
 `ApplicationGateway`. Ordinary stop preserves owned engine objects; uninstall performs the
 gateway's idempotent best-effort teardown.
 
+## Image gathering
+
+The default gather path accepts only a digest-pinned manifest artifact. If
+`DockerGatewayOptions.ImageIndexPath` is configured, it resolves the resource's own
+`ArtifactRef.Self` entry, checks the index application and source repository/digest against the
+manifest, applies `ContainerRegistry` to `<late-bound>` registry data, and resolves any
+`archivePath` relative to the index. An existing engine image is reused only after its digest is
+proved. Otherwise the gateway verifies and loads the archive or pulls by digest, then returns the
+immutable image ID used by `DockerPlanCompiler` at container creation.
+
+`ImageArchives` remains a compatibility path when no index is selected. A custom `ImageRealizer`
+bypasses default archive and pull behavior, but cannot resolve a tag-only manifest or substitute
+another repository/digest. Configured index validation and registry binding still run before it
+receives the canonical reference.
+
 ## Direct rendering
 
 ```csharp

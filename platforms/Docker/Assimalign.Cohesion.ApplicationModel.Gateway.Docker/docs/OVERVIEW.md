@@ -4,7 +4,7 @@ The Docker platform gateway: `DockerGateway : ApplicationGateway` (`Name = "dock
 each validated `cohesion/plan/v1` `ResourcePlan` into operations for a Docker-compatible engine and
 reconciles them through one controller. Podman's compatible API is the supported local target.
 
-**Design item 36 (`L04.01.04` / #23) delivery:**
+**Design items 35 (image acquisition / #32) and 36 (`L04.01.04` / #23) delivery:**
 
 - `DockerPlanCompiler` — one pure, plan-only compiler for every supported v1 plan, never keyed on
   manifest kind, resource area, capability, or CLR type. It emits one application network and one
@@ -35,12 +35,17 @@ reconciles them through one controller. Podman's compatible API is the supported
   `cohesion/sysexits/v1`. The observer can therefore apply `Always`, `OnFailure`, and `Never` and
   classify configuration/startup exits as final without adding manifest data to the pure compiler.
   Initial readiness remains the only dependency gate.
-- Image bridge — an explicit `DockerGatewayOptions.ImageArchives` mapping connects a digest-pinned
-  image reference to an OCI archive. The default realizer verifies its indexed manifest and image
-  config, derives the immutable engine image ID from that config digest, loads and inspects by ID,
-  then creates the container by that identity even when Docker did not assign a
-  `repository@digest` alias. An injected `IImageRealizer` is also supported. The mapping is
-  deliberately minimal pending design item 35's shared image index and acquisition path.
+- Image acquisition — `DockerGatewayOptions.ImageIndexPath` selects the shared
+  `application.images.json` contract. Gather resolves the resource's `ArtifactRef.Self` entry,
+  requires its application and source repository/digest to agree with the manifest, applies the
+  optional `ContainerRegistry` authority only to `<late-bound>` entries, and resolves an optional
+  `archivePath` relative to the index. The default realizer reuses an engine image only after
+  proving its digest; otherwise it verifies and loads the indexed archive, or asks the Engine API
+  to pull repository plus digest and verifies the resulting `RepoDigests`. In every case it
+  returns the immutable engine ID used to create the container. `ImageArchives` remains the legacy
+  no-index bridge. An injected `IImageRealizer` replaces engine acquisition but cannot resolve a
+  tag-only manifest or substitute its repository/digest. Indexed application, ownership, identity,
+  and registry-binding validation still precede that custom call.
 - Daemon-free render API — `IDockerComposeRenderer.Render(...)` produces a deterministic
   Compose-style document from one compiled plan and resolved inputs without connecting to an
   engine. Compose is only the output shape; the application model remains the source and
@@ -96,7 +101,12 @@ select AOT explicitly until that upstream list includes Docker.
 - The application gateway base has no custom-controller teardown outcome for a shared application
   object. Safe network deletion for custom-only and mixed-controller models needs that upstream
   seam.
+- Engine digest pull currently has no `X-Registry-Auth` option; `ContainerRegistry` is an address,
+  not a credential source. Private-registry acquisition needs an explicit AOT-safe auth seam.
+- The hermetic archive tests prove manifest/config/layer digest verification and run-by-ID behavior, but do not
+  prove that every supported classic or containerd-backed Docker daemon accepts a pure OCI-layout
+  tar through `/images/load`. The real-daemon matrix remains the compatibility authority.
 
-**Status:** design item 36 incorporates the former Docker `.01` through `.04` work items. Its
-hermetic compiler/controller/client/observer coverage and cleanly skipped daemon smoke do not claim
-real Docker/Podman end-to-end completion; that remains `.05` / #28.
+**Status:** design item 36 incorporates the former Docker `.01` through `.04` work items, while
+item 35 supplies indexed acquisition and digest pull. Their hermetic coverage and cleanly skipped
+daemon smoke do not claim real Docker/Podman end-to-end completion; that remains `.05` / #28.

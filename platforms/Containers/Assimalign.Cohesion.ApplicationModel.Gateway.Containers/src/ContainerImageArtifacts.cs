@@ -16,7 +16,8 @@ public static class ContainerImageArtifacts
     /// <param name="tag">An optional human-readable tag. It is never used for pulling.</param>
     /// <returns>The validated immutable image artifact.</returns>
     /// <exception cref="ArgumentException">
-    /// <paramref name="imageReference"/> is empty or is not a digest-pinned SHA-256 reference.
+    /// <paramref name="imageReference"/> is empty or is not a digest-pinned SHA-256 reference, or
+    /// <paramref name="tag"/> is explicitly empty.
     /// </exception>
     /// <exception cref="ArgumentNullException"><paramref name="imageReference"/> is <see langword="null"/>.</exception>
     public static IContainerImageArtifact Create(
@@ -35,55 +36,28 @@ public static class ContainerImageArtifacts
         }
 
         string repository = imageReference[..separator];
-        if (repository.IndexOf('@') >= 0
-            || ContainsWhitespace(repository))
+        if (!ContainerImageValidation.IsRepository(repository))
         {
             throw new ArgumentException(
-                "A container image repository must be non-empty and contain no whitespace or '@'.",
+                "A container image repository must be non-empty and contain no tag suffix, URI syntax, whitespace, empty segment, or '@'.",
                 nameof(imageReference));
         }
 
         string digest = imageReference[(separator + 1)..];
-        ValidateDigest(digest, nameof(imageReference));
-
-        return new ContainerImageArtifact(resource, repository, digest.ToLowerInvariant(), tag);
-    }
-
-    private static bool ContainsWhitespace(string value)
-    {
-        for (int index = 0; index < value.Length; index++)
-        {
-            if (char.IsWhiteSpace(value[index]))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void ValidateDigest(string digest, string parameterName)
-    {
-        const string prefix = "sha256:";
-        if (!digest.StartsWith(prefix, StringComparison.Ordinal) ||
-            digest.Length != prefix.Length + 64)
+        if (!ContainerImageValidation.TryNormalizeDigest(digest, out string normalizedDigest))
         {
             throw new ArgumentException(
                 "A container image digest must be 'sha256:' followed by 64 hexadecimal characters.",
-                parameterName);
+                nameof(imageReference));
         }
 
-        for (int index = prefix.Length; index < digest.Length; index++)
+        if (tag is not null && string.IsNullOrWhiteSpace(tag))
         {
-            char character = digest[index];
-            if (character is not (>= '0' and <= '9') and
-                not (>= 'a' and <= 'f') and
-                not (>= 'A' and <= 'F'))
-            {
-                throw new ArgumentException(
-                    "A container image digest must be 'sha256:' followed by 64 hexadecimal characters.",
-                    parameterName);
-            }
+            throw new ArgumentException(
+                "A container image tag must be omitted rather than empty.",
+                nameof(tag));
         }
+
+        return new ContainerImageArtifact(resource, repository, normalizedDigest, tag);
     }
 }

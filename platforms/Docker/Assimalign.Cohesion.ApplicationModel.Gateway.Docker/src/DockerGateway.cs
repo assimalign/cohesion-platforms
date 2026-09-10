@@ -111,6 +111,7 @@ public sealed class DockerGateway :
         }
 
         _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
+
         _ = DockerPlanController.ReadRestartPolicy(descriptor.Resource);
         string exitCodes = manifestResource.Manifest.Lifecycle.ExitCodes;
         if (!string.Equals(exitCodes, ExitCodeContract, StringComparison.Ordinal))
@@ -138,13 +139,68 @@ public sealed class DockerGateway :
                 $"Resource '{resource.Name}' cannot be realized by Docker because artifact.image is absent.");
         }
 
+        string realizationReference = imageReference;
+        IContainerImageArtifact? indexedArtifact = null;
+        IReadOnlyDictionary<string, string> archives =
+            new Dictionary<string, string>(_options.ImageArchives, StringComparer.Ordinal);
+        if (_options.ImageIndexPath is string imageIndexPath)
+        {
+            IApplicationImageIndex index = await ContainerImageIndexes
+                .ReadApplicationAsync(imageIndexPath, cancellationToken)
+                .ConfigureAwait(false);
+            ApplicationName manifestApplication = ApplicationName.Parse(
+                manifestResource.Manifest.Application);
+            if (index.Application != manifestApplication)
+            {
+                throw new InvalidDataException(
+                    $"Image index '{imageIndexPath}' belongs to application '{index.Application}', not resource '{resource.Name}' application '{manifestApplication}'.");
+            }
+
+            IContainerImageIndexEntry entry = ContainerImageIndexes.Resolve(
+                index,
+                resource.Name,
+                ArtifactRef.Self);
+            IContainerImageArtifact declared = ContainerImageArtifacts.Create(
+                resource.Id,
+                imageReference);
+            if (!string.Equals(declared.Repository, entry.Repository, StringComparison.Ordinal)
+                || !string.Equals(declared.Digest, entry.Digest, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Image index '{imageIndexPath}' entry for resource '{resource.Name}' declares '{entry.Repository}@{entry.Digest}', not manifest artifact.image '{declared.Repository}@{declared.Digest}'.");
+            }
+
+            string? archivePath = ContainerImageIndexes.ResolveArchivePath(imageIndexPath, entry);
+            if (string.Equals(
+                    entry.Registry,
+                    ContainerImageIndexes.LateBoundRegistry,
+                    StringComparison.Ordinal)
+                && _options.ContainerRegistry is null
+                && archivePath is null)
+            {
+                throw new InvalidOperationException(
+                    $"Image index '{imageIndexPath}' entry for resource '{resource.Name}' has a late-bound registry but DockerGatewayOptions.ContainerRegistry is absent and no archivePath is available.");
+            }
+
+            indexedArtifact = ContainerImageIndexes.CreateArtifact(
+                resource.Id,
+                entry,
+                _options.ContainerRegistry);
+            realizationReference = $"{indexedArtifact.Repository}@{indexedArtifact.Digest}";
+            var indexedArchives = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (archivePath is not null)
+            {
+                indexedArchives.Add(realizationReference, archivePath);
+            }
+
+            archives = indexedArchives;
+        }
+
         IDockerEngineClient engine = GetEngine();
         IImageRealizer realizer = _options.ImageRealizer
-            ?? new DockerImageRealizer(
-                engine,
-                new Dictionary<string, string>(_options.ImageArchives, StringComparer.Ordinal));
+            ?? new DockerImageRealizer(engine, archives);
         IContainerImageArtifact? realized = await realizer
-            .RealizeAsync(resource.Id, imageReference, cancellationToken)
+            .RealizeAsync(resource.Id, realizationReference, cancellationToken)
             .ConfigureAwait(false);
         if (realized is null)
         {
@@ -162,6 +218,24 @@ public sealed class DockerGateway :
             resource.Id,
             $"{realized.Repository}@{realized.Digest}",
             realized.Tag);
+        IContainerImageArtifact requiredArtifact = indexedArtifact
+            ?? ContainerImageArtifacts.Create(resource.Id, imageReference);
+        if (!string.Equals(
+                validated.Repository,
+                requiredArtifact.Repository,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                validated.Digest,
+                requiredArtifact.Digest,
+                StringComparison.Ordinal))
+        {
+            string authority = indexedArtifact is null
+                ? "manifest artifact"
+                : "image-index artifact";
+            throw new InvalidDataException(
+                $"The Docker image realizer returned '{validated.Repository}@{validated.Digest}' for resource '{resource.Name}', not {authority} '{requiredArtifact.Repository}@{requiredArtifact.Digest}'.");
+        }
+
         string canonicalReference = $"{validated.Repository}@{validated.Digest}";
         string inspectionReference = realized is DockerImageArtifact dockerArtifact
             ? dockerArtifact.ImageId
@@ -201,7 +275,7 @@ public sealed class DockerGateway :
             resource.Id,
             validated.Repository,
             validated.Digest,
-            validated.Tag,
+            indexedArtifact is null ? validated.Tag : indexedArtifact.Tag,
             inspection.Id);
     }
 

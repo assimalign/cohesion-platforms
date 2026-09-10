@@ -22,6 +22,8 @@ IApplicationBuilder builder = Application.CreateBuilder(applicationName, args);
 builder.UseDockerGateway(options =>
 {
     options.EngineEndpoint = new Uri("unix:///var/run/docker.sock");
+    options.ImageIndexPath = "application.images.json";
+    options.ContainerRegistry = "registry.example.test:5000";
     options.PublicHost = "localhost";
 });
 ```

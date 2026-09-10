@@ -29,6 +29,20 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
     public string? ContextName { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional <c>application.images.json</c> path used to gather resource
+    /// images. When specified, the index entry for the resource must match the digest-pinned
+    /// image declared by its manifest.
+    /// </summary>
+    public string? ImageIndexPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional registry authority applied to image-index entries whose
+    /// registry is <c>&lt;late-bound&gt;</c>. Specify an authority such as
+    /// <c>registry.example.test:5000</c>, without a URI scheme or repository path.
+    /// </summary>
+    public string? ContainerRegistry { get; set; }
+
+    /// <summary>
     /// The fallback server-side-apply field manager for gateway-scoped bootstrap objects.
     /// Application namespaces and resource objects always use
     /// <c>&lt;application&gt;@&lt;gateway-identity&gt;</c>. Defaults to <c>cohesion-gateway</c>.
@@ -36,8 +50,9 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
     public string FieldManager { get; set; } = "cohesion-gateway";
 
     /// <summary>
-    /// Gets or sets the optional image realizer used to resolve a manifest image reference.
-    /// When omitted, an already digest-pinned manifest image is validated and used directly.
+    /// Gets or sets the optional image realizer used to acquire a digest-pinned manifest image
+    /// when <see cref="ImageIndexPath"/> is not specified. Its result must preserve the manifest
+    /// repository and digest. When omitted, the validated manifest image is used directly.
     /// </summary>
     public IImageRealizer? ImageRealizer { get; set; }
 
@@ -115,11 +130,40 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
             throw new ArgumentException("ContextName must not be empty when specified.", nameof(ContextName));
         }
 
+        if (ImageIndexPath is not null && string.IsNullOrWhiteSpace(ImageIndexPath))
+        {
+            throw new ArgumentException(
+                "ImageIndexPath must not be empty when specified.",
+                nameof(ImageIndexPath));
+        }
+
+        if (ContainerRegistry is not null && !IsRegistryAuthority(ContainerRegistry))
+        {
+            throw new ArgumentException(
+                "ContainerRegistry must be a registry authority without a URI scheme or repository path.",
+                nameof(ContainerRegistry));
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(FieldManager);
         ArgumentNullException.ThrowIfNull(WarningHandler);
         if (StopGrace <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(StopGrace), "StopGrace must be greater than zero.");
         }
+    }
+
+    private static bool IsRegistryAuthority(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Contains("://", StringComparison.Ordinal)
+            || value.IndexOfAny(['/', '\\', '@', '?', '#']) >= 0)
+        {
+            return false;
+        }
+
+        return Uri.TryCreate($"http://{value}", UriKind.Absolute, out Uri? uri)
+            && !string.IsNullOrWhiteSpace(uri.Host)
+            && string.IsNullOrEmpty(uri.UserInfo)
+            && string.Equals(uri.AbsolutePath, "/", StringComparison.Ordinal);
     }
 }

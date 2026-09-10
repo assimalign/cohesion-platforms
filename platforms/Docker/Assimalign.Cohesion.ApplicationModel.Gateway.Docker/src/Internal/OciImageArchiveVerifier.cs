@@ -1,6 +1,7 @@
 using System;
 using System.Formats.Tar;
 using System.IO;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
@@ -29,13 +30,7 @@ internal static class OciImageArchiveVerifier
         string manifestPath = $"blobs/sha256/{hexadecimal}";
         byte[]? indexBytes = null;
         byte[]? manifestBytes = null;
-        await using FileStream stream = new(
-            archivePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 131072,
-            useAsync: true);
+        await using Stream stream = OpenTarStream(archivePath);
         using var reader = new TarReader(stream, leaveOpen: true);
         TarEntry? entry;
         while ((entry = reader.GetNextEntry(copyData: false)) is not null)
@@ -109,13 +104,7 @@ internal static class OciImageArchiveVerifier
     {
         const string prefix = "sha256:";
         string blobPath = $"blobs/sha256/{digest[prefix.Length..]}";
-        await using FileStream stream = new(
-            archivePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 131072,
-            useAsync: true);
+        await using Stream stream = OpenTarStream(archivePath);
         using var reader = new TarReader(stream, leaveOpen: true);
         TarEntry? entry;
         while ((entry = reader.GetNextEntry(copyData: false)) is not null)
@@ -196,6 +185,26 @@ internal static class OciImageArchiveVerifier
         using var destination = new MemoryStream();
         await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
         return destination.ToArray();
+    }
+
+    private static Stream OpenTarStream(string archivePath)
+    {
+        var stream = new FileStream(
+            archivePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 131072,
+            useAsync: true);
+        int first = stream.ReadByte();
+        int second = stream.ReadByte();
+        stream.Position = 0;
+        if (first == 0x1f && second == 0x8b)
+        {
+            return new GZipStream(stream, CompressionMode.Decompress);
+        }
+
+        return stream;
     }
 
     private static string Normalize(string name)

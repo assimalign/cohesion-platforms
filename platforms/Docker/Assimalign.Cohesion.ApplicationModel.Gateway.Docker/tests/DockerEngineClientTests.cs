@@ -85,6 +85,51 @@ public class DockerEngineClientTests
             .ShouldAllBe(request => request.RawUrl.StartsWith("/v1.51/", StringComparison.Ordinal));
     }
 
+    [Fact(DisplayName = "Cohesion Test [Docker] - Image pull: Should send repository and digest through the Engine create endpoint")]
+    public async Task PullByDigestAsync_OnDigestReference_ShouldUseSeparatedEncodedQueryValues()
+    {
+        // Arrange
+        await using var engineServer = new FakeDockerEngine();
+        using var engine = new DockerEngineClient(engineServer.Endpoint);
+        const string repository = "registry.example:5000/team/worker";
+        string digest = $"sha256:{new string('a', 64)}";
+
+        // Act
+        await engine.PullByDigestAsync(repository, digest, CancellationToken.None);
+
+        // Assert
+        engineServer.PulledImage.ShouldBe($"{repository}@{digest}");
+        engineServer.RecordedRequests.Select(request => request.RawUrl).ShouldBe(
+        [
+            "/version",
+            $"/v1.51/images/create?fromImage={Uri.EscapeDataString(repository)}&tag={Uri.EscapeDataString(digest)}",
+        ]);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Docker] - Image pull: Should surface errors from an HTTP-success progress stream")]
+    public async Task PullByDigestAsync_OnProgressError_ShouldThrowDockerEngineException()
+    {
+        // Arrange
+        await using var engineServer = new FakeDockerEngine
+        {
+            ImagePullProgressError = "manifest digest mismatch",
+        };
+        using var engine = new DockerEngineClient(engineServer.Endpoint);
+        string digest = $"sha256:{new string('a', 64)}";
+
+        // Act
+        DockerEngineException exception = await Should.ThrowAsync<DockerEngineException>(
+            () => engine.PullByDigestAsync(
+                "registry.example/team/worker",
+                digest,
+                CancellationToken.None));
+
+        // Assert
+        exception.Method.ShouldBe(HttpMethod.Post);
+        exception.StatusCode.ShouldBe(HttpStatusCode.OK);
+        exception.ResponseBody.ShouldBe("manifest digest mismatch");
+    }
+
     [Fact(DisplayName = "Cohesion Test [Docker] - Engine errors: Should retain status, method, URL, and daemon detail")]
     public async Task CreateNetworkAsync_OnDaemonError_ShouldSurfaceStructuredRequestFailure()
     {

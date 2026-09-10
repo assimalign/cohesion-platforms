@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,8 +134,8 @@ public class KubernetesGatewayTests
         exception.Message.ShouldContain("artifact.image", Case.Sensitive);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should reject an unpinned image when no image realizer is configured")]
-    public void Build_OnUnpinnedImageWithoutRealizer_ShouldRejectResource()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should reject an unpinned image")]
+    public void Build_OnUnpinnedImage_ShouldRejectResource()
     {
         // Arrange
         IApplicationBuilder builder = CreateBuilder();
@@ -148,8 +149,8 @@ public class KubernetesGatewayTests
         exception.Message.ShouldContain("@sha256:", Case.Sensitive);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should defer image resolution when an image realizer is configured")]
-    public void Build_OnImageKeyWithRealizer_ShouldDeferResolution()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should reject an unpinned image even with a custom realizer")]
+    public void Build_OnUnpinnedImageWithRealizer_ShouldRejectResource()
     {
         // Arrange
         var realizer = new FakeImageRealizer(
@@ -167,10 +168,37 @@ public class KubernetesGatewayTests
         builder.UseGateway(gateway);
 
         // Act
-        IApplication application = builder.Build();
+        ArgumentException exception = Should.Throw<ArgumentException>(() => builder.Build());
 
         // Assert
-        application.ShouldNotBeNull();
+        exception.Message.ShouldContain("@sha256:", Case.Sensitive);
+        realizer.CallCount.ShouldBe(0);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should require a digest-pinned manifest when an image index is configured")]
+    public void Build_OnTagOnlyImageWithIndex_ShouldRejectResource()
+    {
+        // Arrange
+        var realizer = new FakeImageRealizer(
+            new FakeContainerImageArtifact(
+                ResourceIdOf("web"),
+                "registry.example/test",
+                $"sha256:{new string('b', 64)}",
+                "latest"));
+        var gateway = new KubernetesGateway(new KubernetesGatewayOptions
+        {
+            ImageIndexPath = "application.images.json",
+            ImageRealizer = realizer,
+        });
+        IApplicationBuilder builder = CreateBuilder();
+        builder.AddResource(CreateManifest("registry.example/test:latest"));
+        builder.UseGateway(gateway);
+
+        // Act
+        ArgumentException exception = Should.Throw<ArgumentException>(() => builder.Build());
+
+        // Assert
+        exception.Message.ShouldContain("@sha256:", Case.Sensitive);
         realizer.CallCount.ShouldBe(0);
     }
 
@@ -189,7 +217,7 @@ public class KubernetesGatewayTests
             ImageRealizer = realizer,
         });
         IApplicationBuilder builder = CreateBuilder();
-        builder.AddResource(CreateManifest("application.images.json:web"));
+        builder.AddResource(CreateManifest(Image));
         builder.UseGateway(gateway);
         IApplication application = builder.Build();
 
@@ -217,7 +245,7 @@ public class KubernetesGatewayTests
             ImageRealizer = realizer,
         });
         IApplicationBuilder builder = CreateBuilder();
-        builder.AddResource(CreateManifest("application.images.json:web"));
+        builder.AddResource(CreateManifest(Image));
         builder.UseGateway(gateway);
         IApplication application = builder.Build();
 
@@ -228,6 +256,37 @@ public class KubernetesGatewayTests
         // Assert
         exception.Message.ShouldContain("artifact for resource");
         exception.Message.ShouldContain(ResourceIdOf("other").ToString());
+        realizer.CallCount.ShouldBe(1);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather: Should reject a different image returned by a custom realizer")]
+    public async Task GatherAsync_OnDifferentRealizedImage_ShouldRejectArtifact()
+    {
+        // Arrange
+        string otherDigest = $"sha256:{new string('b', 64)}";
+        var realizer = new FakeImageRealizer(
+            new FakeContainerImageArtifact(
+                ResourceIdOf("web"),
+                "registry.example/test",
+                otherDigest,
+                null));
+        var gateway = new KubernetesGateway(new KubernetesGatewayOptions
+        {
+            ImageRealizer = realizer,
+        });
+        IApplicationBuilder builder = CreateBuilder();
+        builder.AddResource(CreateManifest(Image));
+        builder.UseGateway(gateway);
+        IApplication application = builder.Build();
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ((IApplicationGateway)gateway).StartAsync(application.Model));
+
+        // Assert
+        exception.Message.ShouldContain(otherDigest, Case.Sensitive);
+        exception.Message.ShouldContain(Image, Case.Sensitive);
+        exception.Message.ShouldContain("manifest artifact", Case.Sensitive);
         realizer.CallCount.ShouldBe(1);
     }
 
@@ -292,6 +351,39 @@ public class KubernetesGatewayTests
         // Assert
         options.KubeConfigPath.ShouldBeNull();
         options.ContextName.ShouldBeNull();
+        options.ImageIndexPath.ShouldBeNull();
+        options.ContainerRegistry.ShouldBeNull();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Options: Should reject an empty image index path")]
+    public void Ctor_OnEmptyImageIndexPath_ShouldThrowArgumentException()
+    {
+        // Arrange
+        var options = new KubernetesGatewayOptions { ImageIndexPath = " " };
+
+        // Act
+        ArgumentException exception = Should.Throw<ArgumentException>(
+            () => new KubernetesGateway(options));
+
+        // Assert
+        exception.ParamName.ShouldBe(nameof(KubernetesGatewayOptions.ImageIndexPath));
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Options: Should reject a registry value that is not an authority")]
+    [InlineData("https://registry.example.test")]
+    [InlineData("registry.example.test/team")]
+    [InlineData(" ")]
+    public void Ctor_OnInvalidContainerRegistry_ShouldThrowArgumentException(string registry)
+    {
+        // Arrange
+        var options = new KubernetesGatewayOptions { ContainerRegistry = registry };
+
+        // Act
+        ArgumentException exception = Should.Throw<ArgumentException>(
+            () => new KubernetesGateway(options));
+
+        // Assert
+        exception.ParamName.ShouldBe(nameof(KubernetesGatewayOptions.ContainerRegistry));
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Import: Should reject invalid Kubernetes options before resolution")]

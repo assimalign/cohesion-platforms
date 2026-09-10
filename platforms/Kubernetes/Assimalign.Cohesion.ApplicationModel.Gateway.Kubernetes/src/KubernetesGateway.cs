@@ -26,6 +26,7 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
     private readonly KubernetesGatewayOptions _options;
     private readonly InMemoryResourceStateManager _state = new();
     private readonly KubernetesPlanCompiler _compiler = new();
+    private readonly KubernetesImageGatherer _imageGatherer;
     private readonly KubernetesPlanController _planController;
     private readonly IReadOnlyList<IApplicationResourceController> _controllers;
     private readonly KubernetesGatewayObservationRegistry _observations;
@@ -33,6 +34,8 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
     private readonly List<ApplicationName> _namespaceOrder = [];
     private readonly Dictionary<ApplicationName, ExportRegistration> _exports = new();
     private readonly HashSet<ApplicationName> _teardownNamespaces = new();
+    private readonly Dictionary<IApplicationResource, ImageGatherContext> _imageContexts =
+        new(ReferenceEqualityComparer.Instance);
 
     private IKubernetes? _client;
     private bool _namespaceShutdownFailed;
@@ -52,11 +55,20 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A Kubernetes option is invalid.</exception>
     public KubernetesGateway(KubernetesGatewayOptions options)
+        : this(options, CreateKindImageLoader(options))
+    {
+    }
+
+    internal KubernetesGateway(
+        KubernetesGatewayOptions options,
+        IKindImageLoader kindImageLoader)
         : base(options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(kindImageLoader);
         options.ValidateKubernetes();
         _options = options;
+        _imageGatherer = new KubernetesImageGatherer(options, kindImageLoader);
         var resources = new KubernetesGatewayResourceApi(GetRequiredClient);
         KubernetesPlanController? planController = null;
         _observations = new KubernetesGatewayObservationRegistry(
@@ -125,10 +137,11 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
                 "its manifest does not declare artifact.image.");
         }
 
-        if (_options.ImageRealizer is null)
-        {
-            _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
-        }
+        _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
+
+        _imageContexts[descriptor.Resource] = new ImageGatherContext(
+            model.Environment.IsDevelopment,
+            plan.Container.Artifact);
     }
 
     /// <inheritdoc/>
@@ -136,46 +149,19 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         IApplicationResource resource,
         CancellationToken cancellationToken)
     {
-        if (resource is not IManifestResource manifestResource)
+        if (!_imageContexts.TryGetValue(resource, out ImageGatherContext context))
         {
             throw new InvalidOperationException(
-                $"Resource '{resource.Name}' cannot be realized by the Kubernetes gateway because " +
-                $"it does not expose an {nameof(IManifestResource)} manifest.");
+                $"Resource '{resource.Name}' has no validated Kubernetes image-gather context.");
         }
 
-        string? image = manifestResource.Manifest.Artifact.Image;
-        if (string.IsNullOrWhiteSpace(image))
-        {
-            throw new InvalidOperationException(
-                $"Resource '{resource.Name}' cannot be realized by the Kubernetes gateway because " +
-                "its manifest does not declare artifact.image.");
-        }
-
-        if (_options.ImageRealizer is not null)
-        {
-            IContainerImageArtifact? realized = await _options.ImageRealizer
-                .RealizeAsync(resource.Id, image, cancellationToken)
-                .ConfigureAwait(false);
-            if (realized is null)
-            {
-                throw new InvalidOperationException(
-                    $"The image realizer returned no artifact for resource '{resource.Name}'.");
-            }
-
-            if (realized.Resource != resource.Id)
-            {
-                throw new InvalidOperationException(
-                    $"The image realizer returned an artifact for resource '{realized.Resource}' " +
-                    $"while realizing '{resource.Id}'.");
-            }
-
-            return ContainerImageArtifacts.Create(
-                resource.Id,
-                $"{realized.Repository}@{realized.Digest}",
-                realized.Tag);
-        }
-
-        return ContainerImageArtifacts.Create(resource.Id, image);
+        return await _imageGatherer
+            .GatherAsync(
+                resource,
+                context.ArtifactReference,
+                context.IsDevelopment,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -814,6 +800,15 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
     private static string CreateAbsoluteAddress(ResourceEndpoint endpoint) =>
         Uri.CreateEndpoint(endpoint.Scheme, endpoint.Host!, endpoint.Port).ToEndpointString();
 
+    private static IKindImageLoader CreateKindImageLoader(KubernetesGatewayOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new KindImageLoader(
+            options,
+            new KubernetesContextResolver(),
+            new KindCommandRunner());
+    }
+
     private static void RequireObjectOwnership(
         V1ObjectMeta? metadata,
         string description,
@@ -840,6 +835,10 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         bool HasInternalObservation);
 
     private readonly record struct ExportRegistration(string Owner, bool Adopt);
+
+    private readonly record struct ImageGatherContext(
+        bool IsDevelopment,
+        ArtifactRef ArtifactReference);
 
     private sealed class NamespaceRegistration : IDisposable
     {

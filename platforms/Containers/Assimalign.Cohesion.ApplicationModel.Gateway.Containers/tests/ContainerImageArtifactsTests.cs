@@ -28,8 +28,9 @@ public class ContainerImageArtifactsTests
         artifact.Tag.ShouldBe("preview");
     }
 
-    [Theory(DisplayName = "Cohesion Test [Containers] - Create: Should reject a non-digest-pinned image reference")]
+    [Theory(DisplayName = "Cohesion Test [Containers] - Create: Should reject an invalid image reference")]
     [InlineData("registry.example.test/team/api:latest")]
+    [InlineData("registry.example.test/team/api:latest@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")]
     [InlineData("registry.example.test/team /api@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")]
     [InlineData("registry.example.test/team@api@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")]
     [InlineData("registry.example.test/team/api@sha256:1234")]
@@ -58,5 +59,19 @@ public class ContainerImageArtifactsTests
             $"registry.example.test/team/api@{uppercase}");
 
         artifact.Digest.ShouldBe(Digest);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Create: Should reject an empty metadata tag")]
+    public void Create_OnEmptyTag_ShouldRejectArtifact()
+    {
+        // Arrange
+        string reference = $"registry.example.test/team/api@{Digest}";
+
+        // Act
+        ArgumentException exception = Should.Throw<ArgumentException>(
+            () => ContainerImageArtifacts.Create(ResourceId.New(), reference, " "));
+
+        // Assert
+        exception.ParamName.ShouldBe("tag");
     }
 }

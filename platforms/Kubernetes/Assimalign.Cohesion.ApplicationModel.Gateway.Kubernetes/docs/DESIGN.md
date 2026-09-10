@@ -1,7 +1,7 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes — Design
 
-> Implementation record for developer-experience design item 34
-> (`L04.01.03.09`, cohesion-platforms#31). The authority is
+> Implementation record for developer-experience design items 34 and 35
+> (`L04.01.03.09`, cohesion-platforms#31; `L04.01.02.07`, cohesion-platforms#32). The authority is
 > `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed 2026-09-06) and
 > `docs/REALIZATION_PLAN.md` in the cohesion repo.
 
@@ -38,6 +38,25 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
   volume updates in place; `bootstrap-token` is reserved even when no credential is present. A
   compiled, workload-kind-aware `cohesion.io/workload-revision` on every pod template lets
   readiness ignore overlapping pods from an older rollout without changing the plan hash.
+- **Gather resolves only the resource's own image.** When `ImageIndexPath` is configured, Gather
+  reads the source-generated `cohesion/images/v1` application index, requires its application to
+  match the manifest, and resolves the plan's `ArtifactRef.Self` by `ResourceName`. The resulting
+  repository and digest must exactly match the digest-pinned manifest artifact before any target
+  binding. `archivePath` is relative to the index and must name an existing file. A configured
+  `ContainerRegistry` prefixes only `<late-bound>` entries on the non-Kind registry route; a fixed
+  repository is never rewritten and a tag is never a pull reference. A Development Kind archive
+  retains its published repository so containerd resolves the imported name and digest. With no
+  index, an `IImageRealizer` may acquire the digest-pinned manifest artifact but must preserve its
+  repository and digest; the direct digest-pinned artifact remains the other acquisition path.
+- **Kind loading is a Development gather action.** The same kubeconfig resolution used for the
+  Kubernetes client supplies the current context. A `kind-<cluster>` context plus an advertised
+  archive invokes `kind load image-archive <archive> --name <cluster>` before observer/client
+  startup. Successful loads are deduplicated by context and digest for the gateway session. The
+  process inherits the caller's environment, including `KIND_EXPERIMENTAL_PROVIDER=podman`, and
+  honors cancellation. A missing executable warns and skips the command, after which a configured
+  registry may supply late binding; unresolved late binding fails rather than falling through to
+  an implicit pull. A started command's non-zero exit is an actionable gather failure.
+  Non-Development and non-Kind paths do not start a process.
 - **Observed state has one Kubernetes writer.** The single list+watch informer publishes locally
   realized lifecycle and `ResourceEndpoint` observations through the application-scoped state
   manager exposed by the gateway. A failing liveness signal can observe `Degraded`; it is never a
@@ -117,6 +136,11 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
 - **`KUBECONFIG` is a path list.** Resolution mirrors kubectl: explicit `KubeConfigPath` →
   `KUBECONFIG` (first existing entry in the platform path-separated list) → default
   `~/.kube/config` → in-cluster configuration. Failure is actionable.
+- **Image acquisition stays out of the compiler.** Index parsing, late binding, and Kind loading
+  happen in Gather. The compiler still receives one validated `IContainerImageArtifact` beside the
+  immutable plan and always emits `repository@digest` with `IfNotPresent`; direct render never
+  reads an index or contacts a process/cluster. Embedded-registry node reachability is deliberately
+  left to the topology work in cohesion-platforms#22.
 
 ## AOT posture
 
@@ -136,9 +160,11 @@ remains preferred for dependency and startup hygiene.
 ## Delivery boundary and upstream gaps
 
 Design item 34 replaces the pre-plan, capability-interface controller direction with the generic
-compiler/controller path and packages the `kubernetes` `CohesionGatewayProvider`. The package can
-compile and test Kubernetes object graphs hermetically and consume an already digest-pinned image;
-design item 35 adds the shared image index, registry, archive, and daemon-load machinery.
+compiler/controller path and packages the `kubernetes` `CohesionGatewayProvider`. Design item 35
+adds application-index resolution, target registry identity, and the Kind archive-load path while
+leaving the compiler unchanged. Both the acquisition component and Kind command runner are tested
+through internal seams; the ordinary suite requires no live cluster, and the real Kind smoke is
+explicitly opted in and dynamically skipped when its prerequisites are absent.
 
 The following criteria cannot be completed honestly inside this package against the current
 upstream contract:
@@ -163,6 +189,11 @@ upstream contract:
   member gateway topology marker. Development port-forward management and enforcement that only
   the root `IApplicationSet` gateway owns Production therefore require upstream seams; namespace
   ownership and explicit adoption are enforced here regardless.
+- `ApplicationGateway.GatherAsync` receives only `IApplicationResource`, not its owning model or
+  plan. Kubernetes validation therefore records the Development flag and `ArtifactRef` against the
+  exact resource instance before Gather. `ImageIndexPath` identifies one application index; a
+  first-class application-to-index resolver is still needed for an application-set session that
+  consumes distinct index files for different member applications.
 - The base observer lifecycle hook does not identify whether it was stopped for `StopAsync`,
   `UninstallAsync`, or startup rollback, and a custom controller cannot report its delete outcome
   to this package. The built-in plan controller records the distinction explicitly, but an

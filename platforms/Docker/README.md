@@ -10,9 +10,9 @@ the supported local engine.
 
 | Project | Purpose |
 | --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | `DockerGateway : ApplicationGateway` (`Name = "docker"`), `DockerPlanCompiler`, plan controller, BCL Engine API client, observer/supervisor, daemon-free renderer, and `UseDockerGateway()`. Design item 36 is tracked by [`L04.01.04` / #23](https://github.com/assimalign/cohesion-platforms/issues/23). |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | `DockerGateway : ApplicationGateway` (`Name = "docker"`), `DockerPlanCompiler`, plan controller, BCL Engine API client, observer/supervisor, daemon-free renderer, and `UseDockerGateway()`. Docker delivery is tracked by [image item 35 / #32](https://github.com/assimalign/cohesion-platforms/issues/32) and [`L04.01.04` / #23](https://github.com/assimalign/cohesion-platforms/issues/23). |
 
-## Design item 36 delivery
+## Design items 35 and 36 delivery
 
 - `DockerPlanCompiler` accepts every validated v1 plan through one generic, plan-only path. It never dispatches
   on manifest kind, resource area, or CLR type. Each resource becomes one container; a
@@ -56,12 +56,16 @@ the supported local engine.
   Compose is an inspection/output shape, not the desired-state source or a second reconciliation
   path. Application-set `--mode render` is not wired against the currently pinned upstream
   package, as recorded below.
-- The default image path accepts an explicit digest-pinned image-reference-to-OCI-archive mapping,
-  verifies the indexed manifest and config blobs, derives and inspects the immutable engine image
-  ID, and then runs by that ID even when Docker did not assign the loaded image a
-  `repository@digest` alias. This is the smallest bridge available until design item 35 supplies
-  the shared image index and acquisition machinery; callers may instead provide an
-  `IImageRealizer`.
+- The default image path can resolve each resource's `ArtifactRef.Self` entry from a shared
+  `application.images.json` file. It verifies that the index application and source
+  repository/digest agree with the resource manifest, applies `ContainerRegistry` only to
+  `<late-bound>` entries, and resolves `archivePath` relative to the index. An indexed archive is
+  verified and loaded before the container runs by immutable image ID; without an archive, the
+  engine pulls the repository by digest and the gateway proves the resulting `RepoDigests` before
+  returning that same ID. The older `ImageArchives` mapping remains the explicit fallback when no
+  index is configured. A custom `IImageRealizer` replaces engine acquisition but cannot resolve a
+  tag-only manifest or substitute another image: it must preserve the manifest repository/digest,
+  or the validated registry-bound repository/digest when an index is configured.
 - The NuGet package contributes the `docker` `CohesionGatewayProvider` through `buildTransitive`
   metadata with `RequiresJit=false`.
 
@@ -111,6 +115,10 @@ the supported local engine.
   immutable upstream package carries the interface and this repository advances its package floor.
 - The daemon smoke test is cleanly skipped when no compatible Docker/Podman endpoint is available.
   Real daemon end-to-end coverage remains `L04.01.04.05`; item 36 does not claim it.
+- Registry pull currently sends no `X-Registry-Auth` payload, so `ContainerRegistry` identifies an
+  unauthenticated/public registry endpoint rather than a credential source. Direct Engine load of
+  a verified OCI-layout archive is also covered hermetically but not yet proven across classic and
+  containerd-backed Docker image stores; that belongs in the real-daemon matrix.
 
 See `.claude/rules/platform-areas.md` for the binding architecture rules and
 [docs/PLATFORMS_PROGRAM_PLAN.md](../../docs/PLATFORMS_PROGRAM_PLAN.md) for sequencing. Project-level

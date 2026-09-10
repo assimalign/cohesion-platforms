@@ -14,6 +14,8 @@ using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
+
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 
 internal sealed class DockerEngineClient : IDockerEngineClient
@@ -123,6 +125,29 @@ internal sealed class DockerEngineClient : IDockerEngineClient
         using HttpRequestMessage request = CreateRequest(HttpMethod.Post, path);
         request.Content = new BorrowedStreamContent(imageArchive, _tarMediaType);
 
+        using HttpResponseMessage response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        await ReadProgressResponseAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PullByDigestAsync(
+        string repository,
+        string digest,
+        CancellationToken cancellationToken = default)
+    {
+        IContainerImageArtifact image = ContainerImageArtifacts.Create(
+            default,
+            $"{repository}@{digest}");
+        ThrowIfDisposed();
+
+        string path = await GetApiPathAsync(
+            $"/images/create?fromImage={EncodeQueryValue(image.Repository)}&tag={EncodeQueryValue(image.Digest)}",
+            cancellationToken).ConfigureAwait(false);
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, path);
         using HttpResponseMessage response = await _httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,

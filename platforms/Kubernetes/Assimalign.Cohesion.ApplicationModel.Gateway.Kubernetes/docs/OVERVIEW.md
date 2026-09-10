@@ -35,10 +35,20 @@ Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-appro
 - NuGet `buildTransitive` metadata — contributes the statically generated `kubernetes` gateway
   provider and declares `RequiresJit=true`.
 
-Kind-on-Podman image loading and the image index are sequenced through design item 35. Export,
-Kubernetes import, and the direct render surface are included. Development port-forwarding,
-bootstrap output, and render CLI integration also require the upstream command/lifetime surfaces
-described below.
+**Design item 35 (`L04.01.02.07` / #32) integration:** an optional `ImageIndexPath` makes Gather
+read the validated `cohesion/images/v1` application index and resolve only the resource's own
+`ArtifactRef.Self` entry. The index application and repository/digest must match the manifest.
+Relative archives are validated before use, and `ContainerRegistry` prefixes only a
+`<late-bound>` entry on the non-Kind registry route. In Development, a selected
+`kind-<cluster>` context loads an advertised
+archive through `kind load image-archive --name <cluster>` once per context/digest; the process
+inherits `KIND_EXPERIMENTAL_PROVIDER` and the pod keeps the archive's published repository rather
+than receiving a registry prefix. A missing Kind executable warns and skips the daemon-load
+attempt; late binding then uses a configured registry or fails, never an implicit pull. A no-index custom realizer may acquire only the
+digest-pinned manifest identity; the direct-digest path and hermetic render surface remain
+available. Export and Kubernetes import are included. Development port-forwarding, registry
+reachability topology, bootstrap output, and render CLI integration require the later/upstream
+surfaces described below.
 
 **Dependencies:** the generic ApplicationModel + Gateway base packages, `platforms/Containers`,
 and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.Hosting`,
@@ -76,5 +86,6 @@ because that resource cannot report the outcome needed to authorize namespace de
   Development use to Local, InProcess, or Docker.
 
 **Status:** design item 33 delivered the contract/package gate; item 34 delivers the generic
-Kubernetes plan compiler/controller and provider metadata. Full image-backed cluster startup
-remains gated on design item 35.
+Kubernetes plan compiler/controller and provider metadata. Item 35 adds application-index
+resolution, late-bound registry identity, and the Development Kind archive-load path; arbitrary
+non-Kind registry reachability remains tracked separately.

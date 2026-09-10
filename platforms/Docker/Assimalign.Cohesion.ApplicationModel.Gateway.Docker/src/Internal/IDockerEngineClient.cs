@@ -22,6 +22,11 @@ internal interface IDockerEngineClient : IDisposable
         bool quiet = true,
         CancellationToken cancellationToken = default);
 
+    Task PullByDigestAsync(
+        string repository,
+        string digest,
+        CancellationToken cancellationToken = default);
+
     Task<DockerNetworkInspectResponse?> InspectNetworkAsync(
         string networkIdOrName,
         CancellationToken cancellationToken = default);

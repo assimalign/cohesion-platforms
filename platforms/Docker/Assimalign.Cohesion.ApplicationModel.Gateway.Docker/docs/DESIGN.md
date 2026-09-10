@@ -1,9 +1,9 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Docker — Design
 
-> Implementation record for developer-experience design item 36 (`L04.01.04`,
-> cohesion-platforms#23). The authority is `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed
-> 2026-09-06), especially runtime-contract section 5, and `docs/REALIZATION_PLAN.md` in the
-> cohesion repo.
+> Implementation record for developer-experience image item 35 (cohesion-platforms#32) and Docker
+> item 36 (`L04.01.04`, cohesion-platforms#23). The authority is
+> `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed 2026-09-06), especially runtime-contract section 5,
+> and `docs/REALIZATION_PLAN.md` in the cohesion repo.
 
 ## Design intent
 
@@ -83,8 +83,9 @@ so the controller path can preserve restart and exit-code semantics without teac
   exit 70 (startup) to remain final. The observer honors `Always`, `OnFailure`, and `Never` with
   bounded backoff. Graceful container stop uses `plan.Workload.StopGraceSeconds`
   (`docker stop -t 30` for the default plan value).
-- **BCL-only Engine API.** The typed client covers the fixed item 36 surface: image load/inspect,
-  container create/start/stop/remove/inspect, network and volume create/inspect/remove, and events.
+- **BCL-only Engine API.** The typed client covers the Docker surface: image
+  pull/load/inspect, container create/start/stop/remove/inspect, network and volume
+  create/inspect/remove, and events.
   It uses BCL HTTP primitives over `http`, `https`, Unix-domain sockets (`unix`), and Windows named
   pipes (`npipe`) with source-generated `System.Text.Json`; it does not use reflection-based
   serialization. `/_ping` and `GET /version` are unversioned. The client treats the reported
@@ -92,14 +93,23 @@ so the controller path can preserve restart and exit-code semantics without teac
   v1.25–v1.51 range, selects the highest mutual version, and caches `/vX.Y` for every versioned
   operation. An omitted engine minimum is treated as 1.0; malformed values or no overlap throw
   `NotSupportedException` before the operation proceeds.
-- **Digest-verified archive bridge.** The default `IImageRealizer` first accepts an already present
-  digest-pinned image or verifies an explicitly configured OCI archive's index, manifest, and
-  config blobs. It derives the immutable Docker image ID from the verified config digest, loads
-  the archive, inspects that ID (loaded archives need not acquire a `repository@digest` alias), and
-  returns the canonical repository/digest artifact with the engine ID used at create.
-  `DockerGatewayOptions.ImageArchives` is intentionally only a digest-pinned image-reference to
-  archive-path mapping. It is the minimum explicit bridge pending design item 35's shared
-  `application.images.json` index and acquisition pipeline, not a private competing index.
+- **Index-resolved, digest-verified image acquisition.** When `ImageIndexPath` is configured, Gather
+  reads the shared `application.images.json`, verifies its application, resolves the resource's
+  `ArtifactRef.Self` entry, and requires the entry repository/digest to match the manifest before
+  applying a target `ContainerRegistry` to `<late-bound>` registry data. `archivePath` is resolved
+  relative to the index without allowing directory escape. A late-bound entry without a registry
+  binding is accepted only when it carries an archive. The default `IImageRealizer` then prefers
+  an already present digest-proven engine image, followed by the verified archive, followed by a
+  digest pull. Archive load derives and inspects the immutable image ID from the verified config;
+  loaded archives need not acquire a `repository@digest` alias. Pull calls
+  `POST /images/create` with separate `fromImage=<repository>` and `tag=<digest>` values, drains
+  the progress stream, then inspects the canonical reference and requires its repository/digest in
+  `RepoDigests`, accepting Docker's equivalent `docker.io[/library]` normalization.
+  Both paths return the engine ID used at create. `ImageArchives` remains the no-index compatibility
+  bridge. A custom `IImageRealizer` replaces default engine acquisition, but the manifest remains
+  digest-pinned and its result cannot substitute another repository/digest. When an index is
+  configured it receives the reference only after application, own-entry, manifest identity, and
+  late-bound registry validation and must return that same indexed repository and digest.
 - **Daemon-free direct render API.** `IDockerComposeRenderer.Render(...)` compiles the same plan
   shape into a deterministic Compose-style document without creating an Engine API client or
   contacting a daemon. The rendering is review/debug output; it cannot become a second desired-
@@ -171,9 +181,10 @@ the upstream allowlist.
 ## Delivery boundary and upstream gaps
 
 Design item 36 reuses `L04.01.04` / cohesion-platforms#23 and incorporates the former Docker
-`.01` through `.04` client, gateway/image bridge, compiler/controller, and observer slices. The
-Podman end-to-end harness remains separately tracked as `.05`. Item 35 remains the owner of the
-shared image index, registry, and general archive acquisition path.
+`.01` through `.04` client, gateway/image bridge, compiler/controller, and observer slices. Design
+item 35 adds the shared image-index resolution and digest-pull path described above. The Podman
+end-to-end harness remains separately tracked as `.05`; the shared embedded registry and general
+OCI-store responsibilities remain in `Gateway.Containers`.
 
 The absence of restart policy from `ResourcePlan` is not an implementation gap. The compiler stays
 strictly plan-based, while the controller reads
@@ -212,6 +223,13 @@ engine and upstream package surfaces:
   dependency value without that scheme.
 - The current upstream `Sdk.Gateway` early auto-AOT allowlist omits Docker even though this package
   is `IsAotCompatible=true` and advertises `RequiresJit=false`.
+- `ContainerRegistry` supplies only an authority. `PullByDigestAsync` does not yet send
+  `X-Registry-Auth`, so authenticated private registries require a future explicit credential
+  seam rather than ambient Docker CLI state.
+- The archive verifier proves the requested manifest, config, and layer closure before load, and the
+  runtime always creates by the verified image ID. Hermetic tests do not establish that a pure
+  OCI-layout tar is accepted by every classic and containerd-backed Docker image store; retain
+  that case in the real-daemon compatibility matrix.
 - The gateway base exposes neither a teardown outcome nor a shared-object release signal from a
   custom controller. A custom-controlled Docker resource can share the application network, so a
   built-in-only success is insufficient proof that the network is safe to remove. Custom-only and

@@ -2,22 +2,28 @@
 
 Shared, platform-neutral container-gateway infrastructure used by both the Docker and Kubernetes
 gateways. This area exists so the two platform gateways stay thin: everything about *images* —
-locating them, verifying them, indexing them, and (eventually) serving them — lives here.
+locating them, verifying them, indexing them, and serving them — lives here.
 
 ## Projects
 
 | Project | Purpose |
 | --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Digest-pinned container artifact seam, followed by the `application.images.json` image-index model, OCI image store, registry infrastructure, and shared test primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | `cohesion/images/v1` index reader, digest-pinned artifact seam, verified OCI/docker-save disk store, pull-only embedded OCI Distribution registry, and shared acquisition primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
 
-Design item 34 lands only `ContainerImageArtifacts.Create`, the minimal validated artifact seam
-needed by the Kubernetes compiler. Image indexes, registry/archive acquisition, and daemon-load
-behavior remain design item 35; this package does not resolve mutable tags in the meantime.
+Design item 35 adds the exact [`image.json` and `application.images.json` contract](Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/IMAGE_INDEX.md).
+Each plan resolves only its own entry (`ArtifactRef.Self`); missing entries, duplicate resources,
+tag-only identities, and digest mismatches fail before platform contact. `archivePath` is optional,
+relative to the index, and cannot escape its directory.
 
-Planned siblings per the [program plan](../../docs/PLATFORMS_PROGRAM_PLAN.md): the image-gathering
-build seam ([#12](https://github.com/assimalign/cohesion-platforms/issues/12)), the sample E2E
-resource ([#10](https://github.com/assimalign/cohesion-platforms/issues/10)), and the embedded OCI
-Distribution registry ([#13](https://github.com/assimalign/cohesion-platforms/issues/13)).
+The on-disk store verifies every OCI blob before placing it under its SHA-256 address. A bounded
+BCL loopback HTTP/1.1 listener serves stored manifests and repository-reachable blobs through the
+pull-only Registry API v2 (`GET`/`HEAD`). This BCL implementation preserves COHPLT001: the older
+program-plan suggestion to use `Web.Routing` would transitively bring the forbidden
+`Assimalign.Cohesion.Hosting` assembly into this shipped project.
+
+The cohesion SDK item will produce and gather the documented indexes. General registry
+reachability from Kubernetes nodes remains Kubernetes `L04.01.03.08` / #22; this area does not
+invent that topology.
 
 ## Layering
 
