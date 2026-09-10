@@ -33,19 +33,19 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 | L04.01.03.07 | Cross-resource discovery/export/import slice (incorporated by design item 34) | W03 | P003 | [#21](https://github.com/assimalign/cohesion-platforms/issues/21) |
 | L04.01.03.08 | Registry reachability topologies (local mirror, in-cluster NodePort) | W04 | P004 | [#22](https://github.com/assimalign/cohesion-platforms/issues/22) |
 | L04.01.03.09 | Kubernetes gateway as `KubernetesPlanCompiler` + `KubernetesPlanController` over `ResourcePlan` (design item 34) | W03 | P002 | [#31](https://github.com/assimalign/cohesion-platforms/issues/31) |
-| **L04.01.04** | **Platforms - Docker** (area epic) | W03 | P003 | [#23](https://github.com/assimalign/cohesion-platforms/issues/23) |
-| L04.01.04.01 | Docker Engine API client (AOT-safe, npipe/unix socket) | W03 | P003 | [#24](https://github.com/assimalign/cohesion-platforms/issues/24) |
-| L04.01.04.02 | Docker gateway + image load | W03 | P003 | [#25](https://github.com/assimalign/cohesion-platforms/issues/25) |
-| L04.01.04.03 | Docker plan compiler + controller (network, containers, volumes, ports) | W04 | P003 | [#26](https://github.com/assimalign/cohesion-platforms/issues/26) |
-| L04.01.04.04 | Docker observer (events + inspect → lifecycle) | W04 | P003 | [#27](https://github.com/assimalign/cohesion-platforms/issues/27) |
+| **L04.01.04** | **Platforms - Docker: generic gateway (design item 36; incorporates `.01`–`.04`)** | W03 | P003 | [#23](https://github.com/assimalign/cohesion-platforms/issues/23) |
+| L04.01.04.01 | Docker Engine API client (incorporated by design item 36) | W03 | P003 | [#24](https://github.com/assimalign/cohesion-platforms/issues/24) |
+| L04.01.04.02 | Docker gateway + image load (incorporated by design item 36) | W03 | P003 | [#25](https://github.com/assimalign/cohesion-platforms/issues/25) |
+| L04.01.04.03 | Docker plan compiler + controller (incorporated by design item 36) | W04 | P003 | [#26](https://github.com/assimalign/cohesion-platforms/issues/26) |
+| L04.01.04.04 | Docker observer (incorporated by design item 36) | W04 | P003 | [#27](https://github.com/assimalign/cohesion-platforms/issues/27) |
 | L04.01.04.05 | Podman end-to-end harness | W04 | P003 | [#28](https://github.com/assimalign/cohesion-platforms/issues/28) |
 
 ## Stages
 
 - **Stage 0 — Delivery gate (W01 + off-gate re-pin).** `L04.01.01.01/.02` establish the build and feed. Design item 33 (`L04.01.01.05`) then advances the contract floor to `10.0.1-preview.3`, adopts the public state manager, and lands COHPLT001; it must complete before the Kubernetes or Docker plan compilers. `.03/.04` can trail inside the original stage.
 - **Stage 1 — Container foundation + K8s bring-up (W02).** Two lanes: (a) Containers `.01/.02/.03`; (b) Kubernetes `.02` (`.01`, the AOT spike, was closed as obsolete when the repo's AOT mandate was dropped — the skeleton codes against `KubernetesClient` directly).
-- **Stage 2 — Kubernetes end-to-end (W03).** Design item 34 (`.09`, incorporating the `.03/.04/.07` slices) plus Kubernetes `.05/.06` and Containers `.04/.05`, after item 33. Exit criterion: the sample application reaches `Running` on Kind-on-Podman through its validated `ResourcePlan`, with dependency ordering, `Blocked` propagation, non-destructive `StopAsync`, and namespace removal through teardown/`UninstallAsync` proven separately. Docker lane `.01/.02` may start in parallel after the same re-pin.
-- **Stage 3 — Docker end-to-end + registry topologies (W04).** Docker `.03/.04/.05`; Containers `.06`; Kubernetes `.08`.
+- **Stage 2 — Kubernetes end-to-end (W03).** Design item 34 (`.09`, incorporating the `.03/.04/.07` slices) plus Kubernetes `.05/.06` and Containers `.04/.05`, after item 33. Exit criterion: the sample application reaches `Running` on Kind-on-Podman through its validated `ResourcePlan`, with dependency ordering, `Blocked` propagation, non-destructive `StopAsync`, and namespace removal through teardown/`UninstallAsync` proven separately. Docker design item 36 (`L04.01.04` / #23, incorporating its `.01`–`.04` slices) may start in parallel after the same re-pin.
+- **Stage 3 — Docker end-to-end + registry topologies (W04).** Complete Docker design item 36 and its remaining `.05` real-daemon E2E harness; Containers `.06`; Kubernetes `.08`.
 
 ## Requirements by area
 
@@ -111,13 +111,94 @@ Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel
 
 ### L04.01.04 — Docker
 
-`Assimalign.Cohesion.ApplicationModel.Gateway.Docker` — the smaller sibling (~80 % shared machinery via Containers):
+`Assimalign.Cohesion.ApplicationModel.Gateway.Docker` is design item 36 (`L04.01.04` / #23),
+incorporating the former `.01`–`.04` client, gateway, compiler/controller, and observer slices. The
+real-daemon harness remains `.05` / #28:
 
-- **Client:** minimal typed Docker Engine REST client over named pipe (Windows) / Unix socket on Cohesion's own connection stack — source-generated serialization; Podman's Docker-compatible API is the supported local target. Scope: images (load/inspect), containers (create/start/stop/remove/inspect), networks, events. *(Docker.DotNet is disfavored on dependency-hygiene grounds — large surface, external serializer dependency; with the AOT mandate dropped it is no longer categorically excluded.)*
-- **Gateway:** `GatherAsync` from `application.images.json`; image load from OCI tarball with digest verification; `UseDockerGateway()`.
-- **One compiler/controller:** `DockerPlanCompiler` compiles every generic plan to network/container or run-once operations, named claims, tmpfs inputs, ports, probes, and stop grace. It never selects on resource kind, area, or CLR type. `DockerPlanController` performs idempotent engine I/O; registered domain overrides are consulted first.
-- **Observer:** Docker events reconciled with inspect polling produce observed lifecycle/endpoints through the public state manager. Liveness failure becomes non-gating `Degraded`; dependency inputs come from the base's immutable observed snapshot.
-- **Lifecycle/E2E:** stop releases supervision and retains persistent engine state; teardown removes containers/network in best-effort reverse order. Podman E2E covers plan gates, ordering, `Blocked`, `Degraded`, stop, and teardown independently.
+- **One plan-only compiler:** `DockerPlanCompiler` consumes every supported
+  `cohesion/plan/v1` plan through one pure path, never dispatching on manifest kind, resource area,
+  capability, or CLR type. Unsupported schema/specification and replica semantics fail before
+  image acquisition or engine contact; unknown Docker hints warn once per gateway session and are
+  ignored. Each accepted plan produces one container: `DaemonSet` is one container in the
+  single-engine topology, while `Job` is a run-once container satisfying on `Stopped`.
+- **Compiler boundary and identity:** artifact identity, resolved Configuration/Secret/bootstrap
+  inputs, Docker options, and the immutable observed-dependency snapshot remain explicit inputs
+  beside the plan. Only the canonical plan contributes to `cohesion.io/plan-hash`; rotation and
+  observations use separate runtime reconciliation metadata. Application/resource/owner labels,
+  not names alone, identify managed objects. Lifecycle supervision remains outside the compiler:
+  the controller reads `IManifestResource.Manifest.Lifecycle.RestartPolicy` from the resource on
+  `IResourceControlContext`, and gateway validation requires `Manifest.Lifecycle.ExitCodes` to be
+  `cohesion/sysexits/v1`.
+- **Network and ports:** one application-scoped network carries stable resource aliases used for
+  dependency discovery. Public endpoints receive public host bindings. Every endpoint used by a
+  gateway-side readiness, startup, liveness, or default-control-plane probe also receives a
+  loopback-only ephemeral binding (`127.0.0.1:0`), including private endpoints; probe bindings are
+  never published as dependency addresses.
+- **Storage and sensitive inputs:** claims compile to deterministic named volumes. Secret mounts
+  and the rotating bootstrap credential compile to `HostConfig.Tmpfs` declarations and sensitive
+  tar entries rather than environment values, named volumes, or image layers. Non-sensitive
+  Configuration entries are staged into the stopped container before PID 1 starts. Sensitive
+  entries cannot use that path because the later tmpfs mount would hide the underlying files;
+  post-start archive extraction uses Moby's private `openContainerFS` tmpfs view and is not visible
+  to container processes. Atomic PID 1 bootstrap therefore requires an image-cooperative helper or
+  an upstream engine/gateway staging seam.
+- **Client:** a minimal typed Docker Engine API client uses BCL HTTP primitives over `http`,
+  `https`, Unix-domain sockets, and Windows named pipes, with source-generated `System.Text.Json`.
+  Scope is image load/inspect, container create/start/stop/remove/inspect, network and volume
+  operations, and events. Unversioned `GET /version` negotiates the highest overlap between the
+  engine's reported API range and the client's supported v1.25–v1.51 range; the selected `/vX.Y`
+  prefix is cached, and malformed or disjoint ranges fail before versioned API use. This explicitly
+  revises the older Cohesion connection-stack preference: the canonical
+  `Assimalign.Cohesion.Connections.NamedPipes` pack is unavailable in the consumed package set,
+  while the BCL path provides one shippable AOT-safe transport surface. Docker.DotNet remains
+  disfavored for its broad dependency and serializer surface.
+- **Controller and render:** `DockerPlanController` converges network, volume, and container state
+  idempotently; registered domain controllers are consulted first. The public
+  `IDockerComposeRenderer.Render(...)` compiles one plan into a deterministic Compose-style
+  document without opening an Engine API connection. Compose is an output shape, not the desired-
+  state source or an alternate lifecycle owner. This direct API is not wired to application-set
+  `--mode render`: the resolved canonical `Assimalign.Cohesion.ApplicationModel`
+  `10.0.1-preview.3` DLL does not export `IApplicationGatewayRenderer`, despite that interface and
+  dispatch existing in sibling source. A new immutable upstream package and package-floor advance
+  are required before Docker can implement the application-set renderer contract.
+- **Observer and probes:** one events-plus-periodic-inspect observer is the sole writer of locally
+  realized Docker lifecycle/endpoints through `InMemoryResourceStateManager`. Gateway probes and
+  container state implement the plan gate. Per authoritative runtime-contract section 5, the first
+  liveness failure after `Running` publishes non-gating `Degraded`; three consecutive failures
+  request a supervised restart subject to the manifest's `Always`, `OnFailure`, or `Never` policy.
+  Under `cohesion/sysexits/v1`, configuration exit 64 and startup exit 70 are final. Dependents are
+  gated only on initial readiness.
+- **Lifecycle/ownership:** `StopAsync` gracefully stops containers with
+  `plan.Workload.StopGraceSeconds` (`docker stop -t 30` for the default plan), releases observation
+  and supervision, and retains the application network, named volumes, and persistent engine
+  state. `UninstallAsync` deletes reached containers, owned volumes, and then the application
+  network in idempotent best-effort reverse order, attempts later deletes after a failure, and is
+  safe to retry.
+- **Image bridge:** until design item 35 supplies `application.images.json` and the shared
+  acquisition path, `DockerGatewayOptions.ImageArchives` explicitly maps a digest-pinned image
+  reference to an OCI archive. The default `IImageRealizer` verifies the archive manifest/config,
+  derives its immutable engine image ID, loads and inspects by that ID, and creates by ID even when
+  the daemon does not assign the loaded image a `repository@digest` alias; callers may inject
+  another realizer. This mapping is a minimal bridge, not a competing private image index.
+- **Provider/AOT:** the package contributes the `docker` provider through `buildTransitive` with
+  `RequiresJit=false`. Its project explicitly sets `<IsAotCompatible>true</IsAotCompatible>` as a
+  scoped design item 36 exception to this repo's default of no AOT mandate; this does not reinstate
+  a repository-wide rule. The current upstream `Sdk.Gateway` early auto-AOT allowlist recognizes
+  only Local/InProcess, so Docker still requires an explicit AOT selection until that SDK gap is
+  closed.
+- **Upstream schema boundary:** `ResourcePlan` v1 omits the default control-plane endpoint/path and
+  private endpoint URI scheme, so an implicit control-plane probe and canonical private dependency
+  URIs cannot be faithfully reconstructed from absent plan data. Its restart-policy omission is
+  not a Docker blocker: the controller obtains that generic manifest value from the control
+  context while `DockerPlanCompiler` remains plan-only.
+- **Upstream teardown boundary:** the base gateway does not expose a custom-controller delete
+  outcome for shared application objects. A custom-controlled resource may share the Docker
+  network, so custom-only and mixed-controller sessions conservatively retain that network until
+  every reached controller can report teardown success.
+- **E2E boundary:** hermetic compiler/controller/client/observer tests and a daemon smoke test that
+  skips cleanly when no compatible endpoint is available are item 36's honest boundary. Real
+  Podman/Docker end-to-end proof of plan gates, ordering, `Blocked`, `Degraded`, stop, and teardown
+  remains `.05` / #28.
 
 ## Cross-repo dependencies (cohesion)
 
@@ -144,3 +225,4 @@ Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel
 | 2026-07-20 | AOT decision | Owner decision: this repo carries **no** `IsAotCompatible` mandate (gateways are deploy-time control planes; cohesion libraries keep it). #15 closed as obsolete; rules/docs updated; sample resource runtime keeps the cohesion posture. |
 | 2026-09-09 | #30 / design item 33 | Re-pinned to preview.3, retired `GatewayResourceStateManager` for cohesion's public implementation, aligned plan-compiler rules/docs, and activated COHPLT001. This precedes the Kubernetes and Docker compiler items. |
 | 2026-09-09 | #31 / design item 34 | Replaced the Kubernetes pre-plan controller direction with one generic `KubernetesPlanCompiler` + `KubernetesPlanController`, added static gateway-provider package metadata, and recorded the remaining upstream plan-schema and CLI seams. |
+| 2026-09-10 | #23 / design item 36 | Consolidated Docker `.01`–`.04` into one AOT-compatible generic plan compiler/controller delivery: BCL Engine API client with `/version` negotiation across the mutual v1.25–v1.51 range, app network/container/volume/tmpfs/port compilation, events+inspect observation and manifest-backed section-5 restart semantics, a public daemon-free renderer, and the explicit digest-verified OCI archive bridge pending item 35. Recorded the live-tmpfs/PID 1 staging and canonical preview.3 renderer-contract blockers plus the remaining schema, SDK auto-AOT, and custom-controller teardown gaps; `.05` remains the real-daemon E2E harness. |

@@ -16,4 +16,8 @@
     <CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Docker" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

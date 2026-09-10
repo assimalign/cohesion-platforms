@@ -1,0 +1,10 @@
+<Project>
+	<ItemGroup>
+		<CohesionGatewayProvider Include="Docker">
+			<Name>docker</Name>
+			<GatewayType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGateway</GatewayType>
+			<OptionsType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGatewayOptions</OptionsType>
+			<RequiresJit>false</RequiresJit>
+		</CohesionGatewayProvider>
+	</ItemGroup>
+</Project>
