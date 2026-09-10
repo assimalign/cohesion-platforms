@@ -20,5 +20,6 @@ Shared container-gateway infrastructure for Cohesion platform gateways (Docker, 
 never the reverse.
 
 **Status:** in progress — the former local state-manager copy was retired after cohesion made its
-reference implementation public; the artifact/index model, OCI store, registry, and shared test
-primitives remain later work.
+reference implementation public. Design item 34 now provides the validated construction seam for
+an already digest-pinned artifact; the image index, OCI store, registry/archive acquisition, and
+shared test primitives remain design item 35.

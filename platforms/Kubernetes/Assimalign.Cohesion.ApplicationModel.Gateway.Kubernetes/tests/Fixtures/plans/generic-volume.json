@@ -1,0 +1,74 @@
+{
+  "schema": "cohesion/plan/v1",
+  "resource": "volume-worker",
+  "kind": "Worker",
+  "workload": {
+    "kind": "StatefulSet",
+    "replicas": 2,
+    "stableIdentity": true,
+    "gate": {
+      "terminals": [
+        "Running",
+        "Failed",
+        "Stopped"
+      ],
+      "satisfying": [
+        "Running"
+      ]
+    },
+    "stopGraceSeconds": 30
+  },
+  "container": {
+    "name": "volume-worker",
+    "artifact": "self",
+    "ports": [
+      {
+        "endpoint": "control",
+        "containerPort": 8080,
+        "protocol": "tcp"
+      }
+    ],
+    "mounts": [
+      {
+        "mount": "work",
+        "containerPath": "/var/lib/worker",
+        "kind": "Volume",
+        "source": null
+      }
+    ],
+    "environment": {
+      "COHESION_APPLICATION": "appa",
+      "COHESION_RESOURCE": "volume-worker",
+      "COHESION_ENVIRONMENT": "Development"
+    },
+    "probes": []
+  },
+  "volumes": [
+    {
+      "name": "work",
+      "kind": "Volume",
+      "size": "5Gi",
+      "perReplicaClaim": true
+    }
+  ],
+  "services": [
+    {
+      "name": "volume-worker-control",
+      "endpoint": "control",
+      "port": 8080,
+      "protocol": "tcp",
+      "headless": false,
+      "governing": false
+    },
+    {
+      "name": "volume-worker-headless",
+      "endpoint": null,
+      "port": null,
+      "protocol": "tcp",
+      "headless": true,
+      "governing": true
+    }
+  ],
+  "exposures": [],
+  "hints": {}
+}

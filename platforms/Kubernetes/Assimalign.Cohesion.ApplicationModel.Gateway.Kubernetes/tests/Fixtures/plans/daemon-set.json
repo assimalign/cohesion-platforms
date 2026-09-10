@@ -1,0 +1,52 @@
+{
+  "schema": "cohesion/plan/v1",
+  "resource": "node-agent",
+  "kind": "Worker",
+  "workload": {
+    "kind": "DaemonSet",
+    "replicas": 1,
+    "stableIdentity": false,
+    "gate": {
+      "terminals": [
+        "Running",
+        "Failed",
+        "Stopped"
+      ],
+      "satisfying": [
+        "Running"
+      ]
+    },
+    "stopGraceSeconds": 30
+  },
+  "container": {
+    "name": "node-agent",
+    "artifact": "self",
+    "ports": [
+      {
+        "endpoint": "control",
+        "containerPort": 8080,
+        "protocol": "tcp"
+      }
+    ],
+    "mounts": [],
+    "environment": {
+      "COHESION_APPLICATION": "appa",
+      "COHESION_RESOURCE": "node-agent",
+      "COHESION_ENVIRONMENT": "Development"
+    },
+    "probes": []
+  },
+  "volumes": [],
+  "services": [
+    {
+      "name": "node-agent-control",
+      "endpoint": "control",
+      "port": 8080,
+      "protocol": "tcp",
+      "headless": false,
+      "governing": false
+    }
+  ],
+  "exposures": [],
+  "hints": {}
+}

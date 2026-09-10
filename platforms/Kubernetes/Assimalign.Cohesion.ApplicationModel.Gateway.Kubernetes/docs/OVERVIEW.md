@@ -6,18 +6,39 @@ compiles each validated `ResourcePlan` into Kubernetes objects and reconciles th
 <!-- Deviates from the prior Kubernetes stop/teardown and multi-cluster non-goal text per
 Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-approved 2026-09-06. -->
 
-**Planned scope (after design item 33's package-contract gate):**
+**Design item 34 (`L04.01.03.09` / #31) delivery:**
 
-- `KubernetesPlanCompiler` — one pure compiler for `cohesion/plan/v1`, never keyed on kind, area,
-  or CLR type. It produces ConfigMap/Secret/PVC plus Deployment, StatefulSet, DaemonSet, or Job,
-  Services, exposures, probes, runtime-contract values, and plan hash.
-- `KubernetesPlanController` — idempotent server-side apply and best-effort reverse deletion.
-  Registered domain overrides from `ApplicationGatewayOptions.Controllers` are consulted before
-  this built-in controller.
-- One list+watch informer — per-workload readiness, `410 Gone` re-list, liveness-driven
-  `Degraded`, and observed Service-DNS endpoint publication through the public
-  `InMemoryResourceStateManager`.
-- Kind-on-Podman image loading, ownership/adoption, bootstrap output, render mode, and E2E coverage.
+- `KubernetesPlanCompiler` — one pure compiler for `cohesion/plan/v1`, never keyed on manifest
+  resource kind, area, or CLR type. It produces ConfigMap/Secret/PVC plus Deployment, StatefulSet, DaemonSet, or Job,
+  Services, exposures, probes, runtime-contract values, and plan hash. Resolved mounts,
+  credentials, artifact identity, patches, and observed dependencies remain reconciliation inputs
+  beside the plan; only the plan contributes to the hash.
+- `KubernetesPlanController` — ownership-preflighted, optimistic server-side apply; application-
+  and resource-level stale-object pruning; safe replacement of changed immutable Jobs; opaque runtime-input revisions for pod
+  rollout; and best-effort reverse deletion. Registered domain overrides from
+  `ApplicationGatewayOptions.Controllers` are consulted before this built-in controller.
+  Stateful claim-template and patched immutable-controller mutations are refused before writes;
+  retained claims must remain storage-compatible, and StatefulSets are controller-only removed or
+  recreated under claim-retention-safe policy with no remaining PVC owner reference to the old
+  controller. Removed-resource deletion is awaited; PVCs for removed resources are preserved.
+- One list+watch observer — an initial labeled list followed from its resource version, plus bounded
+  workload/Service/`Endpoints` resync and relisting after expired watches,
+  per-workload readiness with generation-current controller failures, liveness-driven `Degraded`, and observed Service-DNS endpoint publication
+  through the public `InMemoryResourceStateManager`. Workload revisions exclude old rollout pods
+  from readiness and exit-code observations. Per-pod/container restart history survives resync
+  without masking pod replacement. Public-address changes update the runtime contract's
+  `PUBLIC_URL` through resource-version-guarded patches serialized with normal lifecycle
+  mutations, roll the workload, and refresh `cohesion-export`; immutable Jobs are replaced.
+- One application-set cluster session — resolved member models share a single client and observer;
+  `ImportFromKubernetes` reads each source gateway's exported model through operator kubeconfig
+  trust before reconciliation.
+- NuGet `buildTransitive` metadata — contributes the statically generated `kubernetes` gateway
+  provider and declares `RequiresJit=true`.
+
+Kind-on-Podman image loading and the image index are sequenced through design item 35. Export,
+Kubernetes import, and the direct render surface are included. Development port-forwarding,
+bootstrap output, and render CLI integration also require the upstream command/lifetime surfaces
+described below.
 
 **Dependencies:** the generic ApplicationModel + Gateway base packages, `platforms/Containers`,
 and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.Hosting`,
@@ -25,9 +46,35 @@ and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.
 
 **Lifecycle:** `StopAsync` leaves persistent cluster state in place; `UninstallAsync`
 (`--mode teardown`) removes managed objects and the namespace in best-effort reverse order.
+The built-in controller explicitly registers each reached delete participant, and namespace deletion commits
+only when every expected built-in participant succeeds; this distinction does not depend on run mode.
+Partial startup rollback therefore does not wait for resources that were never reached, and a
+committed namespace delete is polled to `NotFound` within `StopGrace`. The
+base currently provides no equivalent uninstall/outcome signal for a custom-controller-only or
+external-only model, so that model's namespace is conservatively preserved pending an upstream
+lifecycle seam. Mixed models with a custom-controlled local resource also preserve the namespace
+because that resource cannot report the outcome needed to authorize namespace deletion.
 
-**AOT:** no mandate in this repo (owner decision, 2026-07-20); see `docs/DESIGN.md`.
+**AOT:** no mandate in this repo (owner decision, 2026-07-20). Provider metadata advertises
+`RequiresJit=true`; see `docs/DESIGN.md`.
 
-**Status:** the connection/options/namespace skeleton has landed. It predates the realization-plan
-contract and still couples namespace deletion to observer stop. The compiler/controller item that
-follows this re-pin replaces that behavior; it is not implemented by design item 33.
+## Upstream compatibility boundary
+
+- `ResourcePlan` has the requested replica count but no manifest `maxReplicas`; Cohesion validates
+  the bound before reconciliation. It also lacks the manifest control-plane endpoint/path, private
+  endpoint URI scheme, and restart policy, so only explicit plan probes can be compiled 1:1 and a
+  Job cannot preserve `OnFailure` versus `Never` today.
+- The current application runner rejects `Render` and `Bootstrap` before gateway dispatch, while
+  generated gateway command-line handling has no platform-option hook for `--context` (the direct
+  `UseKubernetesGateway(args)` overload supports it). Those
+  surfaces remain upstream CLI work, not hidden parsing in this provider. The common
+  application-model parser already carries `--adopt` through `IApplicationModel.Adopt`.
+- Current resolver/model contracts carry neither a managed port-forward lifetime nor a gateway
+  topology role. Development port-forwarding and Production root-owner enforcement need those
+  upstream seams; this package still enforces namespace/object ownership and explicit adoption.
+- The upstream application builder refuses `--realize` for Kubernetes before reconcile and directs
+  Development use to Local, InProcess, or Docker.
+
+**Status:** design item 33 delivered the contract/package gate; item 34 delivers the generic
+Kubernetes plan compiler/controller and provider metadata. Full image-backed cluster startup
+remains gated on design item 35.

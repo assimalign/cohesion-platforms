@@ -1,0 +1,90 @@
+{
+  "schema": "cohesion/plan/v1",
+  "resource": "appa-api",
+  "kind": "Web",
+  "workload": {
+    "kind": "Deployment",
+    "replicas": 2,
+    "stableIdentity": false,
+    "gate": {
+      "terminals": [
+        "Running",
+        "Failed",
+        "Stopped"
+      ],
+      "satisfying": [
+        "Running"
+      ]
+    },
+    "stopGraceSeconds": 30
+  },
+  "container": {
+    "name": "appa-api",
+    "artifact": "self",
+    "ports": [
+      {
+        "endpoint": "http",
+        "containerPort": 8080,
+        "protocol": "tcp"
+      },
+      {
+        "endpoint": "https",
+        "containerPort": 8443,
+        "protocol": "tcp"
+      }
+    ],
+    "mounts": [],
+    "environment": {
+      "CUSTOM_VALUE": "preserved",
+      "COHESION_APPLICATION": "appa",
+      "COHESION_RESOURCE": "appa-api",
+      "COHESION_ENVIRONMENT": "Development"
+    },
+    "probes": [
+      {
+        "role": "readiness",
+        "endpoint": "https",
+        "kind": "Http",
+        "value": "/readyz",
+        "command": []
+      },
+      {
+        "role": "liveness",
+        "endpoint": "http",
+        "kind": "Tcp",
+        "value": null,
+        "command": []
+      }
+    ]
+  },
+  "volumes": [],
+  "services": [
+    {
+      "name": "appa-api-http",
+      "endpoint": "http",
+      "port": 8080,
+      "protocol": "tcp",
+      "headless": false,
+      "governing": false
+    },
+    {
+      "name": "appa-api-https",
+      "endpoint": "https",
+      "port": 8443,
+      "protocol": "tcp",
+      "headless": false,
+      "governing": false
+    }
+  ],
+  "exposures": [
+    {
+      "name": "appa-api-https-public",
+      "endpoint": "https",
+      "service": "appa-api-https",
+      "scheme": "https",
+      "protocol": "tcp",
+      "port": 8443
+    }
+  ],
+  "hints": {}
+}

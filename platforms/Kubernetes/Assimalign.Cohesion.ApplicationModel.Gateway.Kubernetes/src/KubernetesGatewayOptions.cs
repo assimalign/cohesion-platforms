@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+
+using k8s;
+using k8s.Models;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
@@ -8,6 +12,8 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// </summary>
 public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 {
+    private readonly Dictionary<ResourceName, List<Action<IKubernetesObject<V1ObjectMeta>>>> _patches = new();
+
     /// <summary>
     /// An explicit kubeconfig file path. When <see langword="null"/>, the gateway resolves
     /// a configuration from the <c>KUBECONFIG</c> environment variable, then the default
@@ -23,14 +29,97 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
     public string? ContextName { get; set; }
 
     /// <summary>
-    /// The server-side-apply field manager under which the gateway claims ownership of the
-    /// fields it applies. Defaults to <c>cohesion-gateway</c>.
+    /// The fallback server-side-apply field manager for gateway-scoped bootstrap objects.
+    /// Application namespaces and resource objects always use
+    /// <c>&lt;application&gt;@&lt;gateway-identity&gt;</c>. Defaults to <c>cohesion-gateway</c>.
     /// </summary>
     public string FieldManager { get; set; } = "cohesion-gateway";
 
     /// <summary>
-    /// The legacy scaffold budget for namespace cleanup during observer shutdown. The plan
-    /// controller moves namespace deletion to uninstall/teardown. Defaults to 30&#160;seconds.
+    /// Gets or sets the optional image realizer used to resolve a manifest image reference.
+    /// When omitted, an already digest-pinned manifest image is validated and used directly.
+    /// </summary>
+    public IImageRealizer? ImageRealizer { get; set; }
+
+    /// <summary>
+    /// Gets or sets the sink for compiler warnings. Each compilation reports every distinct
+    /// unknown plan-hint key; reconciliation suppresses repeated keys within one gateway session.
+    /// Defaults to standard error.
+    /// </summary>
+    public Action<string> WarningHandler { get; set; } = Console.Error.WriteLine;
+
+    /// <summary>
+    /// The maximum time allowed for owned namespace deletion after successful teardown.
+    /// Normal observer shutdown never deletes a namespace. Defaults to 30&#160;seconds.
     /// </summary>
     public TimeSpan StopGrace { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Registers a Kubernetes-native patch for objects of type <typeparamref name="TResource"/>
+    /// compiled for one resource. Patches run in registration order before mandatory Cohesion
+    /// ownership, resource-label, and plan-hash metadata is restored. Controller-managed rollout
+    /// revisions are assigned after patches during reconciliation.
+    /// </summary>
+    /// <typeparam name="TResource">The Kubernetes object type to patch.</typeparam>
+    /// <param name="resource">The Cohesion resource whose compiled objects may be patched.</param>
+    /// <param name="patch">The platform-specific mutation to apply.</param>
+    /// <returns>These options, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="patch"/> is <see langword="null"/>.</exception>
+    public KubernetesGatewayOptions Patch<TResource>(
+        ResourceName resource,
+        Action<TResource> patch)
+        where TResource : class, IKubernetesObject<V1ObjectMeta>
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+
+        if (!_patches.TryGetValue(resource, out List<Action<IKubernetesObject<V1ObjectMeta>>>? registrations))
+        {
+            registrations = new List<Action<IKubernetesObject<V1ObjectMeta>>>();
+            _patches.Add(resource, registrations);
+        }
+
+        registrations.Add(candidate =>
+        {
+            if (candidate is TResource typed)
+            {
+                patch(typed);
+            }
+        });
+        return this;
+    }
+
+    internal void ApplyPatches(
+        ResourceName resource,
+        IKubernetesObject<V1ObjectMeta> candidate)
+    {
+        if (!_patches.TryGetValue(resource, out List<Action<IKubernetesObject<V1ObjectMeta>>>? registrations))
+        {
+            return;
+        }
+
+        for (int index = 0; index < registrations.Count; index++)
+        {
+            registrations[index](candidate);
+        }
+    }
+
+    internal void ValidateKubernetes()
+    {
+        if (KubeConfigPath is not null && string.IsNullOrWhiteSpace(KubeConfigPath))
+        {
+            throw new ArgumentException("KubeConfigPath must not be empty when specified.", nameof(KubeConfigPath));
+        }
+
+        if (ContextName is not null && string.IsNullOrWhiteSpace(ContextName))
+        {
+            throw new ArgumentException("ContextName must not be empty when specified.", nameof(ContextName));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(FieldManager);
+        ArgumentNullException.ThrowIfNull(WarningHandler);
+        if (StopGrace <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(StopGrace), "StopGrace must be greater than zero.");
+        }
+    }
 }

@@ -8,7 +8,11 @@ locating them, verifying them, indexing them, and (eventually) serving them — 
 
 | Project | Purpose |
 | --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Container artifact + `application.images.json` image-index model, OCI image store, registry infrastructure, and shared test primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Digest-pinned container artifact seam, followed by the `application.images.json` image-index model, OCI image store, registry infrastructure, and shared test primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
+
+Design item 34 lands only `ContainerImageArtifacts.Create`, the minimal validated artifact seam
+needed by the Kubernetes compiler. Image indexes, registry/archive acquisition, and daemon-load
+behavior remain design item 35; this package does not resolve mutable tags in the meantime.
 
 Planned siblings per the [program plan](../../docs/PLATFORMS_PROGRAM_PLAN.md): the image-gathering
 build seam ([#12](https://github.com/assimalign/cohesion-platforms/issues/12)), the sample E2E

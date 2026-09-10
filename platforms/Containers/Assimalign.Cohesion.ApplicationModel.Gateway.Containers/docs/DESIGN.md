@@ -35,6 +35,13 @@ posture`); serialization stays source-generated (`System.Text.Json` source-gen f
 index) for startup/perf hygiene, and the sample resource runtime — which models a deployed
 cohesion service — keeps the cohesion AOT posture.
 
+## Current delivery boundary
+
+Design item 34 supplies `ContainerImageArtifacts.Create` as the small public construction seam
+for an already digest-pinned `{repository}@sha256:{digest}` artifact. It performs no lookup,
+registry access, archive handling, or tag resolution. Those acquisition/index responsibilities
+remain together in design item 35.
+
 ## Non-goals
 
 - No platform API clients (Kubernetes/Docker specifics live in their areas).

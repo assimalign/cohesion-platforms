@@ -1,0 +1,10 @@
+<Project>
+	<ItemGroup>
+		<CohesionGatewayProvider Include="Kubernetes">
+			<Name>kubernetes</Name>
+			<GatewayType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.KubernetesGateway</GatewayType>
+			<OptionsType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.KubernetesGatewayOptions</OptionsType>
+			<RequiresJit>true</RequiresJit>
+		</CohesionGatewayProvider>
+	</ItemGroup>
+</Project>
