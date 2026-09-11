@@ -123,6 +123,30 @@ internal static class ContainerImageValidation
             && string.IsNullOrEmpty(uri.Fragment);
     }
 
+    public static bool IsPlatform(string? platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            return false;
+        }
+
+        string[] components = platform.Split('/');
+        if (components.Length is < 2 or > 3)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < components.Length; index++)
+        {
+            if (!IsPlatformComponent(components[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static bool IsRelativeArchivePath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)
@@ -204,6 +228,28 @@ internal static class ContainerImageValidation
             }
 
             if (index == nameStart)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsPlatformComponent(string component)
+    {
+        if (component.Length == 0
+            || !IsLowerAlphaNumeric(component[0])
+            || !IsLowerAlphaNumeric(component[^1]))
+        {
+            return false;
+        }
+
+        for (int index = 1; index < component.Length - 1; index++)
+        {
+            char character = component[index];
+            if (!IsLowerAlphaNumeric(character)
+                && character is not '-' and not '_' and not '.')
             {
                 return false;
             }

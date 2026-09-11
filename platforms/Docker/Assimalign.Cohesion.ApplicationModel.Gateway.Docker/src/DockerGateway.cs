@@ -171,15 +171,12 @@ public sealed class DockerGateway :
             }
 
             string? archivePath = ContainerImageIndexes.ResolveArchivePath(imageIndexPath, entry);
-            if (string.Equals(
-                    entry.Registry,
-                    ContainerImageIndexes.LateBoundRegistry,
-                    StringComparison.Ordinal)
+            if (entry.Registry is null
                 && _options.ContainerRegistry is null
                 && archivePath is null)
             {
                 throw new InvalidOperationException(
-                    $"Image index '{imageIndexPath}' entry for resource '{resource.Name}' has a late-bound registry but DockerGatewayOptions.ContainerRegistry is absent and no archivePath is available.");
+                    $"Image index '{imageIndexPath}' entry for resource '{resource.Name}' has a late-bound registry but DockerGatewayOptions.ContainerRegistry is absent and no archive is available.");
             }
 
             indexedArtifact = ContainerImageIndexes.CreateArtifact(

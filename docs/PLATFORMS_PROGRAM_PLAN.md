@@ -59,11 +59,15 @@ The repo uses a two-line root `Directory.Build.props/.targets` → `build/Build.
 Everything Docker and Kubernetes share, in `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` (+ siblings):
 
 - **Artifact/index model:** strict source-generated readers for per-resource `image.json` and
-  gateway-level `application.images.json`, both versioned `cohesion/images/v1`. Each entry is
-  `{resource, repository, digest, tag?, archivePath?, aot, baseImage, registry}` with registry
-  exactly `null` or `<late-bound>`. Resources are unique, archive paths stay relative to the
-  index, and `ArtifactRef.Self` resolves only the plan resource's own entry. Images are **always
-  digest-pinned** — a tag is never a pull reference.
+  gateway-level `application.images.json`, versioned `cohesion/image/v1` and
+  `cohesion/images/v1` respectively. Application entries use the same image fields without
+  repeating `schema`: required `resource`, authority-free `repository`, `digest`, lowercase OCI
+  `platform` (`os/architecture[/variant]`), `aot`, and `baseImage`; optional `registry` and `tag`;
+  and optional relative `archive`, which is omitted rather than null when unavailable. An omitted
+  or null registry is late-bound; a concrete registry authority is pinned and cannot be replaced
+  by a target override. Unknown properties are invalid. Resources are unique, archive paths stay
+  relative to the index, and `ArtifactRef.Self` resolves only the plan resource's own entry.
+  Images are **always digest-pinned** — a tag is never a pull reference.
 - **State manager:** use the public `InMemoryResourceStateManager` from
   `Assimalign.Cohesion.ApplicationModel.Gateway`. The former Containers-owned
   `GatewayResourceStateManager` and its duplicated tests are retired; cohesion owns the reference
@@ -192,8 +196,10 @@ real-daemon harness remains `.05` / #28:
   state. `UninstallAsync` deletes reached containers, owned volumes, and then the application
   network in idempotent best-effort reverse order, attempts later deletes after a failure, and is
   safe to retry.
-- **Image acquisition:** design item 35 resolves the resource's own `application.images.json`
-  entry and optional relative archive path. The default `IImageRealizer` verifies the archive's
+- **Image acquisition:** design item 35 resolves the resource's own `cohesion/images/v1`
+  `application.images.json` entry and optional relative `archive`. Its authority-free repository
+  is combined with the entry's pinned registry, or with `ContainerRegistry` only when the entry
+  registry is omitted or null. The default `IImageRealizer` verifies the archive's
   manifest/config/layer closure, loads and inspects the immutable engine image ID, and creates by ID even when
   the daemon assigns no `repository@digest` alias. Registry-backed entries use Engine API
   `PullByDigestAsync` and verify the requested digest through `RepoDigests`. The earlier explicit
@@ -246,4 +252,4 @@ real-daemon harness remains `.05` / #28:
 | 2026-09-09 | #30 / design item 33 | Re-pinned to preview.3, retired `GatewayResourceStateManager` for cohesion's public implementation, aligned plan-compiler rules/docs, and activated COHPLT001. This precedes the Kubernetes and Docker compiler items. |
 | 2026-09-09 | #31 / design item 34 | Replaced the Kubernetes pre-plan controller direction with one generic `KubernetesPlanCompiler` + `KubernetesPlanController`, added static gateway-provider package metadata, and recorded the remaining upstream plan-schema and CLI seams. |
 | 2026-09-10 | #23 / design item 36 | Consolidated Docker `.01`–`.04` into one AOT-compatible generic plan compiler/controller delivery: BCL Engine API client with `/version` negotiation across the mutual v1.25–v1.51 range, app network/container/volume/tmpfs/port compilation, events+inspect observation and manifest-backed section-5 restart semantics, a public daemon-free renderer, and the explicit digest-verified OCI archive bridge pending item 35. Recorded the live-tmpfs/PID 1 staging and canonical preview.3 renderer-contract blockers plus the remaining schema, SDK auto-AOT, and custom-controller teardown gaps; `.05` remains the real-daemon E2E harness. |
-| 2026-09-10 | #32 / design item 35 | Added the exact `cohesion/images/v1` per-resource/application index consumer contract, strict own-resource resolution for `ArtifactRef.Self`, digest-verifying OCI/docker-save disk store, pull-only embedded Registry v2, Docker archive/pull acquisition, and Development Kind archive loading. The Cohesion SDK remains the producer, and Kubernetes `.08` / #22 retains registry reachability. |
+| 2026-09-10 | #32 / design item 35 | Added the exact `cohesion/image/v1` per-resource and `cohesion/images/v1` application index consumer contracts, strict own-resource resolution for `ArtifactRef.Self`, digest-verifying OCI/docker-save disk store, pull-only embedded Registry v2, Docker archive/pull acquisition, and Development Kind archive loading. The Cohesion SDK remains the producer, and Kubernetes `.08` / #22 retains registry reachability. |

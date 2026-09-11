@@ -7,9 +7,11 @@ Shared container-gateway infrastructure for Cohesion platform gateways (Docker, 
 - `ContainerImageArtifact` — the `IContainerImageArtifact` implementation gateways return from
   `GatherAsync` (digest-pinned; a tag is never a pull reference). ([#8](https://github.com/assimalign/cohesion-platforms/issues/8))
 - Strict source-generated readers for per-resource `image.json` and gateway-level
-  `application.images.json`, both versioned `cohesion/images/v1`. Entries carry resource,
-  repository, SHA-256 digest, optional tag/archive path, AOT and base-image facts, and an explicit
-  null/late-bound registry value. See [IMAGE_INDEX.md](IMAGE_INDEX.md).
+  `application.images.json`, versioned `cohesion/image/v1` and `cohesion/images/v1` respectively.
+  Entries carry resource, an authority-free repository, an optional pinned registry authority,
+  an optional tag, required SHA-256 digest and lowercase OCI platform, AOT and base-image facts,
+  and an optional relative `archive`. An omitted or null registry is late-bound; `archive` is
+  omitted when unavailable. See [IMAGE_INDEX.md](IMAGE_INDEX.md).
 - Shared controller/compiler test primitives. State storage is supplied by the public
   `InMemoryResourceStateManager` in `Assimalign.Cohesion.ApplicationModel.Gateway`; the retired
   local `GatewayResourceStateManager` is not part of this package.

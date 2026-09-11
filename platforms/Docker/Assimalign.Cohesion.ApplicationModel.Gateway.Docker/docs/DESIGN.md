@@ -94,14 +94,17 @@ so the controller path can preserve restart and exit-code semantics without teac
   operation. An omitted engine minimum is treated as 1.0; malformed values or no overlap throw
   `NotSupportedException` before the operation proceeds.
 - **Index-resolved, digest-verified image acquisition.** When `ImageIndexPath` is configured, Gather
-  reads the shared `application.images.json`, verifies its application, resolves the resource's
-  `ArtifactRef.Self` entry, and requires the entry repository/digest to match the manifest before
-  applying a target `ContainerRegistry` to `<late-bound>` registry data. `archivePath` is resolved
-  relative to the index without allowing directory escape. A late-bound entry without a registry
-  binding is accepted only when it carries an archive. The default `IImageRealizer` then prefers
-  an already present digest-proven engine image, followed by the verified archive, followed by a
-  digest pull. Archive load derives and inspects the immutable image ID from the verified config;
-  loaded archives need not acquire a `repository@digest` alias. Pull calls
+  reads the strict `cohesion/images/v1` `application.images.json`, verifies its application and
+  required lowercase OCI `platform`, resolves the resource's `ArtifactRef.Self` entry, and
+  requires the authority-free entry repository/digest to match the manifest. A concrete entry
+  registry authority is pinned. A target `ContainerRegistry` applies only when `registry` is
+  omitted or null and cannot replace a pinned value. Optional `archive` is resolved relative to
+  the index without allowing directory escape and must be omitted when unavailable. A late-bound
+  entry without a target registry is accepted only when it carries an archive. The default
+  `IImageRealizer` then prefers an already present digest-proven engine image, followed by the
+  verified archive, followed by a digest pull. Archive load derives and inspects the immutable
+  image ID from the verified config; loaded archives need not acquire a `repository@digest` alias.
+  Pull calls
   `POST /images/create` with separate `fromImage=<repository>` and `tag=<digest>` values, drains
   the progress stream, then inspects the canonical reference and requires its repository/digest in
   `RepoDigests`, accepting Docker's equivalent `docker.io[/library]` normalization.
@@ -109,7 +112,7 @@ so the controller path can preserve restart and exit-code semantics without teac
   bridge. A custom `IImageRealizer` replaces default engine acquisition, but the manifest remains
   digest-pinned and its result cannot substitute another repository/digest. When an index is
   configured it receives the reference only after application, own-entry, manifest identity, and
-  late-bound registry validation and must return that same indexed repository and digest.
+  registry resolution and must return that same indexed repository and digest.
 - **Daemon-free direct render API.** `IDockerComposeRenderer.Render(...)` compiles the same plan
   shape into a deterministic Compose-style document without creating an Engine API client or
   contacting a daemon. The rendering is review/debug output; it cannot become a second desired-

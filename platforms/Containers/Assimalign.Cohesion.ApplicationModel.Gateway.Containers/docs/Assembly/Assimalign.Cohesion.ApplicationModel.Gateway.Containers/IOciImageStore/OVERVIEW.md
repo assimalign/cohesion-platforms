@@ -29,7 +29,7 @@ Task IngestAsync(
     CancellationToken cancellationToken = default)
 ```
 
-The first overload resolves `image.ArchivePath` relative to its index. The second accepts an OCI
+The first overload resolves `image.Archive` relative to its index. The second accepts an OCI
 image-layout directory, OCI image-layout tarball, gzip-compressed tarball, or Docker-save tarball.
 OCI input preserves and verifies its manifest digest. Docker-save input is accepted only when the
 digest matches the deterministic Docker schema-2 manifest reconstructed from its config and

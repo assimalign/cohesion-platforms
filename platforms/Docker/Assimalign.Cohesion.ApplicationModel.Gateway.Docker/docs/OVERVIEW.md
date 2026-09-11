@@ -36,16 +36,19 @@ reconciles them through one controller. Podman's compatible API is the supported
   classify configuration/startup exits as final without adding manifest data to the pure compiler.
   Initial readiness remains the only dependency gate.
 - Image acquisition — `DockerGatewayOptions.ImageIndexPath` selects the shared
-  `application.images.json` contract. Gather resolves the resource's `ArtifactRef.Self` entry,
-  requires its application and source repository/digest to agree with the manifest, applies the
-  optional `ContainerRegistry` authority only to `<late-bound>` entries, and resolves an optional
-  `archivePath` relative to the index. The default realizer reuses an engine image only after
-  proving its digest; otherwise it verifies and loads the indexed archive, or asks the Engine API
-  to pull repository plus digest and verifies the resulting `RepoDigests`. In every case it
-  returns the immutable engine ID used to create the container. `ImageArchives` remains the legacy
-  no-index bridge. An injected `IImageRealizer` replaces engine acquisition but cannot resolve a
-  tag-only manifest or substitute its repository/digest. Indexed application, ownership, identity,
-  and registry-binding validation still precede that custom call.
+  `cohesion/images/v1` `application.images.json` contract. Gather resolves the resource's
+  `ArtifactRef.Self` entry, validates its required lowercase OCI `platform`, and requires its
+  application and authority-free source repository/digest to agree with the manifest. A concrete
+  entry registry is pinned; the optional `ContainerRegistry` authority applies only when
+  `registry` is omitted or null and cannot replace the pinned value. Optional `archive` is
+  resolved relative to the index and must be omitted when unavailable. The default realizer
+  reuses an engine image only after proving its digest; otherwise it verifies and loads the
+  indexed archive, or asks the Engine API to pull repository plus digest and verifies the
+  resulting `RepoDigests`. In every case it returns the immutable engine ID used to create the
+  container. `ImageArchives` remains the legacy no-index bridge. An injected `IImageRealizer`
+  replaces engine acquisition but cannot resolve a tag-only manifest or substitute its
+  repository/digest. Indexed application, ownership, identity, and registry-binding validation
+  still precede that custom call.
 - Daemon-free render API — `IDockerComposeRenderer.Render(...)` produces a deterministic
   Compose-style document from one compiled plan and resolved inputs without connecting to an
   engine. Compose is only the output shape; the application model remains the source and

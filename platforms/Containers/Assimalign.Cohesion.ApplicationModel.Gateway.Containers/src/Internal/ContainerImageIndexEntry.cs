@@ -5,36 +5,40 @@ internal sealed class ContainerImageIndexEntry : IContainerImageIndexEntry
     public ContainerImageIndexEntry(
         ResourceName resource,
         string repository,
-        string digest,
+        string? registry,
         string? tag,
-        string? archivePath,
+        string digest,
+        string platform,
         bool aot,
         string baseImage,
-        string? registry)
+        string? archive)
     {
         Resource = resource;
         Repository = repository;
-        Digest = digest;
+        Registry = registry;
         Tag = tag;
-        ArchivePath = archivePath;
+        Digest = digest;
+        Platform = platform;
         Aot = aot;
         BaseImage = baseImage;
-        Registry = registry;
+        Archive = archive;
     }
 
     public ResourceName Resource { get; }
 
     public string Repository { get; }
 
-    public string Digest { get; }
+    public string? Registry { get; }
 
     public string? Tag { get; }
 
-    public string? ArchivePath { get; }
+    public string Digest { get; }
+
+    public string Platform { get; }
 
     public bool Aot { get; }
 
     public string BaseImage { get; }
 
-    public string? Registry { get; }
+    public string? Archive { get; }
 }

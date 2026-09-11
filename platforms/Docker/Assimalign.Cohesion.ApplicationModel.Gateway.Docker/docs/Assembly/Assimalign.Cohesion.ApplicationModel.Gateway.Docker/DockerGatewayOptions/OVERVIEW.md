@@ -17,7 +17,7 @@ lifetime, and readiness settings are inherited from `ApplicationGatewayOptions`.
 | `EngineEndpoint` | `Uri?` | `null` | Explicit `http`, `https`, `unix`, or `npipe` Engine API endpoint. When absent, the gateway checks `DOCKER_HOST` and then the operating-system socket default. |
 | `ImageRealizer` | `IImageRealizer?` | `null` | Custom engine image acquisition. When supplied, default archive/pull acquisition is bypassed, but the manifest must remain digest-pinned and the result must preserve its identity; a configured index is also validated and registry-bound before realization. |
 | `ImageIndexPath` | `string?` | `null` | Path to the shared `application.images.json` document. The default realizer resolves each resource's `ArtifactRef.Self` entry from this index. |
-| `ContainerRegistry` | `string?` | `null` | Registry authority applied only to an index entry whose registry is `<late-bound>`; it contains no URI scheme or path. |
+| `ContainerRegistry` | `string?` | `null` | Registry authority applied only when an index entry's `registry` is omitted or null; a pinned entry registry takes precedence. It contains no URI scheme or path. |
 | `ImageArchives` | `IDictionary<string, string>` | Empty ordinal dictionary | Compatibility mapping from a digest-pinned image reference to an OCI archive path. Used only by the default realizer when `ImageIndexPath` is absent. |
 | `PublicHost` | `string` | `"localhost"` | Host used in observed public endpoint URIs. |
 | `WarningHandler` | `Action<string>` | `Console.Error.WriteLine` | Receives compiler warnings; unknown Docker hint keys are reported once per gateway session. |
@@ -52,10 +52,12 @@ Invalid settings throw `ArgumentException`, `ArgumentNullException`,
 ## Default image acquisition
 
 With `ImageIndexPath`, Gather requires the index application to equal the resource manifest's
-application, resolves that resource's own entry, and verifies that its source repository/digest
-equal `Manifest.Artifact.Image`. A `<late-bound>` registry is then replaced by
-`ContainerRegistry`; without that binding, the entry must advertise an `archivePath`. Relative
-archive paths are resolved against the index file. `ImageArchives` is not mixed with indexed data.
+application, resolves that resource's own entry, validates its required lowercase OCI `platform`,
+and verifies that its authority-free source repository/digest equal `Manifest.Artifact.Image`.
+A concrete entry registry is pinned and cannot be overridden. `ContainerRegistry` supplies the
+authority only when `registry` is omitted or null; without that target binding, a late-bound entry
+must advertise an `archive`. Relative archive paths are resolved against the index file, and the
+`archive` field must be omitted when unavailable. `ImageArchives` is not mixed with indexed data.
 
 The default realizer uses this order: an existing digest-proven engine image, a configured/indexed
 archive, then an Engine API digest pull. Archive content is verified before load and the resulting

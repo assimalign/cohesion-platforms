@@ -34,9 +34,9 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
     public string? ImageIndexPath { get; set; }
 
     /// <summary>
-    /// Gets or sets the registry authority applied to image-index entries whose registry is
-    /// <c>&lt;late-bound&gt;</c>, for example <c>registry.example.test:5000</c>. URI schemes and paths
-    /// are not accepted.
+    /// Gets or sets the registry authority applied to image-index entries that omit or null their
+    /// registry, for example <c>registry.example.test:5000</c>. A pinned entry registry takes
+    /// precedence. URI schemes and paths are not accepted.
     /// </summary>
     public string? ContainerRegistry { get; set; }
 

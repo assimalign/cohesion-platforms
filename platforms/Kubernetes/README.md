@@ -64,15 +64,18 @@ Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-appro
 - `KubernetesGatewayOptions.ImageIndexPath` selects a source-generated, validated
   `cohesion/images/v1` `application.images.json`. Gather resolves only the current plan's
   `ArtifactRef.Self` entry, verifies that the index application matches the resource manifest,
-  and requires the entry's repository and digest to equal the manifest's digest-pinned image.
-  An advertised `archivePath` is resolved relative to the index without allowing escape and must
-  exist. Gather locates and loads prebuilt image bits; it never builds an image.
+  validates the required lowercase OCI `platform`, and requires the entry's authority-free
+  repository and digest to equal the manifest's digest-pinned image. An advertised `archive` is
+  resolved relative to the index without allowing escape and must exist; the field is omitted
+  when unavailable. Gather locates and loads prebuilt image bits; it never builds an image.
 - `KubernetesGatewayOptions.ContainerRegistry` is an authority without a URI scheme or repository
-  path. It prefixes only entries whose registry marker is `<late-bound>`; fixed repositories are
-  unchanged and tags remain metadata only. Acquisition routes are exclusive: a Development Kind
-  archive keeps its published repository so containerd can find the imported digest, while a
-  non-Kind route applies the configured registry authority. Registry network reachability remains
-  the topology work tracked by [#22](https://github.com/assimalign/cohesion-platforms/issues/22).
+  path. It prefixes the authority-free repository only when entry `registry` is omitted or null.
+  A concrete entry registry is pinned, takes precedence, and cannot be replaced by the option;
+  tags remain metadata only. Acquisition routes are exclusive: a Development Kind archive keeps
+  the entry's published repository identity so containerd can find the imported digest, while a
+  non-Kind late-bound route applies the configured registry authority. Registry network
+  reachability remains the topology work tracked by
+  [#22](https://github.com/assimalign/cohesion-platforms/issues/22).
 - For a Development model whose selected kubeconfig context is `kind-<cluster>`, an advertised
   archive is loaded with `kind load image-archive <archive> --name <cluster>` before Kubernetes
   client startup. Successful loads are deduplicated by context and digest for the gateway

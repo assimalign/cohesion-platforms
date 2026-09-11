@@ -13,13 +13,14 @@ Represents the validated image metadata owned by one resource.
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `Resource` | `ResourceName` | Resource that owns the image. |
-| `Repository` | `string` | Lowercase repository, excluding any late-bound registry prefix. |
-| `Digest` | `string` | Lowercase SHA-256 manifest digest. |
+| `Repository` | `string` | Lowercase, authority-free OCI repository. |
+| `Registry` | `string?` | Pinned registry authority, or null for target late binding. |
 | `Tag` | `string?` | Optional display tag; never an acquisition reference. |
-| `ArchivePath` | `string?` | Optional portable path relative to the index document. |
+| `Digest` | `string` | Lowercase SHA-256 manifest digest. |
+| `Platform` | `string` | Required lowercase OCI `os/architecture[/variant]` platform. |
 | `Aot` | `bool` | Whether the image contains a NativeAOT executable. |
 | `BaseImage` | `string` | Publisher-recorded base-image identity. |
-| `Registry` | `string?` | Either null or the exact `<late-bound>` marker. |
+| `Archive` | `string?` | Optional portable path relative to the index document; null means the field was omitted. |
 
 Instances are immutable internal implementations returned by the `ContainerImageIndexes` readers.
 

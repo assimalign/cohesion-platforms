@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
@@ -12,17 +13,19 @@ internal sealed class ImageIndexDocument
 
     public required string Repository { get; init; }
 
-    public required string Digest { get; init; }
+    public string? Registry { get; init; }
 
     public string? Tag { get; init; }
 
-    public string? ArchivePath { get; init; }
+    public required string Digest { get; init; }
+
+    public required string Platform { get; init; }
 
     public bool? Aot { get; init; }
 
     public required string BaseImage { get; init; }
 
-    public required string? Registry { get; init; }
+    public JsonElement Archive { get; init; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -42,15 +45,17 @@ internal sealed class ApplicationImageIndexEntryDocument
 
     public required string Repository { get; init; }
 
-    public required string Digest { get; init; }
+    public string? Registry { get; init; }
 
     public string? Tag { get; init; }
 
-    public string? ArchivePath { get; init; }
+    public required string Digest { get; init; }
+
+    public required string Platform { get; init; }
 
     public bool? Aot { get; init; }
 
     public required string BaseImage { get; init; }
 
-    public required string? Registry { get; init; }
+    public JsonElement Archive { get; init; }
 }

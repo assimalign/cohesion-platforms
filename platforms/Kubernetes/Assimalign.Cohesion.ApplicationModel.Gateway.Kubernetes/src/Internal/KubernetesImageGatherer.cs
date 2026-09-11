@@ -77,13 +77,12 @@ internal sealed class KubernetesImageGatherer
             index,
             resource.Name,
             artifactReference);
-        IContainerImageArtifact indexed = ContainerImageIndexes.CreateArtifact(resource.Id, entry);
-        if (!string.Equals(indexed.Repository, expected.Repository, StringComparison.Ordinal)
-            || !string.Equals(indexed.Digest, expected.Digest, StringComparison.Ordinal))
+        if (!string.Equals(entry.Repository, expected.Repository, StringComparison.Ordinal)
+            || !string.Equals(entry.Digest, expected.Digest, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
                 $"Application image index '{_options.ImageIndexPath}' entry for resource " +
-                $"'{resource.Name}' resolves to '{indexed.Repository}@{indexed.Digest}', but the " +
+                $"'{resource.Name}' declares '{entry.Repository}@{entry.Digest}', but the " +
                 $"resource manifest declares '{expected.Repository}@{expected.Digest}'.");
         }
 
@@ -109,14 +108,11 @@ internal sealed class KubernetesImageGatherer
         if (isDevelopment && archivePath is not null)
         {
             kindLoad = await _kindImages
-                .LoadIfKindAsync(archivePath, indexed.Digest, cancellationToken)
+                .LoadIfKindAsync(archivePath, entry.Digest, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        bool isLateBound = string.Equals(
-            entry.Registry,
-            ContainerImageIndexes.LateBoundRegistry,
-            StringComparison.Ordinal);
+        bool isLateBound = entry.Registry is null;
         bool usesKindRoute = kindLoad == KindImageLoadResult.Loaded;
         if (isLateBound
             && _options.ContainerRegistry is null

@@ -36,9 +36,9 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
     public string? ImageIndexPath { get; set; }
 
     /// <summary>
-    /// Gets or sets the optional registry authority applied to image-index entries whose
-    /// registry is <c>&lt;late-bound&gt;</c>. Specify an authority such as
-    /// <c>registry.example.test:5000</c>, without a URI scheme or repository path.
+    /// Gets or sets the optional registry authority applied to image-index entries that omit or
+    /// null their registry. A pinned entry registry takes precedence. Specify an authority such
+    /// as <c>registry.example.test:5000</c>, without a URI scheme or repository path.
     /// </summary>
     public string? ContainerRegistry { get; set; }
 

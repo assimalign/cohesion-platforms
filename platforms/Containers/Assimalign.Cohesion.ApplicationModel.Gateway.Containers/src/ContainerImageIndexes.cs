@@ -13,11 +13,11 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 /// </summary>
 public static class ContainerImageIndexes
 {
-    /// <summary>The exact image-index schema identifier supported by this package.</summary>
-    public const string Schema = "cohesion/images/v1";
+    /// <summary>The exact per-resource <c>image.json</c> schema identifier.</summary>
+    public const string ImageSchema = "cohesion/image/v1";
 
-    /// <summary>The version 1 marker indicating that a target supplies the registry authority.</summary>
-    public const string LateBoundRegistry = "<late-bound>";
+    /// <summary>The exact gateway-level <c>application.images.json</c> schema identifier.</summary>
+    public const string ApplicationSchema = "cohesion/images/v1";
 
     /// <summary>
     /// Reads and validates one resource's <c>image.json</c> document.
@@ -27,7 +27,7 @@ public static class ContainerImageIndexes
     /// <returns>The validated image entry.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidDataException">The document does not conform to <see cref="Schema"/>.</exception>
+    /// <exception cref="InvalidDataException">The document does not conform to <see cref="ImageSchema"/>.</exception>
     /// <exception cref="IOException">The document cannot be read.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled.</exception>
     public static async Task<IContainerImageIndexEntry> ReadImageAsync(
@@ -41,16 +41,17 @@ public static class ContainerImageIndexes
             ImageIndexJsonContext.Default.ImageIndexDocument,
             path,
             cancellationToken).ConfigureAwait(false);
-        RequireSchema(document.Schema, path);
+        RequireSchema(document.Schema, ImageSchema, path);
         return ValidateEntry(
             document.Resource,
             document.Repository,
-            document.Digest,
+            document.Registry,
             document.Tag,
-            document.ArchivePath,
+            document.Digest,
+            document.Platform,
             document.Aot,
             document.BaseImage,
-            document.Registry,
+            document.Archive,
             path);
     }
 
@@ -62,7 +63,7 @@ public static class ContainerImageIndexes
     /// <returns>The validated application image index.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidDataException">The document does not conform to <see cref="Schema"/>.</exception>
+    /// <exception cref="InvalidDataException">The document does not conform to <see cref="ApplicationSchema"/>.</exception>
     /// <exception cref="IOException">The document cannot be read.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled.</exception>
     public static async Task<IApplicationImageIndex> ReadApplicationAsync(
@@ -76,7 +77,7 @@ public static class ContainerImageIndexes
             ImageIndexJsonContext.Default.ApplicationImageIndexDocument,
             path,
             cancellationToken).ConfigureAwait(false);
-        RequireSchema(document.Schema, path);
+        RequireSchema(document.Schema, ApplicationSchema, path);
         if (string.IsNullOrWhiteSpace(document.Application))
         {
             throw Invalid(path, "application must be a non-empty string.");
@@ -96,12 +97,13 @@ public static class ContainerImageIndexes
             IContainerImageIndexEntry image = ValidateEntry(
                 entry.Resource,
                 entry.Repository,
-                entry.Digest,
+                entry.Registry,
                 entry.Tag,
-                entry.ArchivePath,
+                entry.Digest,
+                entry.Platform,
                 entry.Aot,
                 entry.BaseImage,
-                entry.Registry,
+                entry.Archive,
                 $"{path} images[{index}]");
             if (!resources.Add(image.Resource.Value))
             {
@@ -138,7 +140,7 @@ public static class ContainerImageIndexes
         if (artifact != ArtifactRef.Self)
         {
             throw new InvalidDataException(
-                $"Image schema '{Schema}' supports only artifact '{ArtifactRef.Self}', not '{artifact}'.");
+                $"Image schema '{ApplicationSchema}' supports only artifact '{ArtifactRef.Self}', not '{artifact}'.");
         }
 
         for (int imageIndex = 0; imageIndex < index.Images.Count; imageIndex++)
@@ -156,7 +158,7 @@ public static class ContainerImageIndexes
 
     /// <summary>
     /// Creates a digest-pinned artifact from an index entry, applying a target registry only when
-    /// the entry declares <c>&lt;late-bound&gt;</c>.
+    /// the entry does not pin one.
     /// </summary>
     /// <param name="resource">The runtime identifier of the entry's owning resource.</param>
     /// <param name="entry">The validated image entry.</param>
@@ -171,8 +173,8 @@ public static class ContainerImageIndexes
     {
         ArgumentNullException.ThrowIfNull(entry);
         string repository = entry.Repository;
-        if (string.Equals(entry.Registry, LateBoundRegistry, StringComparison.Ordinal)
-            && registry is not null)
+        string? effectiveRegistry = entry.Registry;
+        if (effectiveRegistry is null && registry is not null)
         {
             if (!ContainerImageValidation.IsRegistryAuthority(registry))
             {
@@ -181,7 +183,12 @@ public static class ContainerImageIndexes
                     nameof(registry));
             }
 
-            repository = $"{registry}/{repository}";
+            effectiveRegistry = registry;
+        }
+
+        if (effectiveRegistry is not null)
+        {
+            repository = $"{effectiveRegistry}/{repository}";
         }
 
         return ContainerImageArtifacts.Create(
@@ -206,28 +213,28 @@ public static class ContainerImageIndexes
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(indexPath);
         ArgumentNullException.ThrowIfNull(entry);
-        if (entry.ArchivePath is null)
+        if (entry.Archive is null)
         {
             return null;
         }
 
-        if (!ContainerImageValidation.IsRelativeArchivePath(entry.ArchivePath))
+        if (!ContainerImageValidation.IsRelativeArchivePath(entry.Archive))
         {
             throw new InvalidDataException(
-                $"Image archivePath '{entry.ArchivePath}' must be a relative path.");
+                $"Image archive '{entry.Archive}' must be a relative path.");
         }
 
         string documentPath = Path.GetFullPath(indexPath);
         string directory = Path.GetDirectoryName(documentPath)
             ?? throw new InvalidDataException($"Image index path '{indexPath}' has no parent directory.");
-        string portablePath = ContainerImageValidation.NormalizePathSeparators(entry.ArchivePath);
+        string portablePath = ContainerImageValidation.NormalizePathSeparators(entry.Archive);
         if (!ContainerImageValidation.TryResolveContainedPath(
                 directory,
                 portablePath,
                 out string resolved))
         {
             throw new InvalidDataException(
-                $"Image archivePath '{entry.ArchivePath}' escapes index directory '{directory}'.");
+                $"Image archive '{entry.Archive}' escapes index directory '{directory}'.");
         }
 
         return resolved;
@@ -263,12 +270,13 @@ public static class ContainerImageIndexes
     private static IContainerImageIndexEntry ValidateEntry(
         string resource,
         string repository,
-        string digest,
+        string? registry,
         string? tag,
-        string? archivePath,
+        string digest,
+        string platform,
         bool? aot,
         string baseImage,
-        string? registry,
+        JsonElement archiveElement,
         string location)
     {
         if (string.IsNullOrWhiteSpace(resource))
@@ -283,6 +291,20 @@ public static class ContainerImageIndexes
                 "repository must be non-empty and contain no whitespace, URI scheme, tag suffix, query, fragment, backslash, empty segment, or '@'.");
         }
 
+        if (ContainerImageValidation.HasRegistryAuthority(repository))
+        {
+            throw Invalid(
+                location,
+                "repository must exclude a registry authority; use registry for a pinned authority or omit it for late binding.");
+        }
+
+        if (registry is not null && !ContainerImageValidation.IsRegistryAuthority(registry))
+        {
+            throw Invalid(
+                location,
+                "registry must be omitted, null, or a registry authority without a URI scheme or path.");
+        }
+
         if (!ContainerImageValidation.TryNormalizeDigest(digest, out string normalizedDigest))
         {
             throw Invalid(location, "digest must be 'sha256:' followed by 64 hexadecimal characters.");
@@ -293,10 +315,23 @@ public static class ContainerImageIndexes
             throw Invalid(location, "tag must be omitted rather than empty.");
         }
 
-        if (archivePath is not null
-            && !ContainerImageValidation.IsRelativeArchivePath(archivePath))
+        if (!ContainerImageValidation.IsPlatform(platform))
         {
-            throw Invalid(location, "archivePath must be omitted or be a non-empty relative path.");
+            throw Invalid(
+                location,
+                "platform must be a lowercase OCI platform string in 'os/architecture' or 'os/architecture/variant' form.");
+        }
+
+        string? archive = null;
+        if (archiveElement.ValueKind != JsonValueKind.Undefined)
+        {
+            if (archiveElement.ValueKind != JsonValueKind.String
+                || !ContainerImageValidation.IsRelativeArchivePath(archiveElement.GetString()))
+            {
+                throw Invalid(location, "archive must be omitted or be a non-empty relative path string.");
+            }
+
+            archive = archiveElement.GetString();
         }
 
         if (aot is null)
@@ -309,36 +344,23 @@ public static class ContainerImageIndexes
             throw Invalid(location, "baseImage must be a non-empty string.");
         }
 
-        if (registry is not null
-            && !string.Equals(registry, LateBoundRegistry, StringComparison.Ordinal))
-        {
-            throw Invalid(location, "registry must be null or '<late-bound>'.");
-        }
-
-        if (string.Equals(registry, LateBoundRegistry, StringComparison.Ordinal)
-            && ContainerImageValidation.HasRegistryAuthority(repository))
-        {
-            throw Invalid(
-                location,
-                "repository must exclude a registry authority when registry is '<late-bound>'.");
-        }
-
         return new ContainerImageIndexEntry(
             resource,
             repository,
-            normalizedDigest,
+            registry,
             tag,
-            archivePath,
+            normalizedDigest,
+            platform,
             aot.Value,
             baseImage,
-            registry);
+            archive);
     }
 
-    private static void RequireSchema(string schema, string path)
+    private static void RequireSchema(string schema, string expected, string path)
     {
-        if (!string.Equals(schema, Schema, StringComparison.Ordinal))
+        if (!string.Equals(schema, expected, StringComparison.Ordinal))
         {
-            throw Invalid(path, $"schema must equal '{Schema}', not '{schema}'.");
+            throw Invalid(path, $"schema must equal '{expected}', not '{schema}'.");
         }
     }
 

@@ -17,7 +17,7 @@ public class KubernetesImageGathererTests
     private static readonly string _image = $"example/test@{_digest}";
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should resolve own entry and preserve repository for a Kind archive")]
-    public async Task GatherAsync_OnMatchingOwnEntry_ShouldLoadArchiveWithPublishedRepository()
+    public async Task GatherAsync_OnMatchingOwnEntry_ShouldLoadArchiveWithRepository()
     {
         // Arrange
         using var directory = new TestDirectory();
@@ -26,8 +26,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
-            registry: ContainerImageIndexes.LateBoundRegistry);
+            archive: "images/web.tar",
+            registry: null);
         var options = new KubernetesGatewayOptions
         {
             ImageIndexPath = indexPath,
@@ -65,8 +65,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: null,
-            registry: ContainerImageIndexes.LateBoundRegistry);
+            archive: null,
+            registry: null);
         var options = new KubernetesGatewayOptions
         {
             ImageIndexPath = indexPath,
@@ -89,8 +89,8 @@ public class KubernetesImageGathererTests
         artifact.Digest.ShouldBe(_digest);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should not bind registry for a fixed index repository")]
-    public async Task GatherAsync_OnFixedRepository_ShouldIgnoreConfiguredRegistry()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should preserve a pinned index registry")]
+    public async Task GatherAsync_OnPinnedRegistry_ShouldIgnoreConfiguredRegistry()
     {
         // Arrange
         using var directory = new TestDirectory();
@@ -98,8 +98,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: null,
-            registry: null);
+            archive: null,
+            registry: "registry.example:5000");
         var options = new KubernetesGatewayOptions
         {
             ImageIndexPath = indexPath,
@@ -119,7 +119,7 @@ public class KubernetesImageGathererTests
             CancellationToken.None);
 
         // Assert
-        artifact.Repository.ShouldBe("example/test");
+        artifact.Repository.ShouldBe("registry.example:5000/example/test");
         kindImages.Calls.ShouldBeEmpty();
     }
 
@@ -132,7 +132,7 @@ public class KubernetesImageGathererTests
             application: "other",
             repository: "example/test",
             digest: _digest,
-            archivePath: null,
+            archive: null,
             registry: null);
         var gatherer = new KubernetesImageGatherer(
             new KubernetesGatewayOptions { ImageIndexPath = indexPath },
@@ -162,7 +162,7 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: indexedDigest,
-            archivePath: null,
+            archive: null,
             registry: null);
         var kindImages = new RecordingKindImageLoader();
         var gatherer = new KubernetesImageGatherer(
@@ -193,7 +193,7 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/missing.tar",
+            archive: "images/missing.tar",
             registry: null);
         var gatherer = new KubernetesImageGatherer(
             new KubernetesGatewayOptions { ImageIndexPath = indexPath },
@@ -223,7 +223,7 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
+            archive: "images/web.tar",
             registry: null);
         var kindImages = new RecordingKindImageLoader();
         var gatherer = new KubernetesImageGatherer(
@@ -254,11 +254,15 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
+            archive: "images/web.tar",
             registry: null);
         var kindImages = new RecordingKindImageLoader();
         var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
+            new KubernetesGatewayOptions
+            {
+                ImageIndexPath = indexPath,
+                ContainerRegistry = "registry.example:5000",
+            },
             kindImages,
             new RecordingArchiveVerifier());
 
@@ -283,8 +287,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
-            registry: ContainerImageIndexes.LateBoundRegistry);
+            archive: "images/web.tar",
+            registry: null);
         var kindImages = new RecordingKindImageLoader(KindImageLoadResult.NotKind);
         var gatherer = new KubernetesImageGatherer(
             new KubernetesGatewayOptions { ImageIndexPath = indexPath },
@@ -316,8 +320,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
-            registry: ContainerImageIndexes.LateBoundRegistry);
+            archive: "images/web.tar",
+            registry: null);
         var gatherer = new KubernetesImageGatherer(
             new KubernetesGatewayOptions { ImageIndexPath = indexPath },
             new RecordingKindImageLoader(KindImageLoadResult.KindUnavailable),
@@ -348,8 +352,8 @@ public class KubernetesImageGathererTests
             application: "appa",
             repository: "example/test",
             digest: _digest,
-            archivePath: "images/web.tar",
-            registry: ContainerImageIndexes.LateBoundRegistry);
+            archive: "images/web.tar",
+            registry: null);
         var gatherer = new KubernetesImageGatherer(
             new KubernetesGatewayOptions
             {
@@ -475,25 +479,25 @@ public class KubernetesImageGathererTests
             string application,
             string repository,
             string digest,
-            string? archivePath,
+            string? archive,
             string? registry)
         {
-            string archiveJson = archivePath is null ? "null" : $"\"{archivePath}\"";
+            string archiveProperty = archive is null ? string.Empty : $",\n                      \"archive\": \"{archive}\"";
             string registryJson = registry is null ? "null" : $"\"{registry}\"";
             string json = $$"""
                 {
-                  "schema": "{{ContainerImageIndexes.Schema}}",
+                  "schema": "{{ContainerImageIndexes.ApplicationSchema}}",
                   "application": "{{application}}",
                   "images": [
                     {
                       "resource": "web",
                       "repository": "{{repository}}",
-                      "digest": "{{digest}}",
+                      "registry": {{registryJson}},
                       "tag": "latest",
-                      "archivePath": {{archiveJson}},
+                      "digest": "{{digest}}",
+                      "platform": "linux/amd64",
                       "aot": false,
-                      "baseImage": "mcr.microsoft.com/dotnet/runtime-deps:10.0",
-                      "registry": {{registryJson}}
+                      "baseImage": "mcr.microsoft.com/dotnet/runtime-deps:10.0"{{archiveProperty}}
                     }
                   ]
                 }

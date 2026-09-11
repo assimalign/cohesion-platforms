@@ -11,7 +11,7 @@ verified store, and exposes that store through an optional pull-only loopback re
 | Type | Purpose |
 | --- | --- |
 | [`ContainerImageArtifacts`](ContainerImageArtifacts/OVERVIEW.md) | Creates immutable digest-pinned image artifacts. |
-| [`ContainerImageIndexes`](ContainerImageIndexes/OVERVIEW.md) | Reads, validates, resolves, and registry-binds `cohesion/images/v1` indexes. |
+| [`ContainerImageIndexes`](ContainerImageIndexes/OVERVIEW.md) | Reads, validates, resolves, and registry-binds `cohesion/image/v1` resource indexes and `cohesion/images/v1` application indexes. |
 | [`IApplicationImageIndex`](IApplicationImageIndex/OVERVIEW.md) | Represents one application's ordered resource-image entries. |
 | [`IContainerImageIndexEntry`](IContainerImageIndexEntry/OVERVIEW.md) | Represents one resource's validated image metadata. |
 | [`OciImageStores`](OciImageStores/OVERVIEW.md) | Creates content-addressed OCI image stores. |

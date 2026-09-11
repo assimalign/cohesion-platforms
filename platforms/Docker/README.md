@@ -57,15 +57,18 @@ the supported local engine.
   path. Application-set `--mode render` is not wired against the currently pinned upstream
   package, as recorded below.
 - The default image path can resolve each resource's `ArtifactRef.Self` entry from a shared
-  `application.images.json` file. It verifies that the index application and source
-  repository/digest agree with the resource manifest, applies `ContainerRegistry` only to
-  `<late-bound>` entries, and resolves `archivePath` relative to the index. An indexed archive is
-  verified and loaded before the container runs by immutable image ID; without an archive, the
-  engine pulls the repository by digest and the gateway proves the resulting `RepoDigests` before
-  returning that same ID. The older `ImageArchives` mapping remains the explicit fallback when no
-  index is configured. A custom `IImageRealizer` replaces engine acquisition but cannot resolve a
-  tag-only manifest or substitute another image: it must preserve the manifest repository/digest,
-  or the validated registry-bound repository/digest when an index is configured.
+  `cohesion/images/v1` `application.images.json` file. The strict reader validates the entry's
+  required lowercase OCI `platform`, and Gather verifies that the index application and
+  authority-free source repository/digest agree with the resource manifest. The entry's concrete
+  registry authority is pinned; `ContainerRegistry` applies only when `registry` is omitted or
+  null and cannot override a pinned value. Optional `archive` is resolved relative to the index
+  and must be omitted when unavailable. An indexed archive is verified and loaded before the
+  container runs by immutable image ID; without an archive, the engine pulls the repository by
+  digest and the gateway proves the resulting `RepoDigests` before returning that same ID. The
+  older `ImageArchives` mapping remains the explicit fallback when no index is configured. A
+  custom `IImageRealizer` replaces engine acquisition but cannot resolve a tag-only manifest or
+  substitute another image: it must preserve the manifest repository/digest, or the validated
+  registry-bound repository/digest when an index is configured.
 - The NuGet package contributes the `docker` `CohesionGatewayProvider` through `buildTransitive`
   metadata with `RequiresJit=false`.
 

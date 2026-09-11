@@ -30,12 +30,13 @@ public class ContainerImageIndexesTests
         // Assert
         image.Resource.ShouldBe((ResourceName)"api");
         image.Repository.ShouldBe("example/appa-api");
-        image.Digest.ShouldBe(validDigest);
+        image.Registry.ShouldBeNull();
         image.Tag.ShouldBe("preview");
-        image.ArchivePath.ShouldBe("images/api.oci.tar");
+        image.Digest.ShouldBe(validDigest);
+        image.Platform.ShouldBe("linux/amd64");
         image.Aot.ShouldBeTrue();
         image.BaseImage.ShouldBe("mcr.microsoft.com/dotnet/runtime-deps:10.0");
-        image.Registry.ShouldBe(ContainerImageIndexes.LateBoundRegistry);
+        image.Archive.ShouldBe("images/api.oci.tar");
     }
 
     [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should parse images in declaration order")]
@@ -47,7 +48,10 @@ public class ContainerImageIndexesTests
             "application.images.json",
             ApplicationDocument(
                 ImageEntryDocument("api"),
-                ImageEntryDocument("worker", registry: null, archivePath: null)));
+                ImageEntryDocument(
+                    "worker",
+                    registry: "registry.example.test:5000",
+                    archive: null)));
 
         // Act
         IApplicationImageIndex index = await ContainerImageIndexes.ReadApplicationAsync(
@@ -59,14 +63,15 @@ public class ContainerImageIndexesTests
         index.Images.Count.ShouldBe(2);
         index.Images[0].Resource.ShouldBe((ResourceName)"api");
         index.Images[1].Resource.ShouldBe((ResourceName)"worker");
-        index.Images[1].Registry.ShouldBeNull();
-        index.Images[1].ArchivePath.ShouldBeNull();
+        index.Images[1].Registry.ShouldBe("registry.example.test:5000");
+        index.Images[1].Platform.ShouldBe("linux/amd64");
+        index.Images[1].Archive.ShouldBeNull();
     }
 
     [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should require the exact v1 schema")]
-    [InlineData("cohesion/image/v1")]
+    [InlineData("cohesion/images/v1")]
     [InlineData("cohesion/images/v2")]
-    [InlineData("Cohesion/images/v1")]
+    [InlineData("Cohesion/image/v1")]
     public async Task ReadImageAsync_OnDifferentSchema_ShouldRejectDocument(string schema)
     {
         // Arrange
@@ -78,7 +83,30 @@ public class ContainerImageIndexesTests
             () => ContainerImageIndexes.ReadImageAsync(path, CancellationToken.None));
 
         // Assert
-        exception.Message.ShouldContain(ContainerImageIndexes.Schema, Case.Sensitive);
+        exception.Message.ShouldContain(ContainerImageIndexes.ImageSchema, Case.Sensitive);
+        exception.Message.ShouldContain(schema, Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Containers] - Application image index: Should require the exact v1 schema")]
+    [InlineData("cohesion/image/v1")]
+    [InlineData("cohesion/images/v2")]
+    [InlineData("Cohesion/images/v1")]
+    public async Task ReadApplicationAsync_OnDifferentSchema_ShouldRejectDocument(string schema)
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string document = SetProperty(
+            ApplicationDocument(ImageEntryDocument("api")),
+            "schema",
+            schema);
+        string path = directory.WriteAllText("application.images.json", document);
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain(ContainerImageIndexes.ApplicationSchema, Case.Sensitive);
         exception.Message.ShouldContain(schema, Case.Sensitive);
     }
 
@@ -119,19 +147,15 @@ public class ContainerImageIndexesTests
         exception.Message.ShouldContain("more than once", Case.Sensitive);
     }
 
-    [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should require AOT and registry fields")]
-    [InlineData(true, false, "aot")]
-    [InlineData(false, true, "registry")]
-    public async Task ReadImageAsync_OnMissingRequiredField_ShouldRejectDocument(
-        bool omitAot,
-        bool omitRegistry,
-        string field)
+    [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should require the AOT field")]
+    [InlineData("aot")]
+    public async Task ReadImageAsync_OnMissingRequiredValueField_ShouldRejectDocument(string field)
     {
         // Arrange
         using var directory = new TestDirectory();
         string path = directory.WriteAllText(
             "image.json",
-            ImageDocument(includeAot: !omitAot, includeRegistry: !omitRegistry));
+            RemoveProperty(ImageDocument(), field));
 
         // Act
         InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
@@ -146,6 +170,7 @@ public class ContainerImageIndexesTests
     [InlineData("resource")]
     [InlineData("repository")]
     [InlineData("digest")]
+    [InlineData("platform")]
     [InlineData("baseImage")]
     public async Task ReadImageAsync_OnMissingRequiredStringField_ShouldRejectDocument(
         string field)
@@ -167,7 +192,8 @@ public class ContainerImageIndexesTests
     [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should reject empty entry fields")]
     [InlineData("resource")]
     [InlineData("tag")]
-    [InlineData("archivePath")]
+    [InlineData("archive")]
+    [InlineData("platform")]
     [InlineData("baseImage")]
     public async Task ReadImageAsync_OnEmptyEntryField_ShouldRejectDocument(string field)
     {
@@ -185,13 +211,14 @@ public class ContainerImageIndexesTests
         exception.Message.ShouldContain(field, Case.Insensitive);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should accept explicit null optional fields")]
-    public async Task ReadImageAsync_OnNullOptionalFields_ShouldReturnNullMetadata()
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should accept nullable fields and an omitted archive")]
+    public async Task ReadImageAsync_OnNullableFieldsAndOmittedArchive_ShouldReturnNullMetadata()
     {
         // Arrange
         using var directory = new TestDirectory();
         string document = SetProperty(ImageDocument(), "tag", null);
-        document = SetProperty(document, "archivePath", null);
+        document = RemoveProperty(document, "archive");
+        document = SetProperty(document, "registry", null);
         string path = directory.WriteAllText("image.json", document);
 
         // Act
@@ -201,7 +228,77 @@ public class ContainerImageIndexesTests
 
         // Assert
         image.Tag.ShouldBeNull();
-        image.ArchivePath.ShouldBeNull();
+        image.Archive.ShouldBeNull();
+        image.Registry.ShouldBeNull();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should reject a null archive instead of treating it as published")]
+    public Task ReadImageAsync_OnNullArchive_ShouldRejectDocument() =>
+        AssertNullArchiveRejectedAsync(applicationDocument: false);
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should reject a null archive instead of treating it as published")]
+    public Task ReadApplicationAsync_OnNullArchive_ShouldRejectDocument() =>
+        AssertNullArchiveRejectedAsync(applicationDocument: true);
+
+    private static async Task AssertNullArchiveRejectedAsync(bool applicationDocument)
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string entry = SetProperty(ImageEntryDocument("api"), "archive", null);
+        string document = applicationDocument
+            ? ApplicationDocument(entry)
+            : SetProperty(ImageDocument(), "archive", null);
+        string path = directory.WriteAllText(
+            applicationDocument ? "application.images.json" : "image.json",
+            document);
+
+        // Act
+        InvalidDataException exception = applicationDocument
+            ? await Should.ThrowAsync<InvalidDataException>(
+                () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None))
+            : await Should.ThrowAsync<InvalidDataException>(
+                () => ContainerImageIndexes.ReadImageAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("archive", Case.Sensitive);
+        exception.Message.ShouldContain("omitted", Case.Sensitive);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should treat an omitted registry as late-bound")]
+    public async Task ReadImageAsync_OnOmittedRegistry_ShouldReturnLateBoundEntry()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string path = directory.WriteAllText(
+            "image.json",
+            ImageDocument(includeRegistry: false));
+
+        // Act
+        IContainerImageIndexEntry image = await ContainerImageIndexes.ReadImageAsync(
+            path,
+            CancellationToken.None);
+
+        // Assert
+        image.Registry.ShouldBeNull();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should treat an omitted entry registry as late-bound")]
+    public async Task ReadApplicationAsync_OnOmittedRegistry_ShouldReturnLateBoundEntry()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string entry = RemoveProperty(ImageEntryDocument("api"), "registry");
+        string path = directory.WriteAllText(
+            "application.images.json",
+            ApplicationDocument(entry));
+
+        // Act
+        IApplicationImageIndex index = await ContainerImageIndexes.ReadApplicationAsync(
+            path,
+            CancellationToken.None);
+
+        // Assert
+        index.Images.ShouldHaveSingleItem().Registry.ShouldBeNull();
     }
 
     [Theory(DisplayName = "Cohesion Test [Containers] - Application image index: Should require application and images")]
@@ -277,21 +374,26 @@ public class ContainerImageIndexesTests
         index.Images.ShouldBeEmpty();
     }
 
-    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should reject an unknown registry marker")]
-    public async Task ReadImageAsync_OnUnknownRegistryMarker_ShouldRejectDocument()
+    [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should reject an invalid pinned registry")]
+    [InlineData("<late-bound>")]
+    [InlineData("https://registry.example.test")]
+    [InlineData("registry.example.test/team")]
+    [InlineData("registry.example.test:invalid")]
+    public async Task ReadImageAsync_OnInvalidPinnedRegistry_ShouldRejectDocument(string registry)
     {
         // Arrange
         using var directory = new TestDirectory();
         string path = directory.WriteAllText(
             "image.json",
-            ImageDocument(registry: "registry.example.test"));
+            ImageDocument(registry: registry));
 
         // Act
         InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
             () => ContainerImageIndexes.ReadImageAsync(path, CancellationToken.None));
 
         // Assert
-        exception.Message.ShouldContain(ContainerImageIndexes.LateBoundRegistry, Case.Sensitive);
+        exception.Message.ShouldContain("registry", Case.Sensitive);
+        exception.Message.ShouldContain("authority", Case.Sensitive);
     }
 
     [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should reject invalid repository identities")]
@@ -318,8 +420,8 @@ public class ContainerImageIndexesTests
         exception.Message.ShouldContain("repository", Case.Sensitive);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should exclude a registry from late-bound repository identity")]
-    public async Task ReadImageAsync_OnLateBoundRepositoryWithRegistry_ShouldRejectDocument()
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should keep the registry out of repository identity")]
+    public async Task ReadImageAsync_OnRepositoryContainingRegistry_ShouldRejectDocument()
     {
         // Arrange
         using var directory = new TestDirectory();
@@ -333,6 +435,48 @@ public class ContainerImageIndexesTests
 
         // Assert
         exception.Message.ShouldContain("exclude a registry authority", Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should reject invalid OCI platforms")]
+    [InlineData("linux-x64")]
+    [InlineData("linux")]
+    [InlineData("linux/AMD64")]
+    [InlineData("/amd64")]
+    [InlineData("linux//amd64")]
+    [InlineData("linux/amd64/v8/extra")]
+    public async Task ReadImageAsync_OnInvalidPlatform_ShouldRejectDocument(string platform)
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string path = directory.WriteAllText(
+            "image.json",
+            ImageDocument(platform: platform));
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ContainerImageIndexes.ReadImageAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("platform", Case.Sensitive);
+        exception.Message.ShouldContain("os/architecture", Case.Sensitive);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should accept an OCI platform variant")]
+    public async Task ReadImageAsync_OnPlatformVariant_ShouldReturnPlatform()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string path = directory.WriteAllText(
+            "image.json",
+            ImageDocument(platform: "linux/arm64/v8"));
+
+        // Act
+        IContainerImageIndexEntry image = await ContainerImageIndexes.ReadImageAsync(
+            path,
+            CancellationToken.None);
+
+        // Assert
+        image.Platform.ShouldBe("linux/arm64/v8");
     }
 
     [Theory(DisplayName = "Cohesion Test [Containers] - Image index: Should reject unknown document fields")]
@@ -357,6 +501,100 @@ public class ContainerImageIndexesTests
 
         // Assert
         exception.Message.ShouldContain("unknown", Case.Insensitive);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should reject an unknown root field")]
+    public async Task ReadApplicationAsync_OnUnknownRootField_ShouldRejectDocument()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string document = SetProperty(
+            ApplicationDocument(ImageEntryDocument("api")),
+            "unknown",
+            "value");
+        string path = directory.WriteAllText("application.images.json", document);
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("unknown", Case.Insensitive);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Image index: Should reject the retired archivePath field")]
+    public Task ReadImageAsync_OnLegacyArchivePathField_ShouldRejectDocument() =>
+        AssertLegacyArchivePathRejectedAsync(applicationDocument: false);
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should reject the retired archivePath field")]
+    public Task ReadApplicationAsync_OnLegacyArchivePathField_ShouldRejectDocument() =>
+        AssertLegacyArchivePathRejectedAsync(applicationDocument: true);
+
+    private static async Task AssertLegacyArchivePathRejectedAsync(bool applicationDocument)
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string image = SetProperty(ImageEntryDocument("api"), "archivePath", "images/api.tar");
+        string document = applicationDocument
+            ? ApplicationDocument(image)
+            : SetProperty(ImageDocument(), "archivePath", "images/api.tar");
+        string path = directory.WriteAllText(
+            applicationDocument ? "application.images.json" : "image.json",
+            document);
+
+        // Act
+        InvalidDataException exception = applicationDocument
+            ? await Should.ThrowAsync<InvalidDataException>(
+                () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None))
+            : await Should.ThrowAsync<InvalidDataException>(
+                () => ContainerImageIndexes.ReadImageAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("archivePath", Case.Sensitive);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Containers] - Application image index: Should reject schema on an entry")]
+    public async Task ReadApplicationAsync_OnEntrySchema_ShouldRejectDocument()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string entry = SetProperty(
+            ImageEntryDocument("api"),
+            "schema",
+            ContainerImageIndexes.ImageSchema);
+        string path = directory.WriteAllText(
+            "application.images.json",
+            ApplicationDocument(entry));
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("schema", Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Containers] - Application image index: Should require a valid OCI platform on every entry")]
+    [InlineData(null)]
+    [InlineData("linux-x64")]
+    public async Task ReadApplicationAsync_OnMissingOrInvalidPlatform_ShouldRejectDocument(
+        string? platform)
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string entry = platform is null
+            ? RemoveProperty(ImageEntryDocument("api"), "platform")
+            : SetProperty(ImageEntryDocument("api"), "platform", platform);
+        string path = directory.WriteAllText(
+            "application.images.json",
+            ApplicationDocument(entry));
+
+        // Act
+        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
+            () => ContainerImageIndexes.ReadApplicationAsync(path, CancellationToken.None));
+
+        // Assert
+        exception.Message.ShouldContain("platform", Case.Insensitive);
     }
 
     [Fact(DisplayName = "Cohesion Test [Containers] - Resolve: Should return only the owning resource for ArtifactRef.Self")]
@@ -456,7 +694,7 @@ public class ContainerImageIndexesTests
         using var directory = new TestDirectory();
         string path = directory.WriteAllText(
             "indexes/image.json",
-            ImageDocument(archivePath: archivePath.Replace("\\", "\\\\", StringComparison.Ordinal)));
+            ImageDocument(archive: archivePath.Replace("\\", "\\\\", StringComparison.Ordinal)));
         IContainerImageIndexEntry image = await ContainerImageIndexes.ReadImageAsync(
             path,
             CancellationToken.None);
@@ -514,6 +752,29 @@ public class ContainerImageIndexesTests
         artifact.Tag.ShouldBe("preview");
     }
 
+    [Fact(DisplayName = "Cohesion Test [Containers] - Pinned registry: Should ignore a target registry binding")]
+    public async Task CreateArtifact_OnPinnedRegistry_ShouldPreserveAuthority()
+    {
+        // Arrange
+        using var directory = new TestDirectory();
+        string path = directory.WriteAllText(
+            "image.json",
+            ImageDocument(registry: "registry.example.test:5000"));
+        IContainerImageIndexEntry image = await ContainerImageIndexes.ReadImageAsync(
+            path,
+            CancellationToken.None);
+
+        // Act
+        IContainerImageArtifact artifact = ContainerImageIndexes.CreateArtifact(
+            ResourceId.New(),
+            image,
+            "other.example.test:5000");
+
+        // Assert
+        artifact.Repository.ShouldBe("registry.example.test:5000/example/appa-api");
+        artifact.Digest.ShouldBe(validDigest);
+    }
+
     [Theory(DisplayName = "Cohesion Test [Containers] - Late-bound registry: Should reject a non-authority binding")]
     [InlineData("https://registry.example.test")]
     [InlineData("registry.example.test/team")]
@@ -538,10 +799,11 @@ public class ContainerImageIndexesTests
     }
 
     private static string ImageDocument(
-        string schema = ContainerImageIndexes.Schema,
+        string schema = ContainerImageIndexes.ImageSchema,
         string digest = validDigest,
-        string? registry = ContainerImageIndexes.LateBoundRegistry,
-        string? archivePath = "images/api.oci.tar",
+        string? registry = null,
+        string? archive = "images/api.oci.tar",
+        string platform = "linux/amd64",
         bool includeAot = true,
         bool includeRegistry = true,
         bool includeUnknown = false,
@@ -552,13 +814,18 @@ public class ContainerImageIndexesTests
             $"\"schema\":\"{schema}\"",
             "\"resource\":\"api\"",
             $"\"repository\":{JsonSerializer.Serialize(repository)}",
+        };
+        if (includeRegistry)
+        {
+            properties.Add(registry is null ? "\"registry\":null" : $"\"registry\":\"{registry}\"");
+        }
+
+        properties.AddRange(
+        [
             "\"tag\":\"preview\"",
             $"\"digest\":\"{digest}\"",
-        };
-        if (archivePath is not null)
-        {
-            properties.Add($"\"archivePath\":\"{archivePath}\"");
-        }
+            $"\"platform\":{JsonSerializer.Serialize(platform)}",
+        ]);
 
         if (includeAot)
         {
@@ -566,9 +833,9 @@ public class ContainerImageIndexesTests
         }
 
         properties.Add("\"baseImage\":\"mcr.microsoft.com/dotnet/runtime-deps:10.0\"");
-        if (includeRegistry)
+        if (archive is not null)
         {
-            properties.Add(registry is null ? "\"registry\":null" : $"\"registry\":\"{registry}\"");
+            properties.Add($"\"archive\":\"{archive}\"");
         }
 
         if (includeUnknown)
@@ -581,23 +848,24 @@ public class ContainerImageIndexesTests
 
     private static string ImageEntryDocument(
         string resource,
-        string? registry = ContainerImageIndexes.LateBoundRegistry,
-        string? archivePath = "images/api.oci.tar",
+        string? registry = null,
+        string? archive = "images/api.oci.tar",
         bool includeUnknown = false)
     {
         var properties = new List<string>
         {
             $"\"resource\":\"{resource}\"",
             "\"repository\":\"example/appa-api\"",
+            registry is null ? "\"registry\":null" : $"\"registry\":\"{registry}\"",
             "\"tag\":\"preview\"",
             $"\"digest\":\"{validDigest}\"",
+            "\"platform\":\"linux/amd64\"",
             "\"aot\":true",
             "\"baseImage\":\"mcr.microsoft.com/dotnet/runtime-deps:10.0\"",
-            registry is null ? "\"registry\":null" : $"\"registry\":\"{registry}\"",
         };
-        if (archivePath is not null)
+        if (archive is not null)
         {
-            properties.Add($"\"archivePath\":\"{archivePath}\"");
+            properties.Add($"\"archive\":\"{archive}\"");
         }
 
         if (includeUnknown)
@@ -611,7 +879,7 @@ public class ContainerImageIndexesTests
     private static string ApplicationDocument(params string[] entries) =>
         $$"""
         {
-          "schema": "{{ContainerImageIndexes.Schema}}",
+          "schema": "{{ContainerImageIndexes.ApplicationSchema}}",
           "application": "appa",
           "images": [
             {{string.Join(",\n    ", entries)}}

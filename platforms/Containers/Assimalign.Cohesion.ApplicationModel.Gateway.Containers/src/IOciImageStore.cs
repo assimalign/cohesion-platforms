@@ -17,7 +17,7 @@ public interface IOciImageStore
     /// Ingests the archive advertised by a validated image-index entry.
     /// </summary>
     /// <param name="image">The image entry whose digest and repository are authoritative.</param>
-    /// <param name="imageIndexPath">The index path against which <c>archivePath</c> is resolved.</param>
+    /// <param name="imageIndexPath">The index path against which <c>archive</c> is resolved.</param>
     /// <param name="cancellationToken">Signals that ingestion should stop.</param>
     /// <returns>A task that completes after every referenced blob has been verified and stored.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="image"/> is <see langword="null"/>.</exception>

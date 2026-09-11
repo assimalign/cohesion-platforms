@@ -8,12 +8,15 @@ locating them, verifying them, indexing them, and serving them — lives here.
 
 | Project | Purpose |
 | --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | `cohesion/images/v1` index reader, digest-pinned artifact seam, verified OCI/docker-save disk store, pull-only embedded OCI Distribution registry, and shared acquisition primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | `cohesion/image/v1` resource-index and `cohesion/images/v1` application-index readers, digest-pinned artifact seam, verified OCI/docker-save disk store, pull-only embedded OCI Distribution registry, and shared acquisition primitives. Platform gateways use cohesion's public `InMemoryResourceStateManager`; this package carries no duplicate state manager. |
 
 Design item 35 adds the exact [`image.json` and `application.images.json` contract](Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/IMAGE_INDEX.md).
 Each plan resolves only its own entry (`ArtifactRef.Self`); missing entries, duplicate resources,
-tag-only identities, and digest mismatches fail before platform contact. `archivePath` is optional,
-relative to the index, and cannot escape its directory.
+tag-only identities, and digest mismatches fail before platform contact. Every entry has an
+authority-free repository, immutable digest, and lowercase OCI platform. An omitted or null
+registry is late-bound; a concrete registry authority is pinned and cannot be replaced by a
+target override. `archive` is optional, relative to the index, cannot escape its directory, and
+is omitted when no archive is available.
 
 The on-disk store verifies every OCI blob before placing it under its SHA-256 address. A bounded
 BCL loopback HTTP/1.1 listener serves stored manifests and repository-reachable blobs through the

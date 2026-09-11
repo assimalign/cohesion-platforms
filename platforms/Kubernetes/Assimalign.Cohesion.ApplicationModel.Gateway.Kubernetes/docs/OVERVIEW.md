@@ -37,13 +37,16 @@ Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-appro
 
 **Design item 35 (`L04.01.02.07` / #32) integration:** an optional `ImageIndexPath` makes Gather
 read the validated `cohesion/images/v1` application index and resolve only the resource's own
-`ArtifactRef.Self` entry. The index application and repository/digest must match the manifest.
-Relative archives are validated before use, and `ContainerRegistry` prefixes only a
-`<late-bound>` entry on the non-Kind registry route. In Development, a selected
+`ArtifactRef.Self` entry. The index application and authority-free repository/digest must match
+the manifest, and the required lowercase OCI `platform` is validated. A concrete entry registry
+is pinned and cannot be overridden; `ContainerRegistry` prefixes the repository only when
+`registry` is omitted or null on the non-Kind route. Optional `archive` is relative, is validated
+before use, and is omitted when unavailable. In Development, a selected
 `kind-<cluster>` context loads an advertised
 archive through `kind load image-archive --name <cluster>` once per context/digest; the process
-inherits `KIND_EXPERIMENTAL_PROVIDER` and the pod keeps the archive's published repository rather
-than receiving a registry prefix. A missing Kind executable warns and skips the daemon-load
+inherits `KIND_EXPERIMENTAL_PROVIDER` and the pod keeps the archive's published repository
+identity, including any pinned entry registry, rather than receiving a target registry override.
+A missing Kind executable warns and skips the daemon-load
 attempt; late binding then uses a configured registry or fails, never an implicit pull. A no-index custom realizer may acquire only the
 digest-pinned manifest identity; the direct-digest path and hermetic render surface remain
 available. Export and Kubernetes import are included. Development port-forwarding, registry
@@ -87,5 +90,5 @@ because that resource cannot report the outcome needed to authorize namespace de
 
 **Status:** design item 33 delivered the contract/package gate; item 34 delivers the generic
 Kubernetes plan compiler/controller and provider metadata. Item 35 adds application-index
-resolution, late-bound registry identity, and the Development Kind archive-load path; arbitrary
-non-Kind registry reachability remains tracked separately.
+resolution, pinned or target-supplied registry identity, and the Development Kind archive-load path;
+arbitrary non-Kind registry reachability remains tracked separately.

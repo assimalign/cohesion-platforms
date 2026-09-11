@@ -82,7 +82,7 @@ public class DockerGatewayTests
             const string repository = "team/worker";
             const string registry = "registry.example:5000";
             string digest = $"sha256:{new string('a', 64)}";
-            string indexPath = WriteImageIndex(root, repository, digest, "<late-bound>");
+            string indexPath = WriteImageIndex(root, repository, digest, registry: null);
             await using var engineServer = new FakeDockerEngine();
             var options = new DockerGatewayOptions
             {
@@ -117,6 +117,68 @@ public class DockerGatewayTests
                 artifact.Digest.ShouldBe(digest);
                 artifact.Tag.ShouldBe("test");
                 artifact.ImageId.ShouldBe(engineServer.ImageIdAfterPull);
+            }
+            finally
+            {
+                await control.StopAsync(CancellationToken.None);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Docker] - Gather: Should preserve a pinned index registry over the target registry")]
+    public async Task GatherAsync_OnPinnedRegistry_ShouldIgnoreTargetRegistry()
+    {
+        // Arrange
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"cohesion-docker-index-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            const string repository = "team/worker";
+            const string pinnedRegistry = "pinned.example:5000";
+            string digest = $"sha256:{new string('a', 64)}";
+            string indexPath = WriteImageIndex(
+                root,
+                repository,
+                digest,
+                pinnedRegistry);
+            await using var engineServer = new FakeDockerEngine();
+            var options = new DockerGatewayOptions
+            {
+                ContainerRegistry = "target.example:5000",
+                ExportDirectory = Path.Combine(root, "exports"),
+                ImageIndexPath = indexPath,
+            };
+            var controller = new CapturingController();
+            options.Controllers.Add(controller);
+            var gateway = new DockerGateway(
+                options,
+                () => new DockerEngineClient(engineServer.Endpoint));
+            IApplicationBuilder builder = Application.CreateBuilder(
+                ApplicationName.Parse("appa"),
+                []);
+            builder.AddResource(CreateManifest($"{repository}@{digest}"));
+            builder.UseGateway(gateway);
+            IApplication application = builder.Build();
+            IApplicationGateway control = gateway;
+
+            // Act
+            await control.StartAsync(application.Model, CancellationToken.None);
+
+            try
+            {
+                // Assert
+                string canonical = $"{pinnedRegistry}/{repository}@{digest}";
+                engineServer.PulledImage.ShouldBe(canonical);
+                DockerImageArtifact artifact = controller.Artifact
+                    .ShouldBeOfType<DockerImageArtifact>();
+                artifact.Repository.ShouldBe($"{pinnedRegistry}/{repository}");
+                artifact.Digest.ShouldBe(digest);
             }
             finally
             {
@@ -227,7 +289,7 @@ public class DockerGatewayTests
         try
         {
             string digest = $"sha256:{new string('a', 64)}";
-            string indexPath = WriteImageIndex(root, "team/worker", digest, "<late-bound>");
+            string indexPath = WriteImageIndex(root, "team/worker", digest, registry: null);
             var gateway = new DockerGateway(
                 new DockerGatewayOptions
                 {
@@ -248,7 +310,7 @@ public class DockerGatewayTests
 
             // Assert
             exception.Message.ShouldContain("ContainerRegistry is absent", Case.Sensitive);
-            exception.Message.ShouldContain("no archivePath is available", Case.Sensitive);
+            exception.Message.ShouldContain("no archive is available", Case.Sensitive);
         }
         finally
         {
@@ -317,9 +379,11 @@ public class DockerGatewayTests
             var gateway = new DockerGateway(
                 new DockerGatewayOptions
                 {
+                    ContainerRegistry = "registry.example:5000",
                     ExportDirectory = Path.Combine(root, "exports"),
                     ImageIndexPath = indexPath,
-                    ImageRealizer = new FixedImageRealizer($"{repository}@{otherDigest}"),
+                    ImageRealizer = new FixedImageRealizer(
+                        $"registry.example:5000/{repository}@{otherDigest}"),
                 },
                 () => new DockerEngineClient(engineServer.Endpoint));
             IApplicationBuilder builder = Application.CreateBuilder(
@@ -334,8 +398,12 @@ public class DockerGatewayTests
                 () => ((IApplicationGateway)gateway).StartAsync(application.Model));
 
             // Assert
-            exception.Message.ShouldContain($"{repository}@{otherDigest}", Case.Sensitive);
-            exception.Message.ShouldContain($"{repository}@{digest}", Case.Sensitive);
+            exception.Message.ShouldContain(
+                $"registry.example:5000/{repository}@{otherDigest}",
+                Case.Sensitive);
+            exception.Message.ShouldContain(
+                $"registry.example:5000/{repository}@{digest}",
+                Case.Sensitive);
             exception.Message.ShouldContain("image-index artifact", Case.Sensitive);
         }
         finally
@@ -445,17 +513,18 @@ public class DockerGatewayTests
             indexPath,
             $$"""
             {
-              "schema": "cohesion/images/v1",
+              "schema": "{{ContainerImageIndexes.ApplicationSchema}}",
               "application": "{{application}}",
               "images": [
                 {
                   "resource": "worker",
                   "repository": "{{repository}}",
-                  "digest": "{{digest}}",
+                  "registry": {{registryJson}},
                   "tag": "test",
+                  "digest": "{{digest}}",
+                  "platform": "linux/amd64",
                   "aot": true,
-                  "baseImage": "mcr.microsoft.com/dotnet/runtime-deps:10.0",
-                  "registry": {{registryJson}}
+                  "baseImage": "mcr.microsoft.com/dotnet/runtime-deps:10.0"
                 }
               ]
             }

@@ -33,7 +33,7 @@ internal sealed class OciImageStore : IOciImageStore
         ArgumentNullException.ThrowIfNull(image);
         string archivePath = ContainerImageIndexes.ResolveArchivePath(imageIndexPath, image)
             ?? throw new InvalidDataException(
-                $"Image index entry for resource '{image.Resource}' has no archivePath to ingest.");
+                $"Image index entry for resource '{image.Resource}' has no archive to ingest.");
         await IngestAsync(
             image.Repository,
             image.Digest,

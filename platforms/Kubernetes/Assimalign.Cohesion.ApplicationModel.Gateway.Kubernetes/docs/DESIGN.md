@@ -40,14 +40,16 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
   readiness ignore overlapping pods from an older rollout without changing the plan hash.
 - **Gather resolves only the resource's own image.** When `ImageIndexPath` is configured, Gather
   reads the source-generated `cohesion/images/v1` application index, requires its application to
-  match the manifest, and resolves the plan's `ArtifactRef.Self` by `ResourceName`. The resulting
-  repository and digest must exactly match the digest-pinned manifest artifact before any target
-  binding. `archivePath` is relative to the index and must name an existing file. A configured
-  `ContainerRegistry` prefixes only `<late-bound>` entries on the non-Kind registry route; a fixed
-  repository is never rewritten and a tag is never a pull reference. A Development Kind archive
-  retains its published repository so containerd resolves the imported name and digest. With no
-  index, an `IImageRealizer` may acquire the digest-pinned manifest artifact but must preserve its
-  repository and digest; the direct digest-pinned artifact remains the other acquisition path.
+  match the manifest, validates the required lowercase OCI `platform`, and resolves the plan's
+  `ArtifactRef.Self` by `ResourceName`. The authority-free repository and digest must exactly
+  match the digest-pinned manifest artifact before registry resolution. A concrete entry registry
+  authority is pinned and cannot be overridden. A configured `ContainerRegistry` prefixes the
+  repository only when `registry` is omitted or null on the non-Kind route, and a tag is never a
+  pull reference. Optional `archive` is relative to the index, must name an existing file, and is
+  omitted when unavailable. A Development Kind archive retains its published repository identity
+  so containerd resolves the imported name and digest. With no index, an `IImageRealizer` may
+  acquire the digest-pinned manifest artifact but must preserve its repository and digest; the
+  direct digest-pinned artifact remains the other acquisition path.
 - **Kind loading is a Development gather action.** The same kubeconfig resolution used for the
   Kubernetes client supplies the current context. A `kind-<cluster>` context plus an advertised
   archive invokes `kind load image-archive <archive> --name <cluster>` before observer/client
@@ -161,10 +163,11 @@ remains preferred for dependency and startup hygiene.
 
 Design item 34 replaces the pre-plan, capability-interface controller direction with the generic
 compiler/controller path and packages the `kubernetes` `CohesionGatewayProvider`. Design item 35
-adds application-index resolution, target registry identity, and the Kind archive-load path while
-leaving the compiler unchanged. Both the acquisition component and Kind command runner are tested
-through internal seams; the ordinary suite requires no live cluster, and the real Kind smoke is
-explicitly opted in and dynamically skipped when its prerequisites are absent.
+adds application-index resolution, pinned or target-supplied registry identity, and the Kind
+archive-load path while leaving the compiler unchanged. Both the acquisition component and Kind
+command runner are tested through internal seams; the ordinary suite requires no live cluster,
+and the real Kind smoke is explicitly opted in and dynamically skipped when its prerequisites are
+absent.
 
 The following criteria cannot be completed honestly inside this package against the current
 upstream contract:
