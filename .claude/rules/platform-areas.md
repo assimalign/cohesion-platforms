@@ -43,8 +43,11 @@ derives from the public guided base `ApplicationGateway` (package
 3. **Layering.** A platform gateway may reference the `Assimalign.Cohesion.ApplicationModel`
    contract package, the `Assimalign.Cohesion.ApplicationModel.Gateway` base package, shared
    `platforms/Containers` libraries, and thin `<Area>.Client` packages only. It must never
-   reference an `<Area>.ApplicationModel`, any `*.Hosting`, any `<Area>.Application` runtime, or
-   any `Microsoft.Extensions.*` assembly.
+   reference an `<Area>.ApplicationModel`, any `<Area>.Hosting` runtime module, any `<Area>.Application`
+   runtime, or any `Microsoft.Extensions.*` assembly. The Core-only `Assimalign.Cohesion.Hosting` and
+   `Hosting.Health` and the opt-in `Hosting.Resources` are not area runtime modules: the Gateway base package
+   depends on them (shared command/mount types since cohesion item 23b), so they may appear in a platform
+   gateway's closure; a platform gateway still never references them directly.
 4. **Digest-pinned images.** Deployments always reference images as
    `{repository}@sha256:{digest}`. Tags are human-readable metadata only — never a pull reference.
 5. **Observed endpoints are the discovery surface.** Observers publish `ResourceEndpoint`
