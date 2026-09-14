@@ -52,3 +52,21 @@ positive stop grace. Invalid settings throw `ArgumentException`, `ArgumentNullEx
 `ArgumentOutOfRangeException` as appropriate.
 
 Back to the [namespace overview](../OVERVIEW.md).
+
+## System installation options
+
+| Option | Meaning/default |
+| --- | --- |
+| SystemNamespace | DNS label, cohesion-system |
+| SystemServiceAccount | DNS label, cohesion-gateway |
+| SystemImage | Explicit digest-pinned executable image, required for bootstrap/render |
+| SystemStorageSize | Explicit persistent export/state capacity, required for installation |
+| SystemStorageClass | Optional PVC storage class |
+| SystemExposure | None, LoadBalancer, or Ingress; default None |
+| SystemIngressHost / SystemIngressClass | Both required for Ingress |
+| BootstrapApply | True applies after emission; false is offline emission |
+
+The base TrustKeyRepository option defaults to native Kubernetes Secret persistence and preserves
+explicit overrides. FieldManager owns system objects; an application sharing SystemNamespace owns
+the Namespace itself. CLI/deployment environment transport is described on KubernetesGatewayCommandLine.
+System state and trust storage are separate from application resource teardown.

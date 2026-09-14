@@ -16,7 +16,7 @@ public static class KubernetesApplicationModelResolvers
     /// <returns>A resolver suitable for an <see cref="IApplicationSet"/> member.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A Kubernetes connection option is invalid.</exception>
-    public static IApplicationModelResolver ImportFromKubernetes(
+    public static IKubernetesApplicationModelResolver ImportFromKubernetes(
         ApplicationName application,
         KubernetesGatewayOptions options)
     {

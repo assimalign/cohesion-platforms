@@ -3,7 +3,7 @@
 Namespace: `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`
 
 ```csharp
-public sealed class DockerGateway : ApplicationGateway, IDockerComposeRenderer
+public sealed class DockerGateway : ApplicationGateway, IDockerComposeRenderer, IApplicationGatewayRenderer
 ```
 
 `DockerGateway` realizes validated Cohesion resource plans as containers, networks, named volumes,
@@ -73,16 +73,30 @@ Null plan, artifact, inputs, or dependency values throw `ArgumentNullException`.
 throws `ArgumentException`. Unsupported plan schema/specification throws `InvalidDataException`;
 missing or unresolved inputs and dependency endpoints throw `InvalidOperationException`.
 
-This method is the public `IDockerComposeRenderer` contract. It is not currently application-set
-CLI render support: the resolved canonical ApplicationModel `10.0.1-preview.3` assembly lacks
-`IApplicationGatewayRenderer`, so `--mode render --gateway docker` cannot dispatch here.
+The direct API is the public `IDockerComposeRenderer` contract. The gateway also implements:
+
+```csharp
+public Task RenderAsync(
+    IReadOnlyList<IApplicationModel> models,
+    TextWriter output,
+    CancellationToken cancellationToken = default);
+```
+
+This enables SDK `--mode render --gateway docker`. Models and plans retain their supplied order.
+Artifact identity comes from the manifest or image index without gathering or engine access.
+`ResourceInputs.Empty` produces an offline preview retaining mount paths and sensitivity without
+secret content. Cancellation and malformed plan/index data are reported before output is written.
+
+A configured shared control plane binds through `DockerGatewayOptions.ControlPlaneAddress`.
+Metadata sits at `<ExportDirectory>/<application>/control-plane.json` beside `export.json` when
+configured through `GatewayControlPlane.Configure` in the domain gateway.
 
 ## Lifecycle policy
 
 The compiler remains based on `ResourcePlan`. During gateway validation and reconciliation, the
-runtime path separately reads the generic manifest carried by the resource control context:
+runtime path selects plan policy and preserves the generic manifest compatibility fallback:
 
-- `Manifest.Lifecycle.RestartPolicy` selects `Always`, `OnFailure`, or `Never` supervision.
+- `plan.Workload.RestartPolicy` selects `Always`, `OnFailure`, or `Never` supervision; only an empty legacy value falls back to `Manifest.Lifecycle.RestartPolicy`. Engine restart stays `no` so the gateway remains the sole supervisor.
 - `Manifest.Lifecycle.ExitCodes` must equal `cohesion/sysexits/v1`; configuration exit 64 and
   startup exit 70 are final.
 

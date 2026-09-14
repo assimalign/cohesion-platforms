@@ -713,6 +713,16 @@ internal sealed class DockerContainerObserver
 
     private static string FindScheme(ResourcePlan plan, string endpoint)
     {
+        for (int index = 0; index < plan.Container.Ports.Count; index++)
+        {
+            PortBinding port = plan.Container.Ports[index];
+            if (string.Equals(port.Endpoint, endpoint, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(port.Scheme))
+            {
+                return port.Scheme;
+            }
+        }
+
         for (int index = 0; index < plan.Exposures.Count; index++)
         {
             if (string.Equals(plan.Exposures[index].Endpoint, endpoint, StringComparison.Ordinal))

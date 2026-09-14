@@ -12,6 +12,33 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// </summary>
 public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 {
+    /// <summary>The namespace containing gateway infrastructure. Defaults to <c>cohesion-system</c>.</summary>
+    public string SystemNamespace { get; set; } = "cohesion-system";
+
+    /// <summary>The gateway service account DNS label. Defaults to <c>cohesion-gateway</c>.</summary>
+    public string SystemServiceAccount { get; set; } = "cohesion-gateway";
+
+    /// <summary>The digest-pinned gateway executable image, required for bootstrap and rendering.</summary>
+    public string? SystemImage { get; set; }
+
+    /// <summary>The requested persistent state capacity. Required when system storage is requested.</summary>
+    public string? SystemStorageSize { get; set; }
+
+    /// <summary>The optional storage class for gateway state.</summary>
+    public string? SystemStorageClass { get; set; }
+
+    /// <summary>The external control-plane exposure. Defaults to <see cref="KubernetesSystemExposure.None"/>.</summary>
+    public KubernetesSystemExposure SystemExposure { get; set; }
+
+    /// <summary>The DNS host required when exposing the control plane through an Ingress.</summary>
+    public string? SystemIngressHost { get; set; }
+
+    /// <summary>The controller class required when exposing the control plane through an Ingress.</summary>
+    public string? SystemIngressClass { get; set; }
+
+    /// <summary>Whether bootstrap applies its emitted installation. Defaults to true; false emits only.</summary>
+    public bool BootstrapApply { get; set; } = true;
+
     private readonly Dictionary<ResourceName, List<Action<IKubernetesObject<V1ObjectMeta>>>> _patches = new();
 
     /// <summary>
@@ -120,6 +147,55 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 
     internal void ValidateKubernetes()
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(SystemNamespace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(SystemServiceAccount);
+        KubernetesMetadata.RequireDnsLabel(SystemNamespace, nameof(SystemNamespace));
+        KubernetesMetadata.RequireDnsLabel(SystemServiceAccount, nameof(SystemServiceAccount));
+        if (!Enum.IsDefined(SystemExposure))
+        {
+            throw new ArgumentOutOfRangeException(nameof(SystemExposure));
+        }
+        if (SystemImage is not null)
+        {
+            if (string.IsNullOrWhiteSpace(SystemImage))
+            {
+                throw new ArgumentException("SystemImage (--cohesion-system-image) must be a digest-pinned image reference.", nameof(SystemImage));
+            }
+
+            _ = Containers.ContainerImageArtifacts.Create(default, SystemImage);
+        }
+        if (SystemStorageSize is not null && string.IsNullOrWhiteSpace(SystemStorageSize))
+        {
+            throw new ArgumentException("SystemStorageSize must not be empty.", nameof(SystemStorageSize));
+        }
+        if (SystemStorageSize is not null)
+        {
+            try
+            {
+                if (new ResourceQuantity(SystemStorageSize).ToDecimal() <= 0)
+                {
+                    throw new ArgumentException("SystemStorageSize (--cohesion-system-storage) must be positive.", nameof(SystemStorageSize));
+                }
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException)
+            {
+                throw new ArgumentException("SystemStorageSize (--cohesion-system-storage) must be a valid positive Kubernetes resource quantity.", nameof(SystemStorageSize), exception);
+            }
+        }
+        if (SystemStorageClass is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemStorageClass);
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemStorageSize);
+        }
+        if (SystemExposure == KubernetesSystemExposure.Ingress)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemIngressHost);
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemIngressClass);
+            if (Uri.CheckHostName(SystemIngressHost) != UriHostNameType.Dns)
+            {
+                throw new ArgumentException("SystemIngressHost must be a DNS host.", nameof(SystemIngressHost));
+            }
+        }
         if (KubeConfigPath is not null && string.IsNullOrWhiteSpace(KubeConfigPath))
         {
             throw new ArgumentException("KubeConfigPath must not be empty when specified.", nameof(KubeConfigPath));

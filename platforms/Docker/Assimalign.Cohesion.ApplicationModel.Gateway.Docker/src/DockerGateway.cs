@@ -18,7 +18,8 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 /// </remarks>
 public sealed class DockerGateway :
     ApplicationGateway,
-    IDockerComposeRenderer
+    IDockerComposeRenderer,
+    IApplicationGatewayRenderer
 {
     private const string ExitCodeContract = "cohesion/sysexits/v1";
 
@@ -85,6 +86,18 @@ public sealed class DockerGateway :
     protected override TimeSpan ReadinessBudget => _options.ReadinessBudget;
 
     /// <inheritdoc/>
+    protected override ValueTask<Uri> ResolveControlPlaneAddressAsync(
+        IApplicationModel model,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        cancellationToken.ThrowIfCancellationRequested();
+        return _options.ControlPlaneAddress is Uri address
+            ? ValueTask.FromResult(address)
+            : base.ResolveControlPlaneAddressAsync(model, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     protected override void ValidateResource(
         IApplicationModel model,
         IApplicationResourceDescriptor descriptor,
@@ -112,7 +125,7 @@ public sealed class DockerGateway :
 
         _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
 
-        _ = DockerPlanController.ReadRestartPolicy(descriptor.Resource);
+        _ = DockerPlanController.ReadRestartPolicy(plan, descriptor.Resource);
         string exitCodes = manifestResource.Manifest.Lifecycle.ExitCodes;
         if (!string.Equals(exitCodes, ExitCodeContract, StringComparison.Ordinal))
         {
@@ -323,6 +336,103 @@ public sealed class DockerGateway :
             _options.PublicHost);
         ReportWarnings(compilation.Warnings);
         return DockerPlanRenderer.Render([compilation]);
+    }
+
+    /// <inheritdoc/>
+    public async Task RenderAsync(
+        IReadOnlyList<IApplicationModel> models,
+        TextWriter output,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(output);
+        cancellationToken.ThrowIfCancellationRequested();
+        var compilations = new List<DockerPlanCompilation>();
+        var warnings = new HashSet<string>(StringComparer.Ordinal);
+        for (int modelIndex = 0; modelIndex < models.Count; modelIndex++)
+        {
+            IApplicationModel model = models[modelIndex];
+            for (int planIndex = 0; planIndex < model.Plans.Count; planIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ResourcePlan plan = model.Plans[planIndex];
+                IApplicationResource resource = FindRenderResource(model, plan.Resource);
+                if (resource is IExternalResource)
+                {
+                    continue;
+                }
+
+                _compiler.Validate(plan);
+                if (resource is not IManifestResource manifestResource)
+                {
+                    throw new InvalidDataException($"Docker render resource '{resource.Name}' has no manifest.");
+                }
+
+                IContainerImageArtifact artifact = await ResolveRenderArtifactAsync(
+                    model, manifestResource, cancellationToken).ConfigureAwait(false);
+                DockerPlanCompilation compilation = _compiler.Compile(
+                    plan, artifact, ResourceInputs.Empty, [], model.Name, model.Owner,
+                    _options.PublicHost, renderOnly: true);
+                compilations.Add(compilation);
+                for (int warningIndex = 0; warningIndex < compilation.Warnings.Count; warningIndex++)
+                {
+                    string warning = compilation.Warnings[warningIndex];
+                    if (warnings.Add(warning))
+                    {
+                        _options.WarningHandler(warning);
+                    }
+                }
+            }
+        }
+
+        await output.WriteAsync(DockerPlanRenderer.Render(compilations).AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<IContainerImageArtifact> ResolveRenderArtifactAsync(
+        IApplicationModel model,
+        IManifestResource resource,
+        CancellationToken cancellationToken)
+    {
+        IContainerImageArtifact declared = ContainerImageArtifacts.Create(
+            resource.Id, resource.Manifest.Artifact.Image
+                ?? throw new InvalidDataException($"Resource '{resource.Name}' has no manifest artifact.image."));
+        if (_options.ImageIndexPath is not string indexPath)
+        {
+            return declared;
+        }
+
+        IApplicationImageIndex index = await ContainerImageIndexes.ReadApplicationAsync(
+            indexPath, cancellationToken).ConfigureAwait(false);
+        if (index.Application != model.Name)
+        {
+            throw new InvalidDataException(
+                $"Image index '{indexPath}' belongs to application '{index.Application}', not '{model.Name}'.");
+        }
+
+        IContainerImageIndexEntry entry = ContainerImageIndexes.Resolve(index, resource.Name, ArtifactRef.Self);
+        if (!string.Equals(entry.Repository, declared.Repository, StringComparison.Ordinal)
+            || !string.Equals(entry.Digest, declared.Digest, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                $"Image index '{indexPath}' entry for resource '{resource.Name}' differs from manifest artifact.image '{declared.Repository}@{declared.Digest}'.");
+        }
+
+        return ContainerImageIndexes.CreateArtifact(resource.Id, entry, _options.ContainerRegistry);
+    }
+
+    private static IApplicationResource FindRenderResource(IApplicationModel model, ResourceName name)
+    {
+        for (int index = 0; index < model.Resources.Count; index++)
+        {
+            IApplicationResource resource = model.Resources[index];
+            if (resource.Name == name)
+            {
+                return resource;
+            }
+        }
+
+        throw new InvalidDataException($"Docker render plan '{name}' has no matching resource.");
     }
 
     private void ReportWarnings(IReadOnlyList<string> warnings)

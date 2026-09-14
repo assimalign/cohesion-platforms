@@ -10,6 +10,7 @@
     <CohesionPackageReference Include="xunit" />
     <CohesionPackageReference Include="xunit.runner.visualstudio" />
     <CohesionPackageReference Include="Shouldly" />
+    <CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" />
   </ItemGroup>
 
   <ItemGroup>

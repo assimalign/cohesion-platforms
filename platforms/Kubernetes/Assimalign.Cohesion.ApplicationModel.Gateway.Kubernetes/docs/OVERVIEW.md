@@ -49,9 +49,8 @@ identity, including any pinned entry registry, rather than receiving a target re
 A missing Kind executable warns and skips the daemon-load
 attempt; late binding then uses a configured registry or fails, never an implicit pull. A no-index custom realizer may acquire only the
 digest-pinned manifest identity; the direct-digest path and hermetic render surface remain
-available. Export and Kubernetes import are included. Development port-forwarding, registry
-reachability topology, bootstrap output, and render CLI integration require the later/upstream
-surfaces described below.
+available. Export and Kubernetes import are included; system installation, SDK render/bootstrap dispatch,
+and the public platform CLI hook are implemented in item 37. Operational boundaries appear below.
 
 **Dependencies:** the generic ApplicationModel + Gateway base packages, `platforms/Containers`,
 and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.Hosting`,
@@ -73,15 +72,15 @@ because that resource cannot report the outcome needed to authorize namespace de
 
 ## Upstream compatibility boundary
 
-- `ResourcePlan` has the requested replica count but no manifest `maxReplicas`; Cohesion validates
-  the bound before reconciliation. It also lacks the manifest control-plane endpoint/path, private
-  endpoint URI scheme, and restart policy, so only explicit plan probes can be compiled 1:1 and a
-  Job cannot preserve `OnFailure` versus `Never` today.
-- The current application runner rejects `Render` and `Bootstrap` before gateway dispatch, while
-  generated gateway command-line handling has no platform-option hook for `--context` (the direct
-  `UseKubernetesGateway(args)` overload supports it). Those
-  surfaces remain upstream CLI work, not hidden parsing in this provider. The common
-  application-model parser already carries `--adopt` through `IApplicationModel.Adopt`.
+- The additive plan facts now carry control-plane endpoint/path, endpoint schemes, restart policy,
+  and certificate mount names. Default readiness uses that control plane; non-Job restart clamps
+  to `Always` with a warning. Certificate PEM stays in its declared Opaque Secret mount.
+- Telemetry headers have an optional internal compiler input sharing the bootstrap/trust volume.
+  The upstream base has no public subclass carrier for the bytes, so it remains empty in normal
+  reconcile; the platform never invents telemetry endpoint/protocol or credential values.
+- Multiple model control-plane servers share upstream fixed routes and cannot currently share
+  one system listen port. Live multi-model control-plane sessions and multi-model bootstrap apply
+  fail explicitly pending a routing contract; offline multi-model rendering remains a review surface.
 - Current resolver/model contracts carry neither a managed port-forward lifetime nor a gateway
   topology role. Development port-forwarding and Production root-owner enforcement need those
   upstream seams; this package still enforces namespace/object ownership and explicit adoption.
@@ -92,3 +91,32 @@ because that resource cannot report the outcome needed to authorize namespace de
 Kubernetes plan compiler/controller and provider metadata. Item 35 adds application-index
 resolution, pinned or target-supplied registry identity, and the Development Kind archive-load path;
 arbitrary non-Kind registry reachability remains tracked separately.
+
+## System and command modes
+
+The separate system installation builder emits Namespace, ServiceAccount, namespaced and
+cluster RBAC, a state/export PVC, owned trust-key Secret, digest-pinned one-replica
+Deployment, and `cohesion-control-plane` Service. All metadata originates at KubernetesMetadata;
+system objects use a separate system label so resource pruning and teardown preserve them.
+Cluster permissions are limited to namespace get/patch and global pod list/watch when the
+application shares the system namespace, and broaden for cross-namespace reconciliation.
+`SystemNamespace=cohesion-system`, `SystemServiceAccount=cohesion-gateway`, `SystemExposure=None`,
+and `BootstrapApply=true` are defaults. `SystemImage` and persistent `SystemStorageSize` are
+explicit requirements for rendering/bootstrap; optional storage class and Ingress host/class are
+platform options. Ingress requires both host and class; LoadBalancer adds a separate Service.
+
+`RenderAsync` emits installation first then models/resource plans in declaration order with empty
+resolved inputs, offline manifest/index artifacts, and no Gather call. Unresolved mount objects
+are previews requiring runtime input resolution. `BootstrapAsync` always emits and optionally
+applies; false is offline emission. Default application intentionally follows the owner-approved
+mode contract despite upstream bootstrap XML describing an offline-only operation.
+
+The SDK calls public `KubernetesGatewayCommandLine.Apply` before `GatewayControlPlane.Configure`;
+the hook reads the deployment-provided mounted export path and parses the same switches as the direct extension.
+Discovery metadata uses upstream `{url,trustKey}` alongside existing `export.json`, with Service
+DNS, allocated LoadBalancer host/IP, or Ingress host. The observer's periodic resync refreshes system
+allocation independently. The typed Kubernetes resolver exposes this URL for `remote.Gateway(url)`.
+Only public trust material belongs in ConfigMaps. Native P-256 key persistence uses the public
+`IGatewayTrustKeyRepository` seam; upstream still issues and verifies developer export tokens.
+
+See [the area README](../../README.md) for switches and exact opt-in Kind prerequisites.

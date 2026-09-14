@@ -1184,6 +1184,15 @@ public class KubernetesGatewayObservationRegistryTests
 
         public ResourceLifecycle GetState(ResourceId id) => _inner.GetState(id);
 
+        public IReadOnlyList<ResourceCommandObservation> GetCommandObservations(ResourceId id) =>
+            _inner.GetCommandObservations(id);
+
+        public void SetCommandObservation(ResourceId id, ResourceCommandObservation observation) =>
+            _inner.SetCommandObservation(id, observation);
+
+        public void RemoveCommandObservation(ResourceId id, string owner, string commandId) =>
+            _inner.RemoveCommandObservation(id, owner, commandId);
+
         public IReadOnlyList<ResourceEndpoint> GetObservedEndpoints(ResourceId id) =>
             _inner.GetObservedEndpoints(id);
 

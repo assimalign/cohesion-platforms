@@ -12,6 +12,7 @@ hosting assembly.
 | [`DockerGateway`](DockerGateway/OVERVIEW.md) | Concrete `ApplicationGateway` for Docker-compatible engines and the implementation of the direct Compose-style renderer. |
 | [`DockerGatewayOptions`](DockerGatewayOptions/OVERVIEW.md) | Engine, image, observation, probe, warning, and restart-supervision settings. |
 | [`IDockerComposeRenderer`](IDockerComposeRenderer/OVERVIEW.md) | Daemon-free, deterministic renderer for one resolved resource plan. |
+| [`DockerGatewayCommandLine`](DockerGatewayCommandLine/OVERVIEW.md) | Public static parser advertised to generated provider setup. |
 | [`DockerGatewayExtensions`](DockerGatewayExtensions/OVERVIEW.md) | `IApplicationBuilder.UseDockerGateway(...)` selection and command-line overloads. |
 
 ## Usage
@@ -34,11 +35,7 @@ dependency snapshot and does not create an engine client.
 
 ## Current integration boundaries
 
-- The canonical `Assimalign.Cohesion.ApplicationModel` `10.0.1-preview.3` DLL resolved by this
-  project does not export the sibling source's `IApplicationGatewayRenderer` contract. The direct
-  Docker renderer works, but application-set `--mode render --gateway docker` cannot discover it
-  until that contract is published in a new immutable upstream package and the package floor is
-  advanced.
+- `IApplicationGatewayRenderer.RenderAsync` supplies application-set `--mode render --gateway docker` without gathering; the direct renderer remains available for resolved inputs.
 - Sensitive paths are represented as tmpfs plus archive entries, but the current post-start Moby
   archive path cannot reliably populate the live tmpfs or bootstrap PID 1 atomically. See the
   project [design document](../../DESIGN.md) for the exact engine boundary.

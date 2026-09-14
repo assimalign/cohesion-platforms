@@ -44,10 +44,6 @@ acquisition and creates no Docker Engine client.
 
 ## Application-set integration
 
-This interface is intentionally package-local, not the upstream application-set discovery
-contract. The canonical `Assimalign.Cohesion.ApplicationModel` `10.0.1-preview.3` DLL does not
-export the `IApplicationGatewayRenderer` interface present in sibling source. As a result, callers
-can invoke `IDockerComposeRenderer.Render(...)` directly, but application-set
-`--mode render --gateway docker` is not wired at the current package floor.
+This interface renders one plan with resolved inputs. `DockerGateway` also implements the upstream `IApplicationGatewayRenderer` contract for application-set `--mode render --gateway docker`, where inputs remain unresolved and no gathering or engine contact occurs.
 
 Back to the [namespace overview](../OVERVIEW.md).

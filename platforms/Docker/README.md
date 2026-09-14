@@ -1,130 +1,94 @@
 # Docker (platform area)
 
-The Docker implementation of Cohesion's application-model gateway. Exactly one pure
-`DockerPlanCompiler` translates each validated `cohesion/plan/v1` `ResourcePlan` into Docker
-operations, one level-triggered `DockerPlanController` applies them idempotently, and one
-events-plus-inspect observer publishes locally realized state. Podman's Docker-compatible API is
-the supported local engine.
+Docker realizes Cohesion application models through one pure `DockerPlanCompiler`, one
+level-triggered controller, and one events-plus-inspect observer. Podman's Docker-compatible API
+is the supported local engine. The application model and its validated `cohesion/plan/v1` plans
+remain the desired-state source.
 
 ## Projects
 
-| Project | Purpose |
-| --- | --- |
-| `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | `DockerGateway : ApplicationGateway` (`Name = "docker"`), `DockerPlanCompiler`, plan controller, BCL Engine API client, observer/supervisor, daemon-free renderer, and `UseDockerGateway()`. Docker delivery is tracked by [image item 35 / #32](https://github.com/assimalign/cohesion-platforms/issues/32) and [`L04.01.04` / #23](https://github.com/assimalign/cohesion-platforms/issues/23). |
+`Assimalign.Cohesion.ApplicationModel.Gateway.Docker` contains the gateway, compiler, controller,
+BCL Engine API client, observer, and daemon-free Compose-style renderer. Shared image-index and
+OCI infrastructure belongs to `platforms/Containers`.
 
-## Design items 35 and 36 delivery
+## Platform behavior
 
-- `DockerPlanCompiler` accepts every validated v1 plan through one generic, plan-only path. It never dispatches
-  on manifest kind, resource area, or CLR type. Each resource becomes one container; a
-  `DaemonSet` also means one container in the single-engine topology, while a `Job` is a run-once
-  container. Replica shapes Docker cannot preserve are rejected rather than silently collapsed.
-- Compilation creates one application-scoped network, stable aliases for dependency discovery,
-  named volumes for claims, stopped-container staging for Configuration files, and tmpfs
-  declarations plus archive entries for Secret mounts and the rotating bootstrap credential.
-  Public endpoints receive host port bindings; every endpoint used by a gateway-side probe also
-  receives a loopback-only `127.0.0.1:0` binding, including private endpoints. The live-content
-  limitation of the sensitive archive path is recorded below.
-- Ownership and reconciliation metadata live on engine objects. `cohesion.io/plan-hash` is derived
-  only from the immutable plan; artifacts, resolved inputs, credentials, and observed dependencies
-  do not masquerade as plan drift. Unknown plan specification or schema fails before engine
-  contact; unknown Docker hints warn once per gateway session and are otherwise ignored.
-- `DockerPlanController` converges the application network, named volumes, and container, replaces
-  stale plan-owned containers when required, and deletes in idempotent best-effort reverse order.
-  Registered domain controllers are consulted before this built-in plan controller.
-- The minimal Docker Engine API client uses BCL HTTP primitives for `http`, `https`, `unix`, and
-  `npipe` endpoints and source-generated `System.Text.Json`. It calls unversioned `GET /version`,
-  intersects the engine's `MinAPIVersion`–`ApiVersion` range with the client's supported
-  v1.25–v1.51 range, selects the highest mutual version, and caches that `/vX.Y` prefix for Engine
-  operations. Malformed version data or no overlap is rejected before a versioned request. This
-  deliberately revises the older preference for Cohesion's connection stack: the canonical
-  Cohesion `Connections.NamedPipes` package is not available in the package set consumed here, and
-  the engine client must support Unix sockets and Windows named pipes through one shippable
-  AOT-safe surface.
-- A single observer combines the engine event stream with periodic full inspect. It is the sole
-  writer of local Docker lifecycle and endpoint observations through the public
-  `InMemoryResourceStateManager`. Readiness, startup, and liveness probes run in the gateway over
-  the loopback bindings. The first liveness failure on a running resource publishes non-gating
-  `Degraded`; three consecutive failures request a supervised restart, as required by the
-  authoritative runtime design section 5. `DockerPlanController` reads
-  `IManifestResource.Manifest.Lifecycle.RestartPolicy` from the resource on its control context,
-  and gateway validation requires the `cohesion/sysexits/v1` exit-code contract before reconcile.
-  The observer therefore honors `Always`, `OnFailure`, and `Never`, with configuration/startup
-  exits final; none of this changes the compiler's plan-only boundary. Dependents are gated only
-  on initial readiness.
-- The public `IDockerComposeRenderer.Render(...)` API produces a deterministic Compose-style
-  representation from the compiled plan and resolved inputs without opening an engine connection.
-  Compose is an inspection/output shape, not the desired-state source or a second reconciliation
-  path. Application-set `--mode render` is not wired against the currently pinned upstream
-  package, as recorded below.
-- The default image path can resolve each resource's `ArtifactRef.Self` entry from a shared
-  `cohesion/images/v1` `application.images.json` file. The strict reader validates the entry's
-  required lowercase OCI `platform`, and Gather verifies that the index application and
-  authority-free source repository/digest agree with the resource manifest. The entry's concrete
-  registry authority is pinned; `ContainerRegistry` applies only when `registry` is omitted or
-  null and cannot override a pinned value. Optional `archive` is resolved relative to the index
-  and must be omitted when unavailable. An indexed archive is verified and loaded before the
-  container runs by immutable image ID; without an archive, the engine pulls the repository by
-  digest and the gateway proves the resulting `RepoDigests` before returning that same ID. The
-  older `ImageArchives` mapping remains the explicit fallback when no index is configured. A
-  custom `IImageRealizer` replaces engine acquisition but cannot resolve a tag-only manifest or
-  substitute another image: it must preserve the manifest repository/digest, or the validated
-  registry-bound repository/digest when an index is configured.
-- The NuGet package contributes the `docker` `CohesionGatewayProvider` through `buildTransitive`
-  metadata with `RequiresJit=false`.
+- Each resource becomes one container on an application network with stable service aliases.
+  `DaemonSet` means one container on the selected engine; `Job` runs once. Unsupported replicas
+  fail validation before gathering instead of being collapsed.
+- Claims become named volumes. Configuration files are staged before start; Secret mounts,
+  bootstrap credentials, trust bundles, and explicit telemetry credentials use tmpfs paths and
+  sensitive archive entries. Sensitive data is never moved to a disk volume as a fallback.
+- Endpoint schemes come from `PortBinding.Scheme`; legacy omitted schemes retain the exposure,
+  HTTP-probe, then transport fallback. A nonempty endpoint certificate must name a Secret mount,
+  except case-insensitive `public`. Errors name both the endpoint and the invalid mount.
+- Explicit probes are preserved. When no readiness mapping exists and `plan.ControlPlane` names
+  an endpoint, readiness uses HTTP at that endpoint's port and control-plane path. Private probes
+  receive loopback-only ephemeral host bindings. An explicit `None` readiness mapping remains off.
+- The observer alone publishes local lifecycle and endpoints. Liveness failure publishes
+  non-gating `Degraded`; repeated failure can request a supervised restart. Restart policy comes
+  from `plan.Workload.RestartPolicy`, with manifest fallback only for legacy omission. `Always`,
+  `OnFailure`, and `Never` are gateway-supervised; Engine restart stays `no` to keep one restart
+  owner and restage sensitive inputs. Configuration/startup exits remain final. Jobs run once.
+- Stop gracefully stops containers and releases supervision while retaining persistent network
+  and claim state. Teardown deletes in reverse order and continues after failures. Shared networks
+  with custom controllers remain conservatively retained until their delete outcomes are exposed.
+- Images are digest-pinned. An optional application image index is validated against the manifest;
+  a pinned registry wins over `ContainerRegistry`. Gather locates/verifies/loads/pulls existing
+  artifacts and never builds. Containers run by verified immutable engine image ID.
 
-## Layering and AOT posture
+## Command line, rendering, and control plane
 
-- Depends on the generic ApplicationModel contract and Gateway base packages plus
-  `platforms/Containers`. It never references a resource area's `.ApplicationModel`, `*.Hosting`,
-  `.Application` runtime, or a `Microsoft.Extensions.*` assembly.
-- This project explicitly sets `<IsAotCompatible>true</IsAotCompatible>`. That is a scoped item 36
-  exception to this repository's default of carrying no AOT mandate; it does not restore a
-  repository-wide rule. The BCL transport, source-generated JSON, and static provider metadata are
-  kept trim/AOT safe.
-- The current upstream `Sdk.Gateway` early auto-AOT allowlist recognizes only Local and InProcess,
-  not Docker. `RequiresJit=false` is correct provider metadata, but automatic Docker NativeAOT
-  selection remains an upstream SDK gap; a consumer can opt in explicitly meanwhile.
+`DockerGatewayCommandLine.Apply(options, args)` handles `--docker-host`, repeatable
+`--image-archive=<digest-reference>=<path>`, and `--control-plane-bind`. Every switch accepts either
+`--name=value` or `--name value`; missing values fail and unknown arguments are ignored. Bind
+values accept localhost or an IP, optionally with a port, or an absolute HTTP URI. A bare host uses
+port zero. The optional `ControlPlaneAddress` is an HTTP bind address; omitted means loopback and
+an ephemeral port.
 
-## Lifecycle and compatibility boundaries
+The provider metadata names the public static method as
+`global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGatewayCommandLine.Apply`.
+Generated SDK setup and `UseDockerGateway(args, configure)` apply CLI values before the configure
+callback. Common gateway options are applied by `ApplicationGatewayCommandLine`.
 
-- `StopAsync` stops each running container with its plan grace budget (the default plan value is
-  30 seconds), then releases supervision and observation while retaining the application network,
-  named volumes, and other persistent engine state. Stop is not teardown.
-- `UninstallAsync` (`--mode teardown`) removes reached containers, selected owned volumes, and the
-  application network in best-effort reverse order. Missing objects are success, every later
-  deletion is attempted after an earlier failure, and retrying teardown is safe. The upstream base
-  cannot report custom-controller delete outcomes; therefore a shared application network cannot
-  be proven safe to delete for custom-controller or mixed-controller models and is retained
-  conservatively pending that seam.
-- `ResourcePlan` v1 does not carry the default control-plane endpoint/path or a private endpoint's
-  URI scheme. Docker can compile explicit plan probes, but it cannot faithfully recover those
-  omitted values. Restart policy is different: it is deliberately read from the generic manifest
-  on `IResourceControlContext.Resource` by the controller path, while `DockerPlanCompiler` remains
-  purely `ResourcePlan`-based.
-- Sensitive-input content is not yet reliably materialized into the live tmpfs mounts. The
-  controller stages ordinary Configuration files while the container is stopped, emits
-  `HostConfig.Tmpfs` for sensitive paths, starts the container, and then calls
-  `PUT /containers/{id}/archive` for Secret/bootstrap files. Moby's `openContainerFS` performs
-  archive extraction in a filesystem view whose tmpfs mounts are private, so writes below those
-  mounts are not visible to the container's processes; starting first also prevents an atomic PID
-  1 bootstrap. A portable implementation needs an image-cooperative helper/entrypoint that
-  populates the live mount, or an upstream engine/gateway seam that can stage it before PID 1 runs.
-  The current implementation must not be treated as completed live Secret/bootstrap delivery.
-- The resolved canonical `Assimalign.Cohesion.ApplicationModel` `10.0.1-preview.3` DLL does not
-  export `IApplicationGatewayRenderer`, although the sibling cohesion source contains that
-  interface and application-set render dispatch. Docker therefore cannot implement the upstream
-  contract against the pinned package: direct `IDockerComposeRenderer.Render(...)` works, but
-  application-set `--mode render --gateway docker` cannot discover or invoke it until a new
-  immutable upstream package carries the interface and this repository advances its package floor.
-- The daemon smoke test is cleanly skipped when no compatible Docker/Podman endpoint is available.
-  Real daemon end-to-end coverage remains `L04.01.04.05`; item 36 does not claim it.
-- Registry pull currently sends no `X-Registry-Auth` payload, so `ContainerRegistry` identifies an
-  unauthenticated/public registry endpoint rather than a credential source. Direct Engine load of
-  a verified OCI-layout archive is also covered hermetically but not yet proven across classic and
-  containerd-backed Docker image stores; that belongs in the real-daemon matrix.
+`IApplicationGatewayRenderer.RenderAsync` enables `--mode render --gateway docker`, preserving
+model and plan order and resolving only manifest/index artifact identities. It never gathers,
+opens an engine connection, or resolves credentials. Mount paths remain visible with empty preview
+content. Direct `IDockerComposeRenderer.Render` still requires resolved mount inputs. Output is a
+review document, not a Compose deployment controller.
 
-See `.claude/rules/platform-areas.md` for the binding architecture rules and
-[docs/PLATFORMS_PROGRAM_PLAN.md](../../docs/PLATFORMS_PROGRAM_PLAN.md) for sequencing. Project-level
-details are in the [overview](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/OVERVIEW.md),
+The domain gateway's ControlPlane package supplies the listener and authenticated discovery.
+`GatewayControlPlane.Configure` uses `ExportDirectory` (default `.cohesion`) to publish
+`<application>/control-plane.json` beside `export.json`. Docker only selects the host bind address;
+it does not implement token policy. The listener serves authenticated
+`GET /cohesion/v1/application` and rejects invalid credentials.
+
+## Delivery boundaries
+
+`ResourceInputs.TrustBundle`, when nonempty, becomes sensitive `/var/run/cohesion/trust.pem` with
+`ResourceEnvironment.TrustBundlePath`. The internal compiler-only `telemetryHeaders` input becomes
+sensitive `/var/run/cohesion/telemetry.headers` with `ResourceEnvironment.TelemetryHeadersPath`.
+Empty inputs add no file, tmpfs, or environment entry. The upstream telemetry carrier remains
+private, so normal Docker reconciliation cannot obtain those headers yet; Docker does not invent
+telemetry endpoint/protocol values. The public application trust key remains ordinary public data.
+
+Sensitive archive upload occurs after container start, leaving a PID 1 bootstrap race. Live tmpfs
+visibility also depends on the engine's archive implementation; Moby's private archive filesystem
+view is an existing limitation. Hermetic compilation/staging coverage does not establish portable,
+atomic live sensitive-input population. The secure tmpfs design is retained while that seam is open.
+
+Port-forward management and cross-gateway topology integration remain open. Full real Docker/Podman
+end-to-end coverage remains item `.05` / #28; smoke tests skip without a compatible daemon. Engine
+pull has no private-registry auth carrier, and OCI-layout load still needs the real-daemon matrix.
+
+## Layering and AOT
+
+The shipped project depends only on generic ApplicationModel/Gateway contracts and shared Containers;
+COHPLT001 forbids resource-area ApplicationModel, Hosting, Application runtimes, and Microsoft.Extensions
+assemblies. The ControlPlane package reference is test-only here. The library's explicit
+`IsAotCompatible=true` and `RequiresJit=false` are the scoped item 36 choice, not a repository-wide
+mandate; the upstream SDK's early auto-AOT allowlist remains a separate integration concern.
+
+See the [project overview](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/OVERVIEW.md),
 [design](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md), and
 [assembly reference](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/Assembly/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/OVERVIEW.md).

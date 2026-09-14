@@ -16,7 +16,8 @@
         "Running"
       ]
     },
-    "stopGraceSeconds": 30
+    "stopGraceSeconds": 30,
+    "restartPolicy": "OnFailure"
   },
   "container": {
     "name": "appa-api",
@@ -25,15 +26,26 @@
       {
         "endpoint": "http",
         "containerPort": 8080,
-        "protocol": "tcp"
+        "protocol": "tcp",
+        "scheme": "http",
+        "certificate": ""
       },
       {
         "endpoint": "https",
         "containerPort": 8443,
-        "protocol": "tcp"
+        "protocol": "tcp",
+        "scheme": "https",
+        "certificate": "tls"
       }
     ],
-    "mounts": [],
+    "mounts": [
+      {
+        "mount": "tls",
+        "containerPath": "/cohesion/mounts/tls",
+        "kind": "Secret",
+        "source": null
+      }
+    ],
     "environment": {
       "CUSTOM_VALUE": "preserved",
       "COHESION_APPLICATION": "appa",
@@ -56,6 +68,10 @@
         "command": []
       }
     ]
+  },
+  "controlPlane": {
+    "endpoint": "http",
+    "path": "/cohesion/v1"
   },
   "volumes": [],
   "services": [

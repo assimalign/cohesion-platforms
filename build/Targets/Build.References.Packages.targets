@@ -25,6 +25,7 @@
         <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" Version="$(_CohesionConsumedPackageVersion)" />
     </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="Sharprompt" Version="3.1.1" />

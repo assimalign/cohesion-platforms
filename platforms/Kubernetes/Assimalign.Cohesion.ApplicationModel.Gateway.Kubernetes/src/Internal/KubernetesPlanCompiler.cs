@@ -6,11 +6,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
-
 using k8s;
 using k8s.Models;
+
+using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
+using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
@@ -19,6 +19,8 @@ internal sealed class KubernetesPlanCompiler
     private const string ContentRoot = "/app";
     private const string BootstrapDirectory = "/var/run/cohesion";
     private const string BootstrapPath = "/var/run/cohesion/bootstrap.token";
+    private const string TrustBundlePath = "/var/run/cohesion/trust.pem";
+    private const string TelemetryHeadersPath = "/var/run/cohesion/telemetry.headers";
     private const string BootstrapVolumeName = "cohesion-bootstrap";
     private const string ConfigurationVolumeName = "cohesion-configuration";
     private const string SecretVolumeName = "cohesion-secret";
@@ -47,7 +49,9 @@ internal sealed class KubernetesPlanCompiler
         string namespaceName,
         string owner,
         KubernetesGatewayOptions options,
-        IReadOnlyList<ResourceEndpoint>? ownEndpoints = null)
+        IReadOnlyList<ResourceEndpoint>? ownEndpoints = null,
+        ReadOnlyMemory<byte> telemetryHeaders = default,
+        bool preview = false)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(artifact);
@@ -75,6 +79,8 @@ internal sealed class KubernetesPlanCompiler
             warnings.Add($"Kubernetes compiler ignored unknown advisory hint '{hint}'.");
         }
 
+        string restartPolicy = ResolveRestartPolicy(plan, warnings);
+
         Dictionary<string, string> environment = CreateEnvironment(
             plan,
             inputs,
@@ -83,21 +89,34 @@ internal sealed class KubernetesPlanCompiler
         Dictionary<string, byte[]> configurationData = CreateMountData(
             plan,
             inputs,
-            ResourceMountKind.Configuration);
+            ResourceMountKind.Configuration,
+            preview);
         Dictionary<string, byte[]> secretData = CreateMountData(
             plan,
             inputs,
-            ResourceMountKind.Secret);
-        if (secretData.ContainsKey("bootstrap-token"))
-        {
-            throw new InvalidDataException(
-                "Secret mount 'bootstrap-token' conflicts with the reserved gateway bootstrap credential key.");
-        }
+            ResourceMountKind.Secret,
+            preview);
+        var bootstrapItems = new List<V1KeyToPath>();
 
         if (!inputs.BootstrapCredential.IsEmpty)
         {
             secretData["bootstrap-token"] = inputs.BootstrapCredential.ToArray();
             environment[ResourceEnvironment.BootstrapTokenPath] = BootstrapPath;
+            bootstrapItems.Add(new V1KeyToPath { Key = "bootstrap-token", Path = "bootstrap.token" });
+        }
+
+        if (!inputs.TrustBundle.IsEmpty)
+        {
+            secretData["trust-bundle"] = inputs.TrustBundle.ToArray();
+            environment[ResourceEnvironment.TrustBundlePath] = TrustBundlePath;
+            bootstrapItems.Add(new V1KeyToPath { Key = "trust-bundle", Path = "trust.pem" });
+        }
+
+        if (!telemetryHeaders.IsEmpty)
+        {
+            secretData["telemetry-headers"] = telemetryHeaders.ToArray();
+            environment[ResourceEnvironment.TelemetryHeadersPath] = TelemetryHeadersPath;
+            bootstrapItems.Add(new V1KeyToPath { Key = "telemetry-headers", Path = "telemetry.headers" });
         }
 
         RequireDisjointKeys(environment, configurationData);
@@ -209,7 +228,8 @@ internal sealed class KubernetesPlanCompiler
             configMapName,
             secretName,
             claims,
-            !inputs.BootstrapCredential.IsEmpty);
+            bootstrapItems,
+            restartPolicy);
         AddPatched(
             objects,
             plan.Resource,
@@ -425,6 +445,22 @@ internal sealed class KubernetesPlanCompiler
 
             RequireProtocol(port.Protocol, $"endpoint '{port.Endpoint}'");
 
+            if (port.Certificate is null)
+            {
+                throw new InvalidDataException($"Endpoint '{port.Endpoint}' certificate must not be null.");
+            }
+
+            if (port.Certificate.Length > 0
+                && !string.Equals(port.Certificate, "public", StringComparison.OrdinalIgnoreCase))
+            {
+                MountBinding? certificateMount = FindMount(plan.Container.Mounts, port.Certificate);
+                if (certificateMount is null || certificateMount.Kind is not ResourceMountKind.Secret)
+                {
+                    throw new InvalidDataException(
+                        $"Endpoint '{port.Endpoint}' certificate mount '{port.Certificate}' must name a Secret mount.");
+                }
+            }
+
             ServiceSpec service = FindService(plan.Services, port.Endpoint);
             if (service.Port != port.ContainerPort
                 || !string.Equals(service.Protocol, port.Protocol, StringComparison.OrdinalIgnoreCase))
@@ -447,6 +483,13 @@ internal sealed class KubernetesPlanCompiler
             if (!mounts.Add(mount.Mount))
             {
                 throw new InvalidDataException($"Mount '{mount.Mount}' is declared more than once.");
+            }
+
+            if (mount.Kind is ResourceMountKind.Secret
+                && mount.Mount is "bootstrap-token" or "trust-bundle" or "telemetry-headers")
+            {
+                throw new InvalidDataException(
+                    $"Secret mount '{mount.Mount}' conflicts with a reserved gateway bootstrap credential key.");
             }
 
             if (mount.Kind is ResourceMountKind.Volume
@@ -533,6 +576,21 @@ internal sealed class KubernetesPlanCompiler
         }
 
 
+        if (NeedsControlPlaneReadiness(plan))
+        {
+            PortBinding port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint);
+            string scheme = FindScheme(plan, port.Endpoint);
+            if (!string.Equals(port.Protocol, "tcp", StringComparison.OrdinalIgnoreCase)
+                || (!string.Equals(scheme, "http", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(scheme, "https", StringComparison.OrdinalIgnoreCase))
+                || string.IsNullOrEmpty(plan.ControlPlane.Path)
+                || !plan.ControlPlane.Path.StartsWith("/", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Kubernetes control-plane readiness endpoint '{port.Endpoint}' requires HTTP or HTTPS over TCP and an absolute path.");
+            }
+        }
+
         for (int index = 0; index < plan.Exposures.Count; index++)
         {
             ExposureSpec exposure = plan.Exposures[index];
@@ -563,6 +621,9 @@ internal sealed class KubernetesPlanCompiler
             [ResourceEnvironment.Gateway] = "kubernetes",
             [ResourceEnvironment.ContentRoot] = ContentRoot,
         };
+        environment.Remove(ResourceEnvironment.BootstrapTokenPath);
+        environment.Remove(ResourceEnvironment.TrustBundlePath);
+        environment.Remove(ResourceEnvironment.TelemetryHeadersPath);
 
         if (!inputs.ApplicationTrustKey.IsEmpty)
         {
@@ -774,7 +835,8 @@ internal sealed class KubernetesPlanCompiler
     private static Dictionary<string, byte[]> CreateMountData(
         ResourcePlan plan,
         ResourceInputs inputs,
-        ResourceMountKind kind)
+        ResourceMountKind kind,
+        bool preview)
     {
         var data = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         for (int index = 0; index < plan.Container.Mounts.Count; index++)
@@ -787,12 +849,22 @@ internal sealed class KubernetesPlanCompiler
 
             if (!inputs.Mounts.TryGetValue(binding.Mount, out ResourceMountInput? input))
             {
+                if (preview)
+                {
+                    continue;
+                }
+
                 throw new InvalidOperationException(
                     $"Resolved inputs do not contain planned {kind} mount '{binding.Mount}'.");
             }
 
             if (!input.IsResolved)
             {
+                if (preview)
+                {
+                    continue;
+                }
+
                 throw new InvalidOperationException(
                     $"Mount '{binding.Mount}' is unresolved: {input.UnresolvedReason}");
             }
@@ -906,7 +978,8 @@ internal sealed class KubernetesPlanCompiler
         string configMapName,
         string secretName,
         IReadOnlyList<V1PersistentVolumeClaim> claims,
-        bool hasBootstrapCredential)
+        IReadOnlyList<V1KeyToPath> bootstrapItems,
+        string restartPolicy)
     {
         var selector = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -920,7 +993,8 @@ internal sealed class KubernetesPlanCompiler
             owner,
             configMapName,
             secretName,
-            hasBootstrapCredential);
+            bootstrapItems,
+            restartPolicy);
         V1ObjectMeta metadata = KubernetesMetadata.CreateObjectMeta(
             resource,
             namespaceName,
@@ -993,7 +1067,8 @@ internal sealed class KubernetesPlanCompiler
         string owner,
         string configMapName,
         string secretName,
-        bool hasBootstrapCredential)
+        IReadOnlyList<V1KeyToPath> bootstrapItems,
+        string restartPolicy)
     {
         var ports = new List<V1ContainerPort>();
         for (int index = 0; index < plan.Container.Ports.Count; index++)
@@ -1057,7 +1132,7 @@ internal sealed class KubernetesPlanCompiler
             });
         }
 
-        if (hasBootstrapCredential)
+        if (bootstrapItems.Count > 0)
         {
             volumes.Add(new V1Volume
             {
@@ -1072,14 +1147,7 @@ internal sealed class KubernetesPlanCompiler
                             Secret = new V1SecretProjection
                             {
                                 Name = secretName,
-                                Items =
-                                [
-                                    new V1KeyToPath
-                                    {
-                                        Key = "bootstrap-token",
-                                        Path = "bootstrap.token",
-                                    },
-                                ],
+                                Items = new List<V1KeyToPath>(bootstrapItems),
                             },
                         },
                     ],
@@ -1129,7 +1197,7 @@ internal sealed class KubernetesPlanCompiler
             Spec = new V1PodSpec
             {
                 Containers = [container],
-                RestartPolicy = plan.Workload.Kind is WorkloadKind.Job ? "Never" : "Always",
+                RestartPolicy = restartPolicy,
                 TerminationGracePeriodSeconds = plan.Workload.StopGraceSeconds,
                 Volumes = volumes,
             },
@@ -1160,6 +1228,36 @@ internal sealed class KubernetesPlanCompiler
             }
         }
 
+        if (NeedsControlPlaneReadiness(plan))
+        {
+            container.ReadinessProbe = new V1Probe
+            {
+                HttpGet = new V1HTTPGetAction
+                {
+                    Path = plan.ControlPlane.Path,
+                    Port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint).ContainerPort,
+                    Scheme = FindHttpScheme(plan, plan.ControlPlane.Endpoint),
+                },
+            };
+        }
+    }
+
+    private static bool NeedsControlPlaneReadiness(ResourcePlan plan)
+    {
+        if (string.IsNullOrEmpty(plan.ControlPlane.Endpoint))
+        {
+            return false;
+        }
+
+        for (int index = 0; index < plan.Container.Probes.Count; index++)
+        {
+            if (plan.Container.Probes[index].Role == "readiness")
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static V1Probe? CreateProbe(
@@ -1216,16 +1314,6 @@ internal sealed class KubernetesPlanCompiler
                 : service;
             string host = $"{discoveryService.Name}.{namespaceName}.svc";
             _ = new UriBuilder(scheme, host, service.Port ?? binding.ContainerPort).Uri;
-            for (int exposureIndex = 0; exposureIndex < plan.Exposures.Count; exposureIndex++)
-            {
-                ExposureSpec exposure = plan.Exposures[exposureIndex];
-                if (string.Equals(exposure.Endpoint, binding.Endpoint, StringComparison.Ordinal))
-                {
-                    scheme = exposure.Scheme;
-                    break;
-                }
-            }
-
             endpoints.Add(new ResourceEndpoint(
                 binding.Endpoint,
                 scheme,
@@ -1351,6 +1439,12 @@ internal sealed class KubernetesPlanCompiler
 
     private static string FindScheme(ResourcePlan plan, string endpoint)
     {
+        PortBinding port = FindPort(plan.Container.Ports, endpoint);
+        if (!string.IsNullOrEmpty(port.Scheme))
+        {
+            return port.Scheme;
+        }
+
         for (int index = 0; index < plan.Exposures.Count; index++)
         {
             if (string.Equals(plan.Exposures[index].Endpoint, endpoint, StringComparison.Ordinal))
@@ -1359,10 +1453,27 @@ internal sealed class KubernetesPlanCompiler
             }
         }
 
-        PortBinding port = FindPort(plan.Container.Ports, endpoint);
         return string.Equals(port.Protocol, "udp", StringComparison.OrdinalIgnoreCase)
             ? "udp"
             : "tcp";
+    }
+
+    private static string ResolveRestartPolicy(ResourcePlan plan, ICollection<string> warnings)
+    {
+        string requested = plan.Workload.RestartPolicy;
+        if (plan.Workload.Kind is WorkloadKind.Job)
+        {
+            return requested is "Never" or "OnFailure" ? requested : "Never";
+        }
+
+        if (!string.IsNullOrEmpty(requested) && !string.Equals(requested, "Always", StringComparison.Ordinal))
+        {
+            warnings.Add(
+                $"Kubernetes workload '{plan.Resource}' ({plan.Workload.Kind}) requires restart policy 'Always'; " +
+                $"the requested '{requested}' policy was normalized to 'Always'.");
+        }
+
+        return "Always";
     }
 
     private static string FindHttpScheme(ResourcePlan plan, string endpoint)

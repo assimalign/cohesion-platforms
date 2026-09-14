@@ -16,7 +16,8 @@
         "Running"
       ]
     },
-    "stopGraceSeconds": 30
+    "stopGraceSeconds": 30,
+    "restartPolicy": "OnFailure"
   },
   "container": {
     "name": "node-agent",
@@ -25,7 +26,9 @@
       {
         "endpoint": "control",
         "containerPort": 8080,
-        "protocol": "tcp"
+        "protocol": "tcp",
+        "scheme": "http",
+        "certificate": ""
       }
     ],
     "mounts": [],
@@ -35,6 +38,10 @@
       "COHESION_ENVIRONMENT": "Development"
     },
     "probes": []
+  },
+  "controlPlane": {
+    "endpoint": "control",
+    "path": "/cohesion/v1"
   },
   "volumes": [],
   "services": [

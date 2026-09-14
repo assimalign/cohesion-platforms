@@ -6,10 +6,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-
 using k8s;
 using k8s.Models;
+
+using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
@@ -21,7 +21,7 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// Normal stop preserves Kubernetes objects and persistent state. Teardown removes the compiled
 /// object graph in reverse order and then removes the owned application namespace.
 /// </remarks>
-public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestRenderer
+public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesManifestRenderer, IApplicationGatewayRenderer, IApplicationGatewayBootstrapper
 {
     private readonly KubernetesGatewayOptions _options;
     private readonly InMemoryResourceStateManager _state = new();
@@ -67,6 +67,7 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(kindImageLoader);
         options.ValidateKubernetes();
+        options.TrustKeyRepository ??= new KubernetesGatewayTrustKeyRepository(options);
         _options = options;
         _imageGatherer = new KubernetesImageGatherer(options, kindImageLoader);
         var resources = new KubernetesGatewayResourceApi(GetRequiredClient);
@@ -84,7 +85,8 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
                     context,
                     compilation,
                     endpoints,
-                    cancellationToken));
+                    cancellationToken),
+            RefreshSystemDiscoveryAsync);
         planController = new KubernetesPlanController(
             options,
             _compiler,
@@ -243,33 +245,19 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
     private async Task ApplyApplicationExportAsync(
         NamespaceRegistration registration,
         ApplicationExportDocument document,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Uri? discoveryAddress = null,
+        bool discoveryResolved = false,
+        IKubernetesResourceApi? resourceApi = null)
     {
-        using var stream = new MemoryStream();
-        document.Save(stream);
-        var export = new V1ConfigMap
+        if (!discoveryResolved)
         {
-            ApiVersion = V1ConfigMap.KubeApiVersion,
-            Kind = V1ConfigMap.KubeKind,
-            Metadata = new V1ObjectMeta
-            {
-                Name = KubernetesMetadata.ExportName,
-                NamespaceProperty = registration.NamespaceName,
-                Labels = new Dictionary<string, string>
-                {
-                    [KubernetesMetadata.ManagedByLabel] = KubernetesMetadata.ManagedByValue,
-                },
-                Annotations = new Dictionary<string, string>
-                {
-                    [KubernetesMetadata.OwnerAnnotation] = registration.Owner,
-                },
-            },
-            Data = new Dictionary<string, string>
-            {
-                ["export.json"] = Encoding.UTF8.GetString(stream.ToArray()),
-            },
-        };
-        var resources = new KubernetesResourceApi(GetRequiredClient(), registration.Owner);
+            discoveryAddress = await ReadSystemDiscoveryAddressAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        V1ConfigMap export = KubernetesControlPlaneDiscovery.Create(document,
+            registration.NamespaceName, registration.Owner, discoveryAddress);
+        IKubernetesResourceApi resources = resourceApi ?? new KubernetesResourceApi(GetRequiredClient(), registration.Owner);
         IKubernetesObject<V1ObjectMeta>? existing = await resources
             .ReadAsync(export, cancellationToken)
             .ConfigureAwait(false);
@@ -287,13 +275,14 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         {
             if (await resources.TryCreateAsync(export, cancellationToken).ConfigureAwait(false))
             {
+                registration.LastDiscoveryAddress = discoveryAddress;
                 return;
             }
 
             existing = await resources.ReadAsync(export, cancellationToken).ConfigureAwait(false);
             if (existing is null)
             {
-                throw new InvalidOperationException(
+                throw new KubernetesExportPublicationRaceException(
                     $"Kubernetes ConfigMap/{KubernetesMetadata.ExportName} was created and removed " +
                     "while export ownership was being checked. Retry publication.");
             }
@@ -303,13 +292,14 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
                 $"ConfigMap/{KubernetesMetadata.ExportName}",
                 registration.Owner,
                 registration.Model.Adopt);
-            throw new InvalidOperationException(
+            throw new KubernetesExportPublicationRaceException(
                 $"Kubernetes ConfigMap/{KubernetesMetadata.ExportName} was created while its " +
                 "absence was being checked. Retry publication against the latest object.");
         }
 
         await resources.ApplyAsync(export, force: true, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        registration.LastDiscoveryAddress = discoveryAddress;
     }
 
     /// <inheritdoc/>
@@ -361,6 +351,12 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(models);
+        if (models.Count > 1 && _options.ControlPlane is not null)
+        {
+            throw new InvalidOperationException(
+                "Kubernetes control-plane exposure currently supports one application per system installation. " +
+                "Multiple application control-plane servers require a root/member addressing topology before they can share a Service.");
+        }
         if (_client is not null && _exports.Count == 0 && !_namespaceShutdownFailed)
         {
             DisposeClusterSessionIfComplete();
@@ -442,6 +438,13 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
                 }
 
                 if (!_namespaces.TryGetValue(application, out NamespaceRegistration? registration))
+                {
+                    continue;
+                }
+
+                // Application teardown must never remove the gateway's own Deployment, trust
+                // Secret, or persistent state when an application shares the system namespace.
+                if (registration.NamespaceName == _options.SystemNamespace)
                 {
                     continue;
                 }
@@ -840,7 +843,7 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         bool IsDevelopment,
         ArtifactRef ArtifactReference);
 
-    private sealed class NamespaceRegistration : IDisposable
+    internal sealed class NamespaceRegistration : IDisposable
     {
         public NamespaceRegistration(string namespaceName, string owner, IApplicationModel model)
         {
@@ -858,6 +861,8 @@ public sealed class KubernetesGateway : ApplicationGateway, IKubernetesManifestR
         public SemaphoreSlim ExportGate { get; } = new(1, 1);
 
         public ApplicationExportDocument? LastExport { get; set; }
+
+        public Uri? LastDiscoveryAddress { get; set; }
 
         public void Dispose() => ExportGate.Dispose();
     }

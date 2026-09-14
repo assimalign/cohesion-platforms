@@ -14,33 +14,40 @@ services:
       "COHESION_ENDPOINT_HTTPS_SCHEME": "https"
       "COHESION_ENDPOINT_HTTP_HOST": "0.0.0.0"
       "COHESION_ENDPOINT_HTTP_PORT": "8080"
-      "COHESION_ENDPOINT_HTTP_SCHEME": "tcp"
+      "COHESION_ENDPOINT_HTTP_SCHEME": "http"
       "COHESION_ENVIRONMENT": "Development"
       "COHESION_GATEWAY": "docker"
+      "COHESION_MOUNT_TLS_PATH": "/cohesion/mounts/tls"
       "COHESION_RESOURCE": "appa-api"
       "CUSTOM_VALUE": "preserved"
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "ee5fbf47e27822e997b8175a77f31c386adab981e5774174afcecaeaa7dacbce"
+      "cohesion.io/plan-hash": "ec5f09d8b278ed2a60f039e0aa93549a5b933f160b7444789d8f99c877948dd2"
       "cohesion.io/resource": "appa-api"
-      "cohesion.io/runtime-hash": "d177599aacb7c4f11d4d9e45ba43b18961473490ecdd533323f424816e4ccb5e"
+      "cohesion.io/runtime-hash": "066f2c7995a24fabcd67f516d68cf9fbedc6ce41529d3d85f10d91fca4d8f96a"
     networks:
       "cohesion-appa":
         aliases:
           - "appa-api"
           - "appa-api-http"
           - "appa-api-https"
+    tmpfs:
+      - "/cohesion/mounts:rw,noexec,nosuid,nodev,mode=0700"
     ports:
       - "0.0.0.0:8443:8443/tcp"
       - "127.0.0.1:0:8443/tcp"
       - "127.0.0.1:0:8080/tcp"
     x-cohesion:
+      restart_policy: "OnFailure"
+      restart_owner: "gateway"
       workload: "Deployment"
       run_once: false
       stop_grace_seconds: 30
-      plan_hash: "ee5fbf47e27822e997b8175a77f31c386adab981e5774174afcecaeaa7dacbce"
-      inputs: []
+      plan_hash: "ec5f09d8b278ed2a60f039e0aa93549a5b933f160b7444789d8f99c877948dd2"
+      inputs:
+        - path: "/cohesion/mounts/tls"
+          sensitive: true
       probes:
         - role: "readiness"
           kind: "Http"
@@ -69,7 +76,7 @@ services:
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "62c04fb4a83f76b0c5b9a3346ce7157e11087c48a3c2a8210a9b894d30853185"
+      "cohesion.io/plan-hash": "7f897ed3528639f4e505fcddbc91173498e4d9a55f395b3fa5750293adbfb5e9"
       "cohesion.io/resource": "appa-database"
       "cohesion.io/runtime-hash": "2a693789252bd6c7b33f7b2430c6168ad5d3916d1b330a78559a3e5c31149b17"
     networks:
@@ -84,10 +91,12 @@ services:
     ports:
       - "127.0.0.1:0:8080/tcp"
     x-cohesion:
+      restart_policy: "OnFailure"
+      restart_owner: "gateway"
       workload: "StatefulSet"
       run_once: false
       stop_grace_seconds: 30
-      plan_hash: "62c04fb4a83f76b0c5b9a3346ce7157e11087c48a3c2a8210a9b894d30853185"
+      plan_hash: "7f897ed3528639f4e505fcddbc91173498e4d9a55f395b3fa5750293adbfb5e9"
       inputs: []
       probes:
         - role: "readiness"
@@ -103,7 +112,7 @@ services:
       "COHESION_CONTENT_ROOT": "/app"
       "COHESION_ENDPOINT_CONTROL_HOST": "0.0.0.0"
       "COHESION_ENDPOINT_CONTROL_PORT": "8080"
-      "COHESION_ENDPOINT_CONTROL_SCHEME": "tcp"
+      "COHESION_ENDPOINT_CONTROL_SCHEME": "http"
       "COHESION_ENVIRONMENT": "Development"
       "COHESION_GATEWAY": "docker"
       "COHESION_MOUNT_WORK_PATH": "/var/lib/worker"
@@ -111,9 +120,9 @@ services:
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "cd128472de46d280372e10d9043308d1129a62193394ea52f09ed54dc05e9faa"
+      "cohesion.io/plan-hash": "68610ae881ef552277d0acf55d6ec786504df84952cb2a0dfb0c5e3db78f7750"
       "cohesion.io/resource": "volume-worker"
-      "cohesion.io/runtime-hash": "c4cacf1b274d678f053e3655b54a2441c62abb24e67c4a45b8a703610be6560f"
+      "cohesion.io/runtime-hash": "e1d6ce1367741788a0b73ab2705ce95f3e52bfb8def51111cef310838f7fbd2d"
     networks:
       "cohesion-appa":
         aliases:
@@ -122,13 +131,21 @@ services:
           - "volume-worker-headless"
     volumes:
       - "appa-volume-worker-work:/var/lib/worker"
+    ports:
+      - "127.0.0.1:0:8080/tcp"
     x-cohesion:
+      restart_policy: "OnFailure"
+      restart_owner: "gateway"
       workload: "StatefulSet"
       run_once: false
       stop_grace_seconds: 30
-      plan_hash: "cd128472de46d280372e10d9043308d1129a62193394ea52f09ed54dc05e9faa"
+      plan_hash: "68610ae881ef552277d0acf55d6ec786504df84952cb2a0dfb0c5e3db78f7750"
       inputs: []
-      probes: []
+      probes:
+        - role: "readiness"
+          kind: "Http"
+          endpoint: "control"
+          value: "/cohesion/v1"
   "appa-node-agent":
     container_name: "appa-node-agent"
     image: "registry.example/test@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -138,28 +155,36 @@ services:
       "COHESION_CONTENT_ROOT": "/app"
       "COHESION_ENDPOINT_CONTROL_HOST": "0.0.0.0"
       "COHESION_ENDPOINT_CONTROL_PORT": "8080"
-      "COHESION_ENDPOINT_CONTROL_SCHEME": "tcp"
+      "COHESION_ENDPOINT_CONTROL_SCHEME": "http"
       "COHESION_ENVIRONMENT": "Development"
       "COHESION_GATEWAY": "docker"
       "COHESION_RESOURCE": "node-agent"
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "b585c4bb88f94d01a43d9d1de5efe5bcf7cab52533ccdecccd61edf287451a96"
+      "cohesion.io/plan-hash": "935cec202bbabb0c6fa28fbe8a7bbe0c229585d9f70cbb97c9e7f98f7aa3e0ab"
       "cohesion.io/resource": "node-agent"
-      "cohesion.io/runtime-hash": "45eefdfabcfff2615dfdfbc52e037e73795f2e83aa62ff24527e60096e066022"
+      "cohesion.io/runtime-hash": "7814715d99dc6f0fead22b56ede573a7066038113a93ad8f1019410327634df9"
     networks:
       "cohesion-appa":
         aliases:
           - "node-agent"
           - "node-agent-control"
+    ports:
+      - "127.0.0.1:0:8080/tcp"
     x-cohesion:
+      restart_policy: "OnFailure"
+      restart_owner: "gateway"
       workload: "DaemonSet"
       run_once: false
       stop_grace_seconds: 30
-      plan_hash: "b585c4bb88f94d01a43d9d1de5efe5bcf7cab52533ccdecccd61edf287451a96"
+      plan_hash: "935cec202bbabb0c6fa28fbe8a7bbe0c229585d9f70cbb97c9e7f98f7aa3e0ab"
       inputs: []
-      probes: []
+      probes:
+        - role: "readiness"
+          kind: "Http"
+          endpoint: "control"
+          value: "/cohesion/v1"
   "appa-schema-migrate":
     container_name: "appa-schema-migrate"
     image: "registry.example/test@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -169,28 +194,36 @@ services:
       "COHESION_CONTENT_ROOT": "/app"
       "COHESION_ENDPOINT_CONTROL_HOST": "0.0.0.0"
       "COHESION_ENDPOINT_CONTROL_PORT": "8080"
-      "COHESION_ENDPOINT_CONTROL_SCHEME": "tcp"
+      "COHESION_ENDPOINT_CONTROL_SCHEME": "http"
       "COHESION_ENVIRONMENT": "Development"
       "COHESION_GATEWAY": "docker"
       "COHESION_RESOURCE": "schema-migrate"
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "60e61ab643a521055abb3f045f1c5a1dbb10612e7447de978654f3724e80785c"
+      "cohesion.io/plan-hash": "958a8402b5f2b0f5778537e4aff7c3aa2d681e387bc5f9ca3c1458b9856a9cae"
       "cohesion.io/resource": "schema-migrate"
-      "cohesion.io/runtime-hash": "abfe96eccfea000e6ef0df70db91a756a3a8a80744ad3add62d028ca21b91e3f"
+      "cohesion.io/runtime-hash": "58897c3046b06c2eab93e624cd8446d8dae1623c16e96e15c04559e877a4c6cc"
     networks:
       "cohesion-appa":
         aliases:
           - "schema-migrate"
           - "schema-migrate-control"
+    ports:
+      - "127.0.0.1:0:8080/tcp"
     x-cohesion:
+      restart_policy: "OnFailure"
+      restart_owner: "gateway"
       workload: "Job"
       run_once: true
       stop_grace_seconds: 30
-      plan_hash: "60e61ab643a521055abb3f045f1c5a1dbb10612e7447de978654f3724e80785c"
+      plan_hash: "958a8402b5f2b0f5778537e4aff7c3aa2d681e387bc5f9ca3c1458b9856a9cae"
       inputs: []
-      probes: []
+      probes:
+        - role: "readiness"
+          kind: "Http"
+          endpoint: "control"
+          value: "/cohesion/v1"
 networks:
   "cohesion-appa":
     name: "cohesion-appa"
@@ -203,12 +236,12 @@ volumes:
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "62c04fb4a83f76b0c5b9a3346ce7157e11087c48a3c2a8210a9b894d30853185"
+      "cohesion.io/plan-hash": "7f897ed3528639f4e505fcddbc91173498e4d9a55f395b3fa5750293adbfb5e9"
       "cohesion.io/resource": "appa-database"
   "appa-volume-worker-work":
     name: "appa-volume-worker-work"
     labels:
       "cohesion.io/application": "appa"
       "cohesion.io/owner": "appa@docker"
-      "cohesion.io/plan-hash": "cd128472de46d280372e10d9043308d1129a62193394ea52f09ed54dc05e9faa"
+      "cohesion.io/plan-hash": "68610ae881ef552277d0acf55d6ec786504df84952cb2a0dfb0c5e3db78f7750"
       "cohesion.io/resource": "volume-worker"

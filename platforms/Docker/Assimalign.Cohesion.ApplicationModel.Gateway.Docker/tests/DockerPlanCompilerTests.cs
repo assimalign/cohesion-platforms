@@ -13,7 +13,7 @@ using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
-public class DockerPlanCompilerTests
+public partial class DockerPlanCompilerTests
 {
     private static readonly string Image =
         $"registry.example/test@sha256:{new string('a', 64)}";
@@ -305,20 +305,13 @@ public class DockerPlanCompilerTests
             .Select(CreateDockerSupportedCase)
             .Select(plan => Compile(plan))
             .ToArray();
-        string fixture = Path.Combine(
-            AppContext.BaseDirectory,
-            "Fixtures",
-            "render",
-            "kind-matrix.yaml");
-
         // Act
         string first = DockerPlanRenderer.Render(firstCompilations);
         string second = DockerPlanRenderer.Render(secondCompilations);
 
         // Assert
         first.ShouldBe(second);
-        first.ShouldBe(
-            File.ReadAllText(fixture).Replace("\r\n", "\n", StringComparison.Ordinal));
+        RenderGolden.Verify(first, Path.Combine("render", "kind-matrix.yaml"));
     }
 
     private static DockerPlanCompilation Compile(
@@ -331,7 +324,7 @@ public class DockerPlanCompilerTests
         return new DockerPlanCompiler().Compile(
             plan,
             artifact,
-            inputs ?? ResourceInputs.Empty,
+            inputs ?? CreateFixtureInputs(plan),
             [],
             "appa",
             "appa@docker");
@@ -360,7 +353,8 @@ public class DockerPlanCompilerTests
             1,
             plan.Workload.StableIdentity,
             plan.Workload.Gate,
-            plan.Workload.StopGraceSeconds);
+            plan.Workload.StopGraceSeconds,
+            plan.Workload.RestartPolicy);
         return CopyPlan(plan, workload: workload);
     }
 
@@ -414,5 +408,18 @@ public class DockerPlanCompilerTests
             source.Volumes,
             source.Services,
             source.Exposures,
-            hints ?? source.Hints);
+            hints ?? source.Hints,
+            source.ControlPlane);
+
+    private static ResourceInputs CreateFixtureInputs(ResourcePlan plan) =>
+        plan.Container.Mounts.Any(mount => mount.Mount == "tls")
+            ? new ResourceInputs(
+                new Dictionary<string, ResourceMountInput>
+                {
+                    ["tls"] = ResourceMountInput.Resolved(
+                        "tls",
+                        Encoding.UTF8.GetBytes("-----BEGIN CERTIFICATE-----\ncohesion-test\n-----END CERTIFICATE-----\n")),
+                },
+                ReadOnlyMemory<byte>.Empty)
+            : ResourceInputs.Empty;
 }

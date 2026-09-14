@@ -1,0 +1,147 @@
+name: Platform render and Kubernetes E2E
+
+on:
+  push:
+    paths:
+      - "platforms/Kubernetes/**"
+      - "platforms/Docker/**"
+      - "platforms/Containers/**"
+      - "build/**"
+      - "global.json"
+      - "nuget.config"
+      - ".github/actions/build/**"
+      - ".github/workflows/platform-kubernetes.yml"
+      - ".github/workflows/e2e-kubernetes.yml"
+  workflow_dispatch:
+    inputs:
+      run_kind:
+        description: "Run the Kind-on-Podman half when both tools are available"
+        type: boolean
+        default: false
+      smoke_image:
+        description: "Image for the OCI archive, repository@sha256:<64 hex> (required for Kind)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    env:
+      # NuGet reads the credential from the environment; it is never written to a config.
+      NuGetPackageSourceCredentials_cohesion: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
+      COHESION_RUN_KIND_SMOKE: "0"
+      KIND_EXPERIMENTAL_PROVIDER: podman
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Configure the package feed
+        shell: bash
+        env:
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+        run: |
+          cp nuget.config "$RUNNER_TEMP/cohesion.nuget.config"
+          dotnet nuget add source "https://nuget.pkg.github.com/$PACKAGE_OWNER/index.json" \
+            --name cohesion --configfile "$RUNNER_TEMP/cohesion.nuget.config"
+      - name: Build the whole solution
+        run: dotnet build Assimalign.Cohesion.Platforms.slnx --configuration Release -p:RestoreConfigFile="$RUNNER_TEMP/cohesion.nuget.config"
+      - name: Test Containers
+        run: dotnet test platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/ --configuration Release --no-build --no-restore
+      - name: Test Docker
+        run: dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/ --configuration Release --no-build --no-restore
+      - name: Test Kubernetes without a cluster
+        run: dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/ --configuration Release --no-build --no-restore
+      - name: Conformance for --mode render (both providers and vendored plan goldens)
+        shell: bash
+        run: |
+          dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/ \
+            --configuration Release --no-build --no-restore --filter 'FullyQualifiedName~Render'
+          dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/ \
+            --configuration Release --no-build --no-restore --filter 'FullyQualifiedName~Render'
+      - name: Probe the opt-in Kind environment
+        id: probe
+        shell: bash
+        env:
+          RUN_KIND: ${{ inputs.run_kind }}
+        run: |
+          available=false
+          if [[ "$RUN_KIND" != "true" ]]; then
+            reason="Kind was not requested; the build, three suites, and render conformance ran."
+          elif podman --version && kind --version; then
+            available=true
+            reason="Podman and Kind are available; running the full Kind half after hermetic conformance."
+          else
+            reason="Podman or Kind is unavailable; only build, three suites, and render conformance ran."
+          fi
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+      - name: Prepare the smoke OCI archive
+        if: steps.probe.outputs.available == 'true'
+        shell: bash
+        env:
+          SMOKE_IMAGE: ${{ inputs.smoke_image }}
+        run: |
+          if [[ ! "$SMOKE_IMAGE" =~ ^[^[:space:]@]+@sha256:[[:xdigit:]]{64}$ ]]; then
+            echo "smoke_image must be a repository@sha256:<64 hex> reference." >&2
+            exit 1
+          fi
+          podman pull "$SMOKE_IMAGE"
+          podman save --format oci-archive --output "$RUNNER_TEMP/cohesion-smoke.tar" "$SMOKE_IMAGE"
+          test -s "$RUNNER_TEMP/cohesion-smoke.tar"
+          echo "COHESION_KIND_SMOKE_ARCHIVE=$RUNNER_TEMP/cohesion-smoke.tar" >> "$GITHUB_ENV"
+          echo "COHESION_KIND_SMOKE_CLUSTER=cohesion-e2e" >> "$GITHUB_ENV"
+          # A registry reference can identify a multi-platform index; use the actual
+          # exported archive manifest, whose digest can differ from that index.
+          python3 - <<'PY'
+          import hashlib, json, os, re, tarfile
+          with tarfile.open(os.path.join(os.environ["RUNNER_TEMP"], "cohesion-smoke.tar")) as archive:
+              index = json.load(archive.extractfile("index.json"))
+              manifests = index["manifests"]
+              if len(manifests) != 1:
+                  raise RuntimeError("The smoke OCI archive must contain exactly one manifest")
+              digest = manifests[0]["digest"]
+              if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                  raise RuntimeError("The smoke manifest must have a SHA-256 digest")
+              content = archive.extractfile("blobs/sha256/" + digest[7:]).read()
+              if "sha256:" + hashlib.sha256(content).hexdigest() != digest:
+                  raise RuntimeError("The exported smoke manifest does not match its digest")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write("COHESION_KIND_SMOKE_DIGEST=" + digest + "\n")
+          PY
+      - name: Create Kind and export kubeconfig
+        if: steps.probe.outputs.available == 'true'
+        shell: bash
+        run: |
+          kind create cluster --name cohesion-e2e --wait 120s
+          kind export kubeconfig --name cohesion-e2e --kubeconfig "$RUNNER_TEMP/cohesion-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/cohesion-kubeconfig" >> "$GITHUB_ENV"
+      - name: Run the Kubernetes suite on Kind
+        if: steps.probe.outputs.available == 'true'
+        env:
+          COHESION_RUN_KIND_SMOKE: "1"
+        run: dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/ --configuration Release --no-build --no-restore
+      - name: Prove the Kind smoke test ran and passed
+        if: steps.probe.outputs.available == 'true'
+        shell: pwsh
+        env:
+          COHESION_RUN_KIND_SMOKE: "1"
+        run: |
+          dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/ `
+            --configuration Release --no-build --no-restore `
+            --filter 'FullyQualifiedName~KindImageLoaderSmokeTests.LoadIfKindAsync_OnOptedInCluster_ShouldLoadArchive' `
+            --logger 'trx;LogFileName=kind-smoke.trx' --results-directory "$env:RUNNER_TEMP/kind-results"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$results = Get-Content -Raw "$env:RUNNER_TEMP/kind-results/kind-smoke.trx"
+          $counters = $results.TestRun.ResultSummary.Counters
+          if ($counters.total -ne '1' -or $counters.executed -ne '1' -or $counters.passed -ne '1') {
+            throw 'Expected exactly one executed and passed Kind smoke test; a skipped or missing test fails E2E.'
+          }
+          'Kind smoke: exactly one test executed and passed.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Delete the Kind cluster
+        if: always() && steps.probe.outputs.available == 'true'
+        run: kind delete cluster --name cohesion-e2e

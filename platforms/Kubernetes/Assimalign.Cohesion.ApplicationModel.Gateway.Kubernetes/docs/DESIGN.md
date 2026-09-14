@@ -1,6 +1,6 @@
 # Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes — Design
 
-> Implementation record for developer-experience design items 34 and 35
+> Implementation record for developer-experience design items 34, 35, and 37
 > (`L04.01.03.09`, cohesion-platforms#31; `L04.01.02.07`, cohesion-platforms#32). The authority is
 > `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed 2026-09-06) and
 > `docs/REALIZATION_PLAN.md` in the cohesion repo.
@@ -154,8 +154,7 @@ remains preferred for dependency and startup hygiene.
 ## Non-goals
 
 - Helm and kustomize are not the desired-state source. The compiler's deterministic object graph
-  is the intended input to `--mode render`, without contacting a cluster; the current upstream
-  command runner does not yet dispatch that mode to a platform gateway.
+  is emitted by `--mode render` through the upstream renderer dispatch, without contacting a cluster.
 - No single gateway reconciles multiple clusters. Federation is composed from one gateway per
   cluster, peer control planes/exported models, external references, and `IApplicationSet`.
 
@@ -174,20 +173,24 @@ upstream contract:
 
 - `ResourcePlan` contains requested `replicas`, but not manifest `maxReplicas`. The bound remains
   an upstream build-time validation; the compiler realizes only the validated requested count.
-- The plan does not carry the manifest control-plane endpoint/path, private endpoint URI scheme,
-  or lifecycle restart policy. Explicit plan probes map 1:1, but the compiler cannot synthesize
-  the design's implicit control-plane readiness probe when no probe is declared, recover an HTTP
-  scheme for a private endpoint, or distinguish Job `OnFailure` from `Never` without a plan-schema
-  or supplemental-input change.
-- The application runner rejects `Render` and `Bootstrap` before calling the gateway, and the
-  generated provider command line applies common options only. Consequently `--mode render`,
-  `--mode bootstrap` need upstream command dispatch; the latter also needs the root gateway image
-  and service-account/RBAC input needed to emit the `cohesion-system` installation. Direct
-  `UseKubernetesGateway(args)` handles `--context`/`--kubeconfig`, but the generated provider switch
-  still needs a platform-option seam.
-  `--adopt` is already parsed by the
-  common application-model command line and reaches this provider through
-  `IApplicationModel.Adopt`.
+- Control-plane endpoint/path, URI schemes, restart policy, and certificate mount names now
+  arrive in the additive plan contract. These are compiler inputs of record; no manifest-kind
+  dispatch or parallel field lookup is needed. Explicit probes remain 1:1; omitted readiness
+  becomes HTTP GET at the control-plane port/path. Kubernetes Deployment/StatefulSet/DaemonSet
+  require `Always`, warning when the declared restart policy is clamped; Jobs retain `OnFailure`
+  or `Never`. Warnings flow through compilation warnings to the configured WarningHandler.
+- The upstream base keeps telemetry header bytes private and currently exposes no subclass
+  carrier. The compiler has an optional internal `ReadOnlyMemory<byte>` input, empty by default;
+  normal reconcile passes none. The platform never invents telemetry endpoints/protocols.
+- A live upstream factory creates one control-plane server per application through
+  `Create(application)`, each exposing fixed `/cohesion/v1` routes. The current system Service
+  maps one HTTP port, so several servers would collide at `0.0.0.0:8080`; a shared Ingress host
+  cannot route them without an upstream root/member addressing contract. The observer rejects
+  live multi-model control-plane sessions before workload/client-session mutation; the base may
+  already have initialized trust before this hook. Bootstrap apply rejects several models before
+  API access. Offline multi-model render and emit-only bootstrap support review, not a claim that
+  the unresolved multi-model system installation is deployable. Existing multi-model realization
+  remains unchanged when no control-plane factory is configured.
 - The current model/resolver contracts expose neither a port-forward lifetime nor a root-versus-
   member gateway topology marker. Development port-forward management and enforcement that only
   the root `IApplicationSet` gateway owns Production therefore require upstream seams; namespace
@@ -210,3 +213,116 @@ upstream contract:
 
 These gaps are explicit compatibility boundaries, not invitations for Kubernetes to inspect a
 resource-area manifest or parse process arguments behind the gateway contract.
+
+## System infrastructure and control-plane exposure (item 37)
+
+`KubernetesSystemInstallation` is a separate internal builder of ordered Kubernetes objects. It
+never creates or feeds a synthetic ResourcePlan into the one resource-plan compiler (rule 10).
+The order is namespace, service account, namespaced and cluster RBAC, export/state PVC,
+trust-key Secret, one-replica digest-pinned gateway
+Deployment, ClusterIP control-plane Service, and optional LoadBalancer Service or Ingress.
+Cross-namespace installations grant the existing reconciliation permissions at cluster scope.
+Even a same-namespace installation needs a limited ClusterRole: namespace get/patch for the
+system namespace and pod list/watch for the existing all-namespace informer.
+Every metadata object is created through KubernetesMetadata. Infrastructure and discovery remove
+the application resource label and use `cohesion.io/system=gateway`; this keeps the application
+resource sweep from pruning them, including when an application shares the system namespace.
+Application namespace teardown explicitly preserves SystemNamespace; bootstrap state remains
+installed independently of application teardown. The normal owner/adopt rules still govern a
+shared namespace. Its namespace annotation uses the application's owner; other infrastructure
+uses the configured field manager as owner.
+
+SystemNamespace and SystemServiceAccount default to `cohesion-system` and `cohesion-gateway` and
+are DNS labels. SystemImage has no default and is validated by ContainerImageArtifacts.Create;
+SystemStorageSize must be explicitly supplied for the persistent export/trust state installation.
+SystemStorageClass is optional. SystemExposure defaults to None; Ingress requires an explicit DNS
+host and controller class. BootstrapApply defaults to true. The deployment uses a Recreate strategy
+with one replica and a writable state PVC, plus a read-only Secret projection. The gateway's
+protected bind hook supplies an IP HTTP endpoint reachable through port 8080. The current upstream
+hosting-free server only supports HTTP/IP binding; platform exposure does not claim new server TLS
+support. Ingress/controller/org TLS policy remains deployment configuration.
+
+`KubernetesGatewayTrustKeyRepository` implements the upstream public native persistence seam.
+It loads or creates P-256 PKCS#8 keys in the owned Opaque system Secret, under distinct
+`<application>.<gateway>.p8` entries, and rotates only the selected identity. Atomic create races
+load the winner; resource-version-conditional, non-forced updates preserve other identities.
+Foreign owners, corrupt/trailing data, and non-P256 keys fail closed, including on rotation.
+Temporary key buffers are cleared. A caller's custom repository is preserved. Render/bootstrap
+never mint a key, token, or certificate. The base still issues ES256 developer tokens with audience
+`cohesion-export`, and the real upstream control-plane implementation verifies them. Only public
+trust keys appear in discovery ConfigMaps. PVC state remains writable for upstream exports and
+other gateway metadata; the projected Secret never occupies that writable directory.
+
+`KubernetesGatewayCommandLine.Apply` is a public static SDK seam, a narrow documented deviation
+from the interface-first convention. The old direct-extension parser body/helpers were moved here
+and extended; the extension delegates this same parser. The exact fully qualified method appears
+in buildTransitive metadata. The SDK invokes it before GatewayControlPlane.Configure captures the
+export directory; the emitted pod environment selects `/var/lib/cohesion`, while developer hosts retain upstream `.cohesion` defaults. Recognized values support both
+separated and equals forms, optional bootstrap booleans support bare and explicit forms, and
+unknown switches remain available to other parsers. Missing values identify their switch.
+
+The existing application export ConfigMap additionally carries `control-plane.json` using the
+upstream `{url,trustKey}` metadata shape. None uses stable Service DNS; LoadBalancer uses its first
+allocated hostname/IP; Ingress uses its configured host. No allocated LB address means no metadata
+entry. The same observer resync polls system allocation independently from workload changes and
+publishes only address changes, including withdrawal. A missing system Service is pending rather
+than a fabricated public URL. IKubernetesApplicationModelResolver retains the upstream model
+resolver interface and exposes separate operator-channel URL resolution for `remote.Gateway(url)`.
+It neither changes peer authentication nor stores bearer credentials.
+
+## Offline rendering and bootstrap application
+
+The renderer gathers every output document before writing, emits system infrastructure first,
+then each model/resource in declaration order using the existing deterministic object renderer.
+It resolves digest identity from manifests or a local index and never calls Gather, Kind, image
+realizers, registries, or Kubernetes. Inputs are ResourceInputs.Empty. A render-only compiler preview
+flag preserves declared mount shapes while omitting unresolved bytes; strict per-resource Render
+and live compilation still reject unresolved inputs. These previews require runtime resolution
+before deployment. A PEM certificate bundle stays unsplit at its existing Secret mount in an
+Opaque Secret, without a new Secret type or extra volume. Token, trust bundle, and optional telemetry
+headers share the existing private bootstrap projection; an empty input adds no payload or path,
+and stale credential-path environment values are removed. Telemetry endpoint/protocol values in
+the immutable plan are left alone.
+
+The certificate carrier deliberately remains the existing Opaque Secret volume, rather than
+`kubernetes.io/tls`: the contract is one unsplit PEM document containing the leaf, private key, and
+chain, whereas the TLS Secret type requires separate `tls.crt` and `tls.key` entries. No new
+certificate Secret, volume, or type is needed. `PortBinding.Certificate` is validated against a
+Secret mount before compilation; the case-insensitive reserved value `public` needs no mount.
+
+`inputs.TrustBundle` is reserved key `trust-bundle`, projected as `trust.pem` and advertised by
+`COHESION_TRUST_BUNDLE_PATH=/var/run/cohesion/trust.pem`. The empty-by-default internal
+`ReadOnlyMemory<byte> telemetryHeaders` compiler parameter is reserved key `telemetry-headers`,
+projected as `telemetry.headers` and advertised by
+`COHESION_TELEMETRY_HEADERS_PATH=/var/run/cohesion/telemetry.headers`. Both join `bootstrap-token`
+in the same `cohesion-bootstrap` projected volume with mode 0400 and a read-only mount. Trust-only
+and telemetry-only inputs each produce exactly one projection item; all three empty means no
+projection volume. Reserved mount names are rejected even when their injected input is absent.
+No compiler assigns `COHESION_TELEMETRY_ENDPOINT` or `COHESION_TELEMETRY_PROTOCOL`. The optional
+telemetry carrier changes no render output when empty.
+
+Bootstrap always writes system output. BootstrapApply=false then returns without platform contact.
+True performs ownership preflight across the complete ordered object set before the first mutation,
+uses create-before-apply conflict detection for absent objects, and uses resource versions for
+checked server-side applies with the configured field manager. A foreign owner requires model
+adoption; an existing trust Secret's data is preserved. This intentionally follows the approved
+emit-or-apply contract even though IApplicationGatewayBootstrapper XML currently describes offline
+emission only. Bootstrap does not feed system objects to the resource-plan compiler.
+
+The hermetic suite covers bootstrap ownership and races, native trust persistence, real upstream
+loopback token verification, and rendered goldens for all three system exposures and the composed
+resource stream. The five resource goldens consume the post-31t upstream fixtures. For explicit
+golden regeneration, set `COHESION_RENDER_OUTPUT` to a scratch directory and run the render tests:
+they export actual output under `Kubernetes/` while retaining their checked-in golden assertions.
+Review the output before copying it into `tests/Fixtures`, then run the render tests twice.
+COHPLT001 follows the owner-corrected rule 3: the Gateway base may transitively bring Hosting,
+Hosting.Health, and Hosting.Resources; direct platform references to that trio remain forbidden.
+The emitted gateway pod carries private `COHESION_KUBERNETES_FIELD_MANAGER`,
+`COHESION_KUBERNETES_STATE_DIRECTORY`, and optional `COHESION_KUBERNETES_INGRESS_CLASS` environment
+values. The public hook reads these before arguments, preserving installation ownership, writable
+mount location, and controller class without adding resource-runtime keys or new CLI switches.
+Exposure/host/service-account settings travel through existing switches. The gateway image must
+still execute its SDK-generated option hook; custom Program option behavior is the operator's
+responsibility. Same-namespace installations align the Namespace annotation with model.Owner;
+other infrastructure remains owned by FieldManager. Offline composed render emits each additional
+application Namespace before its resource objects.

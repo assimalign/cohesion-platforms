@@ -15,6 +15,8 @@ internal sealed class DockerPlanCompiler
 {
     private const string ContentRoot = "/app";
     private const string BootstrapPath = "/var/run/cohesion/bootstrap.token";
+    private const string TrustBundlePath = "/var/run/cohesion/trust.pem";
+    private const string TelemetryHeadersPath = "/var/run/cohesion/telemetry.headers";
 
     public void Validate(ResourcePlan plan)
     {
@@ -38,7 +40,9 @@ internal sealed class DockerPlanCompiler
         IReadOnlyList<ResourceDependencyObservation> dependencies,
         ApplicationName application,
         string owner,
-        string publicHost = "localhost")
+        string publicHost = "localhost",
+        ReadOnlyMemory<byte> telemetryHeaders = default,
+        bool renderOnly = false)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(artifact);
@@ -96,8 +100,10 @@ internal sealed class DockerPlanCompiler
                 continue;
             }
 
-            ResourceMountInput input = RequireInput(inputs, mount);
-            AddFile(files, filePaths, mount.ContainerPath, input.Content, mount.Kind is ResourceMountKind.Secret);
+            ReadOnlyMemory<byte> content = renderOnly
+                ? ReadOnlyMemory<byte>.Empty
+                : RequireInput(inputs, mount).Content;
+            AddFile(files, filePaths, mount.ContainerPath, content, mount.Kind is ResourceMountKind.Secret);
             if (mount.Kind is ResourceMountKind.Secret)
             {
                 AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(mount.ContainerPath));
@@ -109,6 +115,20 @@ internal sealed class DockerPlanCompiler
             AddFile(files, filePaths, BootstrapPath, inputs.BootstrapCredential, sensitive: true);
             AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(BootstrapPath));
             environment[ResourceEnvironment.BootstrapTokenPath] = BootstrapPath;
+        }
+
+        if (!inputs.TrustBundle.IsEmpty)
+        {
+            AddFile(files, filePaths, TrustBundlePath, inputs.TrustBundle, sensitive: true);
+            AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(TrustBundlePath));
+            environment[ResourceEnvironment.TrustBundlePath] = TrustBundlePath;
+        }
+
+        if (!telemetryHeaders.IsEmpty)
+        {
+            AddFile(files, filePaths, TelemetryHeadersPath, telemetryHeaders, sensitive: true);
+            AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(TelemetryHeadersPath));
+            environment[ResourceEnvironment.TelemetryHeadersPath] = TelemetryHeadersPath;
         }
 
         var portBindings = CreatePortBindings(plan);
@@ -144,7 +164,8 @@ internal sealed class DockerPlanCompiler
             aliases,
             volumeMounts,
             portBindings,
-            tmpfs);
+            tmpfs,
+            plan.Workload.RestartPolicy);
         var probes = new List<DockerProbePlan>(plan.Container.Probes.Count);
         for (int index = 0; index < plan.Container.Probes.Count; index++)
         {
@@ -161,6 +182,14 @@ internal sealed class DockerPlanCompiler
                 probePort?.Protocol,
                 probe.Value,
                 probe.Command));
+        }
+
+        if (NeedsControlPlaneReadiness(plan))
+        {
+            PortBinding port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint);
+            probes.Add(new DockerProbePlan(
+                "readiness", port.Endpoint, ProbeKind.Http, FindScheme(plan, port.Endpoint),
+                port.ContainerPort, port.Protocol, plan.ControlPlane.Path, []));
         }
 
         return new DockerPlanCompilation(
@@ -268,6 +297,14 @@ internal sealed class DockerPlanCompiler
                 $"Docker compiler realizes exactly one container per resource and cannot realize replica count '{plan.Workload.Replicas}'.");
         }
 
+        if (plan.Workload.RestartPolicy is null
+            || (plan.Workload.RestartPolicy.Length > 0
+                && plan.Workload.RestartPolicy is not "Never" and not "Always" and not "OnFailure"))
+        {
+            throw new InvalidDataException(
+                $"Docker resource '{plan.Resource}' declares unsupported restart policy '{plan.Workload.RestartPolicy}'.");
+        }
+
         if (plan.Workload.StopGraceSeconds < 1)
         {
             throw new InvalidDataException("A Docker workload stop grace must be positive.");
@@ -339,6 +376,22 @@ internal sealed class DockerPlanCompiler
             }
 
             RequireProtocol(port.Protocol, $"endpoint '{port.Endpoint}'");
+            if (port.Certificate is null)
+            {
+                throw new InvalidDataException(
+                    $"Docker endpoint '{port.Endpoint}' certificate mount must not be null.");
+            }
+
+            if (!string.IsNullOrEmpty(port.Certificate)
+                && !string.Equals(port.Certificate, "public", StringComparison.OrdinalIgnoreCase))
+            {
+                MountBinding? certificateMount = FindMount(plan.Container.Mounts, port.Certificate);
+                if (certificateMount?.Kind is not ResourceMountKind.Secret)
+                {
+                    throw new InvalidDataException(
+                        $"Docker endpoint '{port.Endpoint}' certificate mount '{port.Certificate}' must name a Secret mount.");
+                }
+            }
             ServiceSpec service = FindService(plan.Services, port.Endpoint);
             if (service.Port != port.ContainerPort
                 || !string.Equals(service.Protocol, port.Protocol, StringComparison.OrdinalIgnoreCase))
@@ -467,6 +520,17 @@ internal sealed class DockerPlanCompiler
             }
         }
 
+        if (NeedsControlPlaneReadiness(plan))
+        {
+            PortBinding port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint);
+            if (!string.Equals(port.Protocol, "tcp", StringComparison.OrdinalIgnoreCase)
+                || !plan.ControlPlane.Path.StartsWith("/", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Docker control-plane readiness endpoint '{port.Endpoint}' requires TCP and an absolute path.");
+            }
+        }
+
         var exposureNames = new HashSet<string>(StringComparer.Ordinal);
         var exposureEndpoints = new HashSet<string>(StringComparer.Ordinal);
         for (int index = 0; index < plan.Exposures.Count; index++)
@@ -586,6 +650,14 @@ internal sealed class DockerPlanCompiler
                 "127.0.0.1",
                 HostPort: null,
                 ProbeOnly: true));
+        }
+
+        if (NeedsControlPlaneReadiness(plan) && probeEndpoints.Add(plan.ControlPlane.Endpoint))
+        {
+            PortBinding port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint);
+            result.Add(new DockerPortPublishPlan(
+                port.Endpoint, port.ContainerPort, port.Protocol.ToLowerInvariant(),
+                "127.0.0.1", HostPort: null, ProbeOnly: true));
         }
 
         return result;
@@ -864,6 +936,12 @@ internal sealed class DockerPlanCompiler
 
     private static string FindScheme(ResourcePlan plan, string endpoint)
     {
+        PortBinding port = FindPort(plan.Container.Ports, endpoint);
+        if (!string.IsNullOrEmpty(port.Scheme))
+        {
+            return port.Scheme;
+        }
+
         for (int index = 0; index < plan.Exposures.Count; index++)
         {
             ExposureSpec exposure = plan.Exposures[index];
@@ -883,10 +961,27 @@ internal sealed class DockerPlanCompiler
             }
         }
 
-        PortBinding port = FindPort(plan.Container.Ports, endpoint);
         return string.Equals(port.Protocol, "udp", StringComparison.OrdinalIgnoreCase)
             ? "udp"
             : "tcp";
+    }
+
+    private static bool NeedsControlPlaneReadiness(ResourcePlan plan)
+    {
+        if (string.IsNullOrEmpty(plan.ControlPlane.Endpoint))
+        {
+            return false;
+        }
+
+        for (int index = 0; index < plan.Container.Probes.Count; index++)
+        {
+            if (plan.Container.Probes[index].Role == "readiness")
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static ServiceSpec FindService(IReadOnlyList<ServiceSpec> services, string endpoint)

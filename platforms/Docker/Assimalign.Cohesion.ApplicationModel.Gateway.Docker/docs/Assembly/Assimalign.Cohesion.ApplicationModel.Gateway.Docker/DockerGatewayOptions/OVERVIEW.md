@@ -15,6 +15,7 @@ lifetime, and readiness settings are inherited from `ApplicationGatewayOptions`.
 | Property | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `EngineEndpoint` | `Uri?` | `null` | Explicit `http`, `https`, `unix`, or `npipe` Engine API endpoint. When absent, the gateway checks `DOCKER_HOST` and then the operating-system socket default. |
+| `ControlPlaneAddress` | `Uri?` | `null` | Absolute HTTP listener address on localhost or an IP. Omission uses loopback and an ephemeral port. Non-loopback is operator-chosen LAN exposure; application sets should use port zero. |
 | `ImageRealizer` | `IImageRealizer?` | `null` | Custom engine image acquisition. When supplied, default archive/pull acquisition is bypassed, but the manifest must remain digest-pinned and the result must preserve its identity; a configured index is also validated and registry-bound before realization. |
 | `ImageIndexPath` | `string?` | `null` | Path to the shared `application.images.json` document. The default realizer resolves each resource's `ArtifactRef.Self` entry from this index. |
 | `ContainerRegistry` | `string?` | `null` | Registry authority applied only when an index entry's `registry` is omitted or null; a pinned entry registry takes precedence. It contains no URI scheme or path. |
@@ -35,6 +36,7 @@ lifetime, and readiness settings are inherited from `ApplicationGatewayOptions`.
 `DockerGateway` validates these settings when constructed:
 
 - `EngineEndpoint`, when supplied, must be absolute and use a supported scheme.
+- `ControlPlaneAddress` must be an absolute HTTP URI with a localhost or IP host, matching the upstream listener. Other URI components do not change the bound host and port.
 - `ImageIndexPath`, when supplied, must not be empty.
 - `ContainerRegistry`, when supplied, must be a registry authority without a URI scheme, path,
   query, fragment, or user information.

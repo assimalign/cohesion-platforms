@@ -4,7 +4,8 @@
 			<Name>kubernetes</Name>
 			<GatewayType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.KubernetesGateway</GatewayType>
 			<OptionsType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.KubernetesGatewayOptions</OptionsType>
-			<RequiresJit>true</RequiresJit>
+			<CommandLineApplyMethod>global::Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.KubernetesGatewayCommandLine.Apply</CommandLineApplyMethod>
+            <RequiresJit>true</RequiresJit>
 		</CohesionGatewayProvider>
 	</ItemGroup>
 </Project>

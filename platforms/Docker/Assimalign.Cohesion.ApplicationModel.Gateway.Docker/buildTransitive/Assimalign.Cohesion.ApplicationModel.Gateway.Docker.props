@@ -4,6 +4,7 @@
 			<Name>docker</Name>
 			<GatewayType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGateway</GatewayType>
 			<OptionsType>global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGatewayOptions</OptionsType>
+			<CommandLineApplyMethod>global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGatewayCommandLine.Apply</CommandLineApplyMethod>
 			<RequiresJit>false</RequiresJit>
 		</CohesionGatewayProvider>
 	</ItemGroup>

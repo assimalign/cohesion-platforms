@@ -83,7 +83,8 @@ internal sealed record DockerContainerPlan(
     IReadOnlyList<string> NetworkAliases,
     IReadOnlyList<DockerVolumeMountPlan> VolumeMounts,
     IReadOnlyList<DockerPortPublishPlan> PortBindings,
-    IReadOnlyList<string> Tmpfs);
+    IReadOnlyList<string> Tmpfs,
+    string RestartPolicy);
 
 internal sealed record DockerVolumeMountPlan(string Source, string Target);
 

@@ -30,12 +30,33 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        string namespaceName = RequireNamespace(resource);
+        string namespaceName = resource is V1Namespace or V1ClusterRole or V1ClusterRoleBinding ? string.Empty : RequireNamespace(resource);
 
         try
         {
             switch (resource)
             {
+                case V1Namespace systemObject:
+                    await _client.CoreV1.CreateNamespaceAsync(systemObject, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ServiceAccount systemObject:
+                    await _client.CoreV1.CreateNamespacedServiceAccountAsync(systemObject, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1Role systemObject:
+                    await _client.RbacAuthorizationV1.CreateNamespacedRoleAsync(systemObject, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1RoleBinding systemObject:
+                    await _client.RbacAuthorizationV1.CreateNamespacedRoleBindingAsync(systemObject, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ClusterRole systemObject:
+                    await _client.RbacAuthorizationV1.CreateClusterRoleAsync(systemObject, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ClusterRoleBinding systemObject:
+                    await _client.RbacAuthorizationV1.CreateClusterRoleBindingAsync(systemObject, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1Ingress systemObject:
+                    await _client.NetworkingV1.CreateNamespacedIngressAsync(systemObject, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
                 case V1ConfigMap configMap:
                     await _client.CoreV1.CreateNamespacedConfigMapAsync(configMap, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
                     break;
@@ -83,6 +104,27 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
 
         switch (resource)
         {
+            case V1Namespace:
+                await _client.CoreV1.PatchNamespaceAsync(patch, name, fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1ServiceAccount:
+                await _client.CoreV1.PatchNamespacedServiceAccountAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1Role:
+                await _client.RbacAuthorizationV1.PatchNamespacedRoleAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1RoleBinding:
+                await _client.RbacAuthorizationV1.PatchNamespacedRoleBindingAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1ClusterRole:
+                await _client.RbacAuthorizationV1.PatchClusterRoleAsync(patch, name, fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1ClusterRoleBinding:
+                await _client.RbacAuthorizationV1.PatchClusterRoleBindingAsync(patch, name, fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1Ingress:
+                await _client.NetworkingV1.PatchNamespacedIngressAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
             case V1ConfigMap:
                 await _client.CoreV1.PatchNamespacedConfigMapAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
@@ -180,12 +222,19 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
     {
         ArgumentNullException.ThrowIfNull(resource);
         string name = RequireName(resource);
-        string namespaceName = RequireNamespace(resource);
+        string namespaceName = resource is V1Namespace or V1ClusterRole or V1ClusterRoleBinding ? string.Empty : RequireNamespace(resource);
 
         try
         {
             return resource switch
             {
+                V1Namespace => await _client.CoreV1.ReadNamespaceAsync(name, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1ServiceAccount => await _client.CoreV1.ReadNamespacedServiceAccountAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1Role => await _client.RbacAuthorizationV1.ReadNamespacedRoleAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1RoleBinding => await _client.RbacAuthorizationV1.ReadNamespacedRoleBindingAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1ClusterRole => await _client.RbacAuthorizationV1.ReadClusterRoleAsync(name, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1ClusterRoleBinding => await _client.RbacAuthorizationV1.ReadClusterRoleBindingAsync(name, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1Ingress => await _client.NetworkingV1.ReadNamespacedIngressAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 V1ConfigMap => await _client.CoreV1.ReadNamespacedConfigMapAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 V1Secret => await _client.CoreV1.ReadNamespacedSecretAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 V1Service => await _client.CoreV1.ReadNamespacedServiceAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
@@ -209,13 +258,34 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
     {
         ArgumentNullException.ThrowIfNull(resource);
         string name = RequireName(resource);
-        string namespaceName = RequireNamespace(resource);
+        string namespaceName = resource is V1Namespace or V1ClusterRole or V1ClusterRoleBinding ? string.Empty : RequireNamespace(resource);
         V1DeleteOptions options = CreateDeleteOptions(resource, resource is V1Job);
 
         try
         {
             switch (resource)
             {
+                case V1Namespace:
+                    await _client.CoreV1.DeleteNamespaceAsync(name, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ServiceAccount:
+                    await _client.CoreV1.DeleteNamespacedServiceAccountAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1Role:
+                    await _client.RbacAuthorizationV1.DeleteNamespacedRoleAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1RoleBinding:
+                    await _client.RbacAuthorizationV1.DeleteNamespacedRoleBindingAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ClusterRole:
+                    await _client.RbacAuthorizationV1.DeleteClusterRoleAsync(name, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1ClusterRoleBinding:
+                    await _client.RbacAuthorizationV1.DeleteClusterRoleBindingAsync(name, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1Ingress:
+                    await _client.NetworkingV1.DeleteNamespacedIngressAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
                 case V1ConfigMap:
                     await _client.CoreV1.DeleteNamespacedConfigMapAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
                     break;

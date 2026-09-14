@@ -10,6 +10,7 @@ internal static class KubernetesMetadata
     public const string ManagedByLabel = "app.kubernetes.io/managed-by";
     public const string ManagedByValue = "cohesion";
     public const string ResourceLabel = "cohesion.io/resource";
+    public const string SystemLabel = "cohesion.io/system";
     public const string PlanHashAnnotation = "cohesion.io/plan-hash";
     public const string RuntimeInputRevisionAnnotation = "cohesion.io/runtime-input-revision";
     public const string WorkloadRevisionAnnotation = "cohesion.io/workload-revision";

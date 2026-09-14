@@ -10,7 +10,7 @@ using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
-public class DockerGatewayTests
+public partial class DockerGatewayTests
 {
     [Fact(DisplayName = "Cohesion Test [Docker] - Name: Should be the stable identity 'docker'")]
     public void Name_OnGateway_ShouldBeDocker()
@@ -34,6 +34,7 @@ public class DockerGatewayTests
         builder.AddResource(CreateManifest(image));
         Uri? endpoint = null;
         string? archive = null;
+        Uri? controlPlane = null;
 
         // Act
         IApplication application = builder
@@ -41,11 +42,13 @@ public class DockerGatewayTests
                 [
                     "--docker-host=http://127.0.0.1:2375",
                     $"--image-archive={image}=C:\\images\\worker.tar",
+                    "--control-plane-bind=127.0.0.1:8123",
                 ],
                 options =>
                 {
                     endpoint = options.EngineEndpoint;
                     archive = options.ImageArchives[image];
+                    controlPlane = options.ControlPlaneAddress;
                 })
             .Build();
 
@@ -53,6 +56,7 @@ public class DockerGatewayTests
         application.Model.GatewayIdentity.Value.ShouldBe("docker");
         endpoint.ShouldBe(new Uri("http://127.0.0.1:2375", UriKind.Absolute));
         archive.ShouldBe("C:\\images\\worker.tar");
+        controlPlane.ShouldBe(new Uri("http://127.0.0.1:8123"));
     }
 
     [Fact(DisplayName = "Cohesion Test [Docker] - UseDockerGateway: Should throw ArgumentNullException for null configure")]

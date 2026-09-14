@@ -162,6 +162,7 @@ public class KubernetesGatewayTests
         var gateway = new KubernetesGateway(new KubernetesGatewayOptions
         {
             ImageRealizer = realizer,
+            TrustKeyRepository = new TestGatewayTrustKeys(),
         });
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest("application.images.json:web"));
@@ -189,6 +190,7 @@ public class KubernetesGatewayTests
         {
             ImageIndexPath = "application.images.json",
             ImageRealizer = realizer,
+            TrustKeyRepository = new TestGatewayTrustKeys(),
         });
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest("registry.example/test:latest"));
@@ -215,6 +217,7 @@ public class KubernetesGatewayTests
         var gateway = new KubernetesGateway(new KubernetesGatewayOptions
         {
             ImageRealizer = realizer,
+            TrustKeyRepository = new TestGatewayTrustKeys(),
         });
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest(Image));
@@ -243,6 +246,7 @@ public class KubernetesGatewayTests
         var gateway = new KubernetesGateway(new KubernetesGatewayOptions
         {
             ImageRealizer = realizer,
+            TrustKeyRepository = new TestGatewayTrustKeys(),
         });
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest(Image));
@@ -273,6 +277,7 @@ public class KubernetesGatewayTests
         var gateway = new KubernetesGateway(new KubernetesGatewayOptions
         {
             ImageRealizer = realizer,
+            TrustKeyRepository = new TestGatewayTrustKeys(),
         });
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest(Image));
@@ -528,7 +533,8 @@ public class KubernetesGatewayTests
             volumes ?? source.Volumes,
             services ?? source.Services,
             source.Exposures,
-            source.Hints);
+            source.Hints,
+            source.ControlPlane);
 
     private static ResourceId ResourceIdOf(string resource) =>
         ((IApplicationResource)new FakeExecutableResource(resource)).Id;

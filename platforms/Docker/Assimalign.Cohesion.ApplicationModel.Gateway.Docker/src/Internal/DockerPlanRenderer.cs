@@ -120,6 +120,8 @@ internal static class DockerPlanRenderer
         }
 
         output.AppendLine("    x-cohesion:");
+        output.Append("      restart_policy: ").AppendLine(Quote(container.RestartPolicy));
+        output.AppendLine("      restart_owner: \"gateway\"");
         output.Append("      workload: ").AppendLine(Quote(container.Workload.ToString()));
         output.Append("      run_once: ").AppendLine(container.Workload is WorkloadKind.Job ? "true" : "false");
         output.Append("      stop_grace_seconds: ")

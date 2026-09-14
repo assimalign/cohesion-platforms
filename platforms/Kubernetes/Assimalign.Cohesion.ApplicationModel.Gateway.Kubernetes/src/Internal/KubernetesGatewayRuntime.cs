@@ -84,6 +84,7 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
     private readonly IKubernetesResourceApi _resources;
     private readonly Action<IApplicationModel> _teardown;
     private readonly Func<IApplicationModel, CancellationToken, Task> _refreshExport;
+    private readonly Func<CancellationToken, Task> _refreshDiscovery;
     private readonly Func<IApplicationModel, bool> _canCommitTeardown;
     private readonly Func<
         IResourceControlContext,
@@ -111,13 +112,15 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
             KubernetesPlanCompilation,
             IReadOnlyList<ResourceEndpoint>,
             CancellationToken,
-            Task<KubernetesPlanCompilation>>? refreshRuntime = null)
+            Task<KubernetesPlanCompilation>>? refreshRuntime = null,
+        Func<CancellationToken, Task>? refreshDiscovery = null)
     {
         ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(teardown);
         _resources = resources;
         _teardown = teardown;
         _refreshExport = refreshExport ?? NoOpExportRefreshAsync;
+        _refreshDiscovery = refreshDiscovery ?? (static _ => Task.CompletedTask);
         _canCommitTeardown = canCommitTeardown ?? (static _ => true);
         _refreshRuntime = refreshRuntime ?? NoOpRuntimeRefreshAsync;
         _resyncInterval = GetResyncInterval(readinessBudget ?? TimeSpan.FromSeconds(60));
@@ -406,6 +409,7 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
             }
 
             await Task.WhenAll(observations).ConfigureAwait(false);
+            await _refreshDiscovery(cancellationToken).ConfigureAwait(false);
 
             await _resync
                 .WaitAsync(_resyncInterval, cancellationToken)

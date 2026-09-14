@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 
@@ -17,6 +18,16 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
     /// operating-system default socket is selected.
     /// </summary>
     public Uri? EngineEndpoint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the gateway control-plane HTTP bind address. The host must be localhost or
+    /// an IP address. Port zero requests an ephemeral port; omission uses IPv4 loopback and port zero.
+    /// </summary>
+    /// <remarks>
+    /// A non-loopback IP is an operator-chosen LAN exposure. Application sets should use port zero
+    /// because the shared control plane starts a separate listener for each application.
+    /// </remarks>
+    public Uri? ControlPlaneAddress { get; set; }
 
     /// <summary>
     /// Gets or sets a custom image realizer. The manifest is always digest-pinned; image-index
@@ -89,6 +100,11 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
 
     internal void ValidateDocker()
     {
+        if (ControlPlaneAddress is not null)
+        {
+            ValidateControlPlaneAddress(ControlPlaneAddress);
+        }
+
         if (EngineEndpoint is not null && !EngineEndpoint.IsAbsoluteUri)
         {
             throw new ArgumentException("EngineEndpoint must be an absolute URI.", nameof(EngineEndpoint));
@@ -163,6 +179,19 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
         if (value <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(name, $"{name} must be greater than zero.");
+        }
+    }
+
+    internal static void ValidateControlPlaneAddress(Uri address)
+    {
+        if (!address.IsAbsoluteUri
+            || !string.Equals(address.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || (!string.Equals(address.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                && !IPAddress.TryParse(address.Host, out _)))
+        {
+            throw new ArgumentException(
+                "ControlPlaneAddress must be an absolute HTTP URI with a localhost or IP host.",
+                nameof(ControlPlaneAddress));
         }
     }
 

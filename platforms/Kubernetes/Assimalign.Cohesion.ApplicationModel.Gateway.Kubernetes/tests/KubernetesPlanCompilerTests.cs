@@ -5,19 +5,20 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
-using Assimalign.Cohesion.Core;
-using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-
 using k8s.Models;
-
 using Shouldly;
 using Xunit;
+
+using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
+using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
 public class KubernetesPlanCompilerTests
 {
     private static readonly string Image = $"registry.example/test@sha256:{new string('a', 64)}";
+    private static readonly byte[] CertificateBundle = Encoding.UTF8.GetBytes(
+        "-----BEGIN CERTIFICATE-----\ncohesion-test\n-----END CERTIFICATE-----\n");
 
     [Theory(DisplayName = "Cohesion Test [Kubernetes] - Compiler: Should create the exact KindMatrix workload")]
     [InlineData("web", WorkloadKind.Deployment, "Deployment")]
@@ -53,14 +54,8 @@ public class KubernetesPlanCompilerTests
 
         string first = KubernetesPlanRenderer.Render(Compile(planCase));
         string second = KubernetesPlanRenderer.Render(Compile(planCase));
-        string fixture = Path.Combine(
-            AppContext.BaseDirectory,
-            "Fixtures",
-            "render",
-            $"{shape}.yaml");
-
         first.ShouldBe(second);
-        first.ShouldBe(File.ReadAllText(fixture).Replace("\r\n", "\n", StringComparison.Ordinal));
+        RenderGolden.Verify(first, Path.Combine("render", $"{shape}.yaml"));
         first.ShouldContain(planCase.Plan.Resource.Value);
         string.Join(',', Compile(planCase).Objects.Select(item => item.Kind))
             .ShouldBe(expectedObjectKinds);
@@ -142,8 +137,8 @@ public class KubernetesPlanCompilerTests
     public void Compile_OnRotatedBootstrapCredential_ShouldKeepPlanHashStable()
     {
         PlanCase planCase = CreateCase("web");
-        var firstInputs = new ResourceInputs(new Dictionary<string, ResourceMountInput>(), Encoding.UTF8.GetBytes("first"));
-        var secondInputs = new ResourceInputs(new Dictionary<string, ResourceMountInput>(), Encoding.UTF8.GetBytes("second"));
+        var firstInputs = new ResourceInputs(CreateFixtureInputs(planCase.Plan).Mounts, Encoding.UTF8.GetBytes("first"));
+        var secondInputs = new ResourceInputs(CreateFixtureInputs(planCase.Plan).Mounts, Encoding.UTF8.GetBytes("second"));
 
         KubernetesPlanCompilation first = Compile(planCase, firstInputs);
         KubernetesPlanCompilation second = Compile(planCase, secondInputs);
@@ -273,8 +268,11 @@ public class KubernetesPlanCompilerTests
         exception.Message.ShouldContain("conflicts with a ConfigMap environment key");
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Inputs: Should reserve the bootstrap Secret key")]
-    public void Compile_OnSecretMountUsingReservedBootstrapKey_ShouldRejectInput()
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Inputs: Should reserve gateway bootstrap Secret keys")]
+    [InlineData("bootstrap-token")]
+    [InlineData("trust-bundle")]
+    [InlineData("telemetry-headers")]
+    public void Compile_OnSecretMountUsingReservedBootstrapKey_ShouldRejectInput(string key)
     {
         // Arrange
         ResourcePlan plan = CreatePlan(
@@ -283,7 +281,7 @@ public class KubernetesPlanCompilerTests
             WorkloadKind.Deployment,
             1,
             [],
-            [new MountBinding("bootstrap-token", "/run/user-token", ResourceMountKind.Secret, "secret:token")],
+            [new MountBinding(key, "/run/user-token", ResourceMountKind.Secret, "secret:token")],
             [],
             [],
             [],
@@ -291,7 +289,7 @@ public class KubernetesPlanCompilerTests
         var inputs = new ResourceInputs(
             new Dictionary<string, ResourceMountInput>
             {
-                ["bootstrap-token"] = ResourceMountInput.Resolved(
+                [key] = ResourceMountInput.Resolved(
                     "secret:token",
                     Encoding.UTF8.GetBytes("user-token")),
             },
@@ -303,6 +301,10 @@ public class KubernetesPlanCompilerTests
 
         // Assert
         exception.Message.ShouldContain("reserved gateway bootstrap credential key");
+        exception.Message.ShouldContain(key, Case.Sensitive);
+        Should.Throw<InvalidDataException>(() => Compile(
+            new PlanCase(plan, CreateManifest(plan)), ResourceInputs.Empty, preview: true))
+            .Message.ShouldBe(exception.Message);
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Dependencies: Should project only requested endpoints and prefer internal Service DNS")]
@@ -410,7 +412,7 @@ public class KubernetesPlanCompilerTests
             deployment.Spec.Template.Metadata.Annotations = new Dictionary<string, string>();
         });
 
-        KubernetesPlanCompilation result = Compile(planCase, ResourceInputs.Empty, options);
+        KubernetesPlanCompilation result = Compile(planCase, options: options);
         V1Deployment workload = result.Objects.OfType<V1Deployment>().Single();
 
         workload.Metadata.Name.ShouldBe(planCase.Plan.Resource.Value);
@@ -583,6 +585,7 @@ public class KubernetesPlanCompilerTests
     {
         PlanCase valid = CreateCase("web");
         ResourcePlan hinted = CopyPlan(valid.Plan,
+            workload: valid.Plan.Workload with { RestartPolicy = "Always" },
             hints: new Dictionary<string, string> { ["example.unsupported"] = "true" });
 
         KubernetesPlanCompilation result = Compile(valid with { Plan = hinted });
@@ -592,20 +595,417 @@ public class KubernetesPlanCompilerTests
         result.Objects.ShouldNotBeEmpty();
     }
 
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Certificates: Should deliver a mixed HTTP and HTTPS plan as one Opaque bundle")]
+    public void Compile_OnCertificateMount_ShouldPreserveOpaqueBundleAndMountPath()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase);
+
+        // Assert
+        planCase.Plan.Container.Ports.Single(port => port.Endpoint == "http").Certificate.ShouldBeEmpty();
+        V1Secret secret = result.Objects.OfType<V1Secret>().Single();
+        secret.Type.ShouldBe("Opaque");
+        secret.Data.Keys.ShouldHaveSingleItem().ShouldBe("tls");
+        secret.Data["tls"].ShouldBe(CertificateBundle);
+        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Mount("tls")]
+            .ShouldBe("/cohesion/mounts/tls");
+        V1VolumeMount mount = PodSpec(result).Containers.Single().VolumeMounts.Single();
+        mount.Name.ShouldBe("cohesion-secret");
+        mount.MountPath.ShouldBe("/cohesion/mounts/tls");
+        mount.SubPath.ShouldBe("tls");
+        mount.ReadOnlyProperty.ShouldBe(true);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Certificates: Should reject unknown or non-Secret certificate mounts")]
+    [InlineData("missing", ResourceMountKind.Secret)]
+    [InlineData("TLS", ResourceMountKind.Secret)]
+    [InlineData("tls", ResourceMountKind.Configuration)]
+    [InlineData("tls", ResourceMountKind.Volume)]
+    public void Validate_OnInvalidCertificateMount_ShouldNameEndpointAndMount(string certificate, ResourceMountKind kind)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        var container = new ContainerSpec(
+            planCase.Plan.Container.Name,
+            ArtifactRef.Self,
+            planCase.Plan.Container.Ports.Select(port => port.Endpoint == "https"
+                ? port with { Certificate = certificate } : port).ToArray(),
+            [new MountBinding("tls", "/cohesion/mounts/tls", kind, null)],
+            planCase.Plan.Container.Environment,
+            planCase.Plan.Container.Probes);
+        ResourcePlan plan = CopyPlan(planCase.Plan, container: container);
+
+        // Act
+        InvalidDataException error = Should.Throw<InvalidDataException>(
+            () => new KubernetesPlanCompiler().Validate(plan));
+
+        // Assert
+        error.Message.ShouldContain("https", Case.Sensitive);
+        error.Message.ShouldContain(certificate, Case.Sensitive);
+        error.Message.ShouldContain("Secret mount", Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Certificates: Should accept the reserved public name without a mount")]
+    [InlineData("public")]
+    [InlineData("PuBlIc")]
+    public void Compile_OnPublicCertificateWithoutMount_ShouldAccept(string certificate)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        var container = new ContainerSpec(
+            planCase.Plan.Container.Name,
+            ArtifactRef.Self,
+            planCase.Plan.Container.Ports.Select(port => port.Endpoint == "https"
+                ? port with { Certificate = certificate } : port).ToArray(),
+            [],
+            planCase.Plan.Container.Environment,
+            planCase.Plan.Container.Probes);
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with
+        {
+            Plan = CopyPlan(planCase.Plan, container: container),
+        }, ResourceInputs.Empty);
+
+        // Assert
+        result.Objects.OfType<V1Secret>().Single().Data.ShouldBeEmpty();
+        PodSpec(result).Containers.Single().VolumeMounts.ShouldBeEmpty();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Certificates: Should reject a null certificate specification")]
+    public void Validate_OnNullCertificate_ShouldNameEndpoint()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        var container = new ContainerSpec(planCase.Plan.Container.Name, ArtifactRef.Self,
+            planCase.Plan.Container.Ports.Select(port => port.Endpoint == "https"
+                ? port with { Certificate = null! } : port).ToArray(),
+            planCase.Plan.Container.Mounts, planCase.Plan.Container.Environment, planCase.Plan.Container.Probes);
+        ResourcePlan plan = CopyPlan(planCase.Plan, container: container);
+
+        // Act
+        InvalidDataException error = Should.Throw<InvalidDataException>(() => new KubernetesPlanCompiler().Validate(plan));
+
+        // Assert
+        error.Message.ShouldContain("https", Case.Sensitive);
+        error.Message.ShouldContain("certificate must not be null", Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Inputs: Should project only supplied gateway bootstrap materials")]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, false, false)]
+    public void Compile_OnBootstrapMaterials_ShouldUseOneConditionalProjection(bool token, bool trust, bool headers)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("daemon-set");
+        byte[] tokenBytes = token ? Encoding.UTF8.GetBytes("private-bootstrap-token") : [];
+        byte[] trustBytes = trust ? CertificateBundle : [];
+        byte[] headerBytes = headers ? Encoding.UTF8.GetBytes("Authorization=private-telemetry-value") : [];
+        var inputs = new ResourceInputs(new Dictionary<string, ResourceMountInput>(), tokenBytes, default, trustBytes);
+        string[] keys = ["bootstrap-token", "trust-bundle", "telemetry-headers"];
+        string[] paths = ["bootstrap.token", "trust.pem", "telemetry.headers"];
+        string[] variables =
+        [
+            ResourceEnvironment.BootstrapTokenPath,
+            ResourceEnvironment.TrustBundlePath,
+            ResourceEnvironment.TelemetryHeadersPath,
+        ];
+        byte[][] contents = [tokenBytes, trustBytes, headerBytes];
+        bool[] present = [token, trust, headers];
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase, inputs, telemetryHeaders: headerBytes);
+
+        // Assert
+        V1Secret secret = result.Objects.OfType<V1Secret>().Single();
+        V1ConfigMap configuration = result.Objects.OfType<V1ConfigMap>().Single();
+        V1PodSpec pod = PodSpec(result);
+        V1Volume[] volumes = pod.Volumes.Where(volume => volume.Name == "cohesion-bootstrap").ToArray();
+        V1VolumeMount[] mounts = pod.Containers.Single().VolumeMounts
+            .Where(mount => mount.Name == "cohesion-bootstrap").ToArray();
+        int expectedCount = present.Count(value => value);
+        secret.Data.Count.ShouldBe(expectedCount);
+        volumes.Length.ShouldBe(expectedCount > 0 ? 1 : 0);
+        mounts.Length.ShouldBe(volumes.Length);
+        if (expectedCount > 0)
+        {
+            V1Volume volume = volumes.Single();
+            volume.Projected.DefaultMode.ShouldBe(256);
+            V1SecretProjection projection = volume.Projected.Sources.Single().Secret;
+            projection.Name.ShouldBe(secret.Metadata.Name);
+            projection.Items.Count.ShouldBe(expectedCount);
+            mounts.Single().MountPath.ShouldBe("/var/run/cohesion");
+            mounts.Single().ReadOnlyProperty.ShouldBe(true);
+            mounts.Single().SubPath.ShouldBeNull();
+            for (int index = 0; index < present.Length; index++)
+            {
+                if (present[index])
+                {
+                    projection.Items.ShouldContain(item => item.Key == keys[index] && item.Path == paths[index]);
+                }
+                else
+                {
+                    projection.Items.ShouldNotContain(item => item.Key == keys[index]);
+                }
+            }
+        }
+
+        for (int index = 0; index < present.Length; index++)
+        {
+            if (present[index])
+            {
+                secret.Data[keys[index]].ShouldBe(contents[index]);
+                configuration.Data[variables[index]].ShouldBe($"/var/run/cohesion/{paths[index]}");
+                configuration.Data.Values.ShouldNotContain(Encoding.UTF8.GetString(contents[index]));
+            }
+            else
+            {
+                secret.Data.ShouldNotContainKey(keys[index]);
+                configuration.Data.ShouldNotContainKey(variables[index]);
+            }
+        }
+
+        configuration.Data.ShouldNotContainKey(ResourceEnvironment.TelemetryEndpoint);
+        configuration.Data.ShouldNotContainKey(ResourceEnvironment.TelemetryProtocol);
+        result.PlanHash.ShouldBe(Compile(planCase, ResourceInputs.Empty).PlanHash);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Inputs: Should remove stale gateway input paths when inputs are empty")]
+    public void Compile_OnEmptyInputsWithStalePaths_ShouldOmitGatewayInputEnvironment()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("daemon-set");
+        string[] variables =
+        [ResourceEnvironment.BootstrapTokenPath, ResourceEnvironment.TrustBundlePath, ResourceEnvironment.TelemetryHeadersPath];
+        var environment = new Dictionary<string, string>(planCase.Plan.Container.Environment);
+        foreach (string variable in variables)
+        {
+            environment[variable] = "/stale/file";
+        }
+
+        var container = new ContainerSpec(planCase.Plan.Container.Name, ArtifactRef.Self,
+            planCase.Plan.Container.Ports, [], environment, planCase.Plan.Container.Probes);
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with
+        {
+            Plan = CopyPlan(planCase.Plan, container: container),
+        }, ResourceInputs.Empty);
+
+        // Assert
+        foreach (string variable in variables)
+        {
+            result.Objects.OfType<V1ConfigMap>().Single().Data.ShouldNotContainKey(variable);
+        }
+
+        PodSpec(result).Volumes.ShouldNotContain(volume => volume.Name == "cohesion-bootstrap");
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Render: Should preview unavailable mount data while live compilation remains strict")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Compile_OnUnavailableMountInput_ShouldAllowOnlyPreview(bool unresolved)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        ResourceInputs inputs = unresolved
+            ? new ResourceInputs(new Dictionary<string, ResourceMountInput>
+            {
+                ["tls"] = ResourceMountInput.Unresolved("secret:tls", "unavailable offline"),
+            }, default)
+            : ResourceInputs.Empty;
+
+        // Act
+        KubernetesPlanCompilation preview = Compile(planCase, inputs, preview: true);
+        InvalidOperationException error = Should.Throw<InvalidOperationException>(() => Compile(planCase, inputs));
+
+        // Assert
+        error.Message.ShouldContain("tls", Case.Sensitive);
+        preview.Objects.OfType<V1Secret>().Single().Data.ShouldBeEmpty();
+        PodSpec(preview).Containers.Single().VolumeMounts
+            .ShouldContain(mount => mount.SubPath == "tls" && mount.MountPath == "/cohesion/mounts/tls");
+        preview.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Mount("tls")]
+            .ShouldBe("/cohesion/mounts/tls");
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Schemes: Should prefer binding schemes and preserve legacy exposure fallback")]
+    [InlineData("https", "http", "https", "HTTPS")]
+    [InlineData("", "https", "https", "HTTPS")]
+    [InlineData("http", "https", "http", "HTTP")]
+    public void Compile_OnBindingAndExposureSchemes_ShouldUseBindingFirst(
+        string bindingScheme, string exposureScheme, string expectedScheme, string probeScheme)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        var container = new ContainerSpec(planCase.Plan.Container.Name, ArtifactRef.Self,
+            planCase.Plan.Container.Ports.Select(port => port.Endpoint == "https"
+                ? port with { Scheme = bindingScheme } : port).ToArray(),
+            planCase.Plan.Container.Mounts, planCase.Plan.Container.Environment, planCase.Plan.Container.Probes);
+        ResourcePlan plan = CopyPlan(planCase.Plan, container: container,
+            exposures: planCase.Plan.Exposures.Select(exposure => exposure with { Scheme = exposureScheme }).ToArray());
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with { Plan = plan });
+
+        // Assert
+        result.Endpoints.Single(endpoint => endpoint.Name == "https").Scheme.ShouldBe(expectedScheme);
+        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Endpoint("https", "SCHEME")]
+            .ShouldBe(expectedScheme);
+        PodSpec(result).Containers.Single().ReadinessProbe.HttpGet.Scheme.ShouldBe(probeScheme);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Probes: Should synthesize readiness from a private control-plane binding")]
+    public void Compile_OnImplicitPrivateControlPlane_ShouldUseDeclaredEndpointAndPath()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("daemon-set");
+        PortBinding port = planCase.Plan.Container.Ports.Single() with { Scheme = "https" };
+        var container = new ContainerSpec(planCase.Plan.Container.Name, ArtifactRef.Self,
+            [port], planCase.Plan.Container.Mounts, planCase.Plan.Container.Environment, []);
+        ResourcePlan plan = CopyPlan(planCase.Plan, container: container,
+            controlPlane: new ControlPlaneSpec(port.Endpoint, "/private/control"));
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with { Plan = plan });
+
+        // Assert
+        V1Container compiled = PodSpec(result).Containers.Single();
+        compiled.ReadinessProbe.HttpGet.Path.ShouldBe("/private/control");
+        compiled.ReadinessProbe.HttpGet.Port.Value.ShouldBe(port.ContainerPort.ToString());
+        compiled.ReadinessProbe.HttpGet.Scheme.ShouldBe("HTTPS");
+        result.Endpoints.Single().Scheme.ShouldBe("https");
+        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Endpoint(port.Endpoint, "SCHEME")]
+            .ShouldBe("https");
+        compiled.LivenessProbe.ShouldBeNull();
+        compiled.StartupProbe.ShouldBeNull();
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Probes: Should retain disabled readiness and legacy omitted control-plane semantics")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compile_OnDisabledReadinessOrLegacyControlPlane_ShouldOmitReadiness(bool disabled)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("daemon-set");
+        var container = new ContainerSpec(planCase.Plan.Container.Name, ArtifactRef.Self,
+            planCase.Plan.Container.Ports, planCase.Plan.Container.Mounts, planCase.Plan.Container.Environment,
+            disabled ? [new ProbeMapping("readiness", null, ProbeKind.None, null, [])] : []);
+        ResourcePlan plan = CopyPlan(planCase.Plan, container: container,
+            controlPlane: disabled ? planCase.Plan.ControlPlane : new ControlPlaneSpec());
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with { Plan = plan });
+
+        // Assert
+        PodSpec(result).Containers.Single().ReadinessProbe.ShouldBeNull();
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Probes: Should reject control-plane readiness that cannot use HTTP")]
+    [InlineData("udp", "http", "/control")]
+    [InlineData("tcp", "grpc", "/control")]
+    [InlineData("tcp", "http", "control")]
+    [InlineData("tcp", "http", "")]
+    [InlineData("tcp", "http", null)]
+    public void Validate_OnInvalidImplicitControlPlane_ShouldRejectEndpoint(string protocol, string scheme, string? path)
+    {
+        // Arrange
+        ResourcePlan original = CreatePlan("worker", "Worker", WorkloadKind.Deployment, 1,
+            [new PortBinding("control", 8080, protocol, scheme)], [], [],
+            [new ServiceSpec("worker-control", "control", 8080, protocol, false, false)], [], []);
+        ResourcePlan plan = CopyPlan(original, controlPlane: new ControlPlaneSpec("control", path!));
+
+        // Act
+        InvalidDataException error = Should.Throw<InvalidDataException>(() => new KubernetesPlanCompiler().Validate(plan));
+
+        // Assert
+        error.Message.ShouldContain("control", Case.Sensitive);
+        error.Message.ShouldContain("HTTP or HTTPS over TCP and an absolute path", Case.Sensitive);
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Restart: Should honor valid Job restart policies and use the Never fallback")]
+    [InlineData("Never", "Never")]
+    [InlineData("OnFailure", "OnFailure")]
+    [InlineData("Always", "Never")]
+    [InlineData("", "Never")]
+    public void Compile_OnJobRestartPolicy_ShouldUseSupportedPolicy(string requested, string expected)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("job");
+        ResourcePlan plan = CopyPlan(planCase.Plan, workload: planCase.Plan.Workload with { RestartPolicy = requested });
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase with { Plan = plan });
+
+        // Assert
+        PodSpec(result).RestartPolicy.ShouldBe(expected);
+        result.Warnings.ShouldBeEmpty();
+    }
+
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Restart: Should normalize long-running workloads and route one warning")]
+    [InlineData("web", "OnFailure", true)]
+    [InlineData("database", "OnFailure", true)]
+    [InlineData("generic-volume", "OnFailure", true)]
+    [InlineData("daemon-set", "OnFailure", true)]
+    [InlineData("web", "Never", true)]
+    [InlineData("web", "Always", false)]
+    [InlineData("web", "", false)]
+    public void Render_OnLongRunningRestartPolicy_ShouldNormalizeAndWarnOnce(string shape, string requested, bool warns)
+    {
+        // Arrange
+        PlanCase planCase = CreateCase(shape);
+        ResourcePlan plan = CopyPlan(planCase.Plan, workload: planCase.Plan.Workload with { RestartPolicy = requested });
+        var warnings = new List<string>();
+        var options = new KubernetesGatewayOptions { WarningHandler = warnings.Add };
+        IContainerImageArtifact artifact = ContainerImageArtifacts.Create(
+            ((IApplicationResource)new FakeExecutableResource(plan.Resource.Value)).Id, Image);
+
+        // Act
+        string rendered = new KubernetesGateway(options).Render(
+            plan, artifact, CreateFixtureInputs(plan), [], "appa", "appa@kubernetes");
+
+        // Assert
+        rendered.ShouldContain("\"restartPolicy\":\"Always\"", Case.Sensitive);
+        warnings.Count.ShouldBe(warns ? 1 : 0);
+        if (warns)
+        {
+            warnings.Single().ShouldContain(requested, Case.Sensitive);
+            warnings.Single().ShouldContain("Always", Case.Sensitive);
+        }
+    }
+
+    private static V1PodSpec PodSpec(KubernetesPlanCompilation compilation) =>
+        compilation.Objects.Select(item => item switch
+        {
+            V1Deployment deployment => deployment.Spec.Template.Spec,
+            V1StatefulSet statefulSet => statefulSet.Spec.Template.Spec,
+            V1DaemonSet daemonSet => daemonSet.Spec.Template.Spec,
+            V1Job job => job.Spec.Template.Spec,
+            _ => null,
+        }).Single(spec => spec is not null)!;
+
     private static KubernetesPlanCompilation Compile(
         PlanCase planCase,
         ResourceInputs? inputs = null,
         KubernetesGatewayOptions? options = null,
         IReadOnlyList<ResourceDependencyObservation>? dependencies = null,
-        IReadOnlyList<ResourceEndpoint>? ownEndpoints = null)
+        IReadOnlyList<ResourceEndpoint>? ownEndpoints = null,
+        ReadOnlyMemory<byte> telemetryHeaders = default,
+        bool preview = false)
     {
         IContainerImageArtifact artifact = ContainerImageArtifacts.Create(
             ((IApplicationResource)new FakeExecutableResource(planCase.Plan.Resource.Value)).Id, Image);
         return new KubernetesPlanCompiler().Compile(
-            planCase.Plan, artifact, inputs ?? ResourceInputs.Empty,
+            planCase.Plan, artifact, inputs ?? CreateFixtureInputs(planCase.Plan),
             dependencies ?? Array.Empty<ResourceDependencyObservation>(), "appa", "appa@kubernetes",
             options ?? new KubernetesGatewayOptions(),
-            ownEndpoints);
+            ownEndpoints,
+            telemetryHeaders,
+            preview);
     }
 
     private static PlanCase CreateCase(string shape)
@@ -634,9 +1034,24 @@ public class KubernetesPlanCompilerTests
         ResourcePlan source,
         string? schema = null,
         IReadOnlyDictionary<string, string>? hints = null,
-        ContainerSpec? container = null) =>
-        new(schema ?? source.Schema, source.Resource, source.Kind, source.Workload, container ?? source.Container,
-            source.Volumes, source.Services, source.Exposures, hints ?? source.Hints);
+        ContainerSpec? container = null,
+        WorkloadSpec? workload = null,
+        ControlPlaneSpec? controlPlane = null,
+        IReadOnlyList<ExposureSpec>? exposures = null) =>
+        new(schema ?? source.Schema, source.Resource, source.Kind, workload ?? source.Workload, container ?? source.Container,
+            source.Volumes, source.Services, exposures ?? source.Exposures, hints ?? source.Hints,
+            controlPlane ?? source.ControlPlane);
+
+    private static ResourceInputs CreateFixtureInputs(ResourcePlan plan)
+    {
+        var mounts = new Dictionary<string, ResourceMountInput>(StringComparer.Ordinal);
+        if (plan.Container.Mounts.Any(mount => mount.Mount == "tls" && mount.Kind is ResourceMountKind.Secret))
+        {
+            mounts["tls"] = ResourceMountInput.Resolved(null, CertificateBundle);
+        }
+
+        return new ResourceInputs(mounts, ReadOnlyMemory<byte>.Empty);
+    }
 
     private static string[] DependencyVariables(string resource, string endpoint) =>
     [
@@ -662,6 +1077,12 @@ public class KubernetesPlanCompilerTests
 
     private static string ResolveScheme(ResourcePlan plan, string endpoint)
     {
+        PortBinding binding = plan.Container.Ports.Single(port => port.Endpoint == endpoint);
+        if (!string.IsNullOrEmpty(binding.Scheme))
+        {
+            return binding.Scheme;
+        }
+
         ExposureSpec? exposure = plan.Exposures.FirstOrDefault(candidate => candidate.Endpoint == endpoint);
         if (exposure is not null)
         {

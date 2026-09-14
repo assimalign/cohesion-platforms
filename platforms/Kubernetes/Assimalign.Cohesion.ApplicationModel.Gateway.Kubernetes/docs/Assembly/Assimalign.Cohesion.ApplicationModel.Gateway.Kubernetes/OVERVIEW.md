@@ -13,3 +13,8 @@ or applies a target registry only when the entry registry is omitted or null.
 
 See the project [overview](../../OVERVIEW.md) and [design](../../DESIGN.md) for the compiler,
 controller, observer, lifecycle, and extension contracts.
+
+Item 37 adds KubernetesGatewayCommandLine, KubernetesSystemExposure, and
+IKubernetesApplicationModelResolver; their type pages describe the SDK hook, external control-plane
+options, and operator-channel URL import. KubernetesGateway implements the upstream render and
+bootstrap interfaces. Installation and discovery are separate from application plan compilation.

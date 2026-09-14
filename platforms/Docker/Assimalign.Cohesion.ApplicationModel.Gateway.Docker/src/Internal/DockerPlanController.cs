@@ -128,7 +128,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
             }
         }
 
-        RestartPolicy restartPolicy = ReadRestartPolicy(context.Resource);
+        RestartPolicy restartPolicy = ReadRestartPolicy(context.Plan, context.Resource);
         await _observer
             .RegisterAsync(context, compilation, containerId, restartPolicy, cancellationToken)
             .ConfigureAwait(false);
@@ -283,16 +283,22 @@ internal sealed class DockerPlanController : IApplicationResourceController
             .ConfigureAwait(false);
     }
 
-    internal static RestartPolicy ReadRestartPolicy(IApplicationResource resource)
+    internal static RestartPolicy ReadRestartPolicy(ResourcePlan plan, IApplicationResource resource)
     {
+        ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(resource);
-        if (resource is not IManifestResource manifestResource)
+        string value = plan.Workload.RestartPolicy;
+        if (string.IsNullOrEmpty(value) && resource is IManifestResource manifestResource)
+        {
+            value = manifestResource.Manifest.Lifecycle.RestartPolicy;
+        }
+
+        if (string.IsNullOrEmpty(value))
         {
             throw new InvalidOperationException(
                 $"Docker resource '{resource.Name}' does not expose a manifest restart policy.");
         }
 
-        string value = manifestResource.Manifest.Lifecycle.RestartPolicy;
         if (!Enum.TryParse(value, ignoreCase: true, out RestartPolicy policy)
             || !Enum.IsDefined(policy))
         {
