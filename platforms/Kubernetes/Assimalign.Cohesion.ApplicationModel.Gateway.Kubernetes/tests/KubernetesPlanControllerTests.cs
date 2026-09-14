@@ -1585,7 +1585,8 @@ public class KubernetesPlanControllerTests
 
     private sealed class FakeEnvironment : IApplicationEnvironment
     {
-        public EnvironmentName Name => "Development";
-        public bool IsDevelopment => true;
+        public EnvironmentName Name => "Local";
+        public bool IsLocal => true;
+        public bool IsDevelopment => false;
     }
 }

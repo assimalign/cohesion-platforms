@@ -142,7 +142,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
 
         _imageContexts[descriptor.Resource] = new ImageGatherContext(
-            model.Environment.IsDevelopment,
+            model.Environment.IsLocal,
             plan.Container.Artifact);
     }
 
@@ -161,7 +161,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
             .GatherAsync(
                 resource,
                 context.ArtifactReference,
-                context.IsDevelopment,
+                context.IsLocal,
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -840,7 +840,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     private readonly record struct ExportRegistration(string Owner, bool Adopt);
 
     private readonly record struct ImageGatherContext(
-        bool IsDevelopment,
+        bool IsLocal,
         ArtifactRef ArtifactReference);
 
     internal sealed class NamespaceRegistration : IDisposable

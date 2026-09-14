@@ -66,7 +66,7 @@ cohesion service — keeps the cohesion AOT posture.
 `ContainerImageIndexes` resolves and validates metadata; `OciImageStores` ingests bytes;
 `EmbeddedOciRegistries` serves verified bytes. Docker uses the archive path for verified
 load/run-by-ID and pulls registry-backed images through the Engine API by digest. Kubernetes loads
-verified archives into Kind during Development or returns a registry-resolved digest, preserving
+verified archives into Kind under the `Local` environment or returns a registry-resolved digest, preserving
 the entry's pinned authority or applying a target authority only when `registry` is omitted or
 null.
 

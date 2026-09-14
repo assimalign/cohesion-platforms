@@ -215,7 +215,9 @@ internal sealed class DockerTestModel : IApplicationModel
 
 internal sealed class DockerTestEnvironment : IApplicationEnvironment
 {
-    public EnvironmentName Name => "Development";
+    public EnvironmentName Name => "Local";
 
-    public bool IsDevelopment => true;
+    public bool IsLocal => true;
+
+    public bool IsDevelopment => false;
 }

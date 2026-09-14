@@ -42,7 +42,7 @@ public class KubernetesImageGathererTests
         IContainerImageArtifact artifact = await gatherer.GatherAsync(
             resource,
             ArtifactRef.Self,
-            isDevelopment: true,
+            isLocal: true,
             CancellationToken.None);
 
         // Assert
@@ -81,7 +81,7 @@ public class KubernetesImageGathererTests
         IContainerImageArtifact artifact = await gatherer.GatherAsync(
             CreateResource(_image),
             ArtifactRef.Self,
-            isDevelopment: false,
+            isLocal: false,
             CancellationToken.None);
 
         // Assert
@@ -115,7 +115,7 @@ public class KubernetesImageGathererTests
         IContainerImageArtifact artifact = await gatherer.GatherAsync(
             CreateResource(_image),
             ArtifactRef.Self,
-            isDevelopment: true,
+            isLocal: true,
             CancellationToken.None);
 
         // Assert
@@ -144,7 +144,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: false,
+                isLocal: false,
                 CancellationToken.None));
 
         // Assert
@@ -175,7 +175,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: true,
+                isLocal: true,
                 CancellationToken.None));
 
         // Assert
@@ -205,7 +205,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: true,
+                isLocal: true,
                 CancellationToken.None));
 
         // Assert
@@ -236,7 +236,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: true,
+                isLocal: true,
                 CancellationToken.None));
 
         // Assert
@@ -270,7 +270,7 @@ public class KubernetesImageGathererTests
         _ = await gatherer.GatherAsync(
             CreateResource(_image),
             ArtifactRef.Self,
-            isDevelopment: false,
+            isLocal: false,
             CancellationToken.None);
 
         // Assert
@@ -300,7 +300,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: true,
+                isLocal: true,
                 CancellationToken.None));
 
         // Assert
@@ -332,7 +332,7 @@ public class KubernetesImageGathererTests
             () => gatherer.GatherAsync(
                 CreateResource(_image),
                 ArtifactRef.Self,
-                isDevelopment: true,
+                isLocal: true,
                 CancellationToken.None));
 
         // Assert
@@ -367,7 +367,7 @@ public class KubernetesImageGathererTests
         IContainerImageArtifact artifact = await gatherer.GatherAsync(
             CreateResource(_image),
             ArtifactRef.Self,
-            isDevelopment: true,
+            isLocal: true,
             CancellationToken.None);
 
         // Assert

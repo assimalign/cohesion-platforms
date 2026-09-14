@@ -46,11 +46,11 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
   authority is pinned and cannot be overridden. A configured `ContainerRegistry` prefixes the
   repository only when `registry` is omitted or null on the non-Kind route, and a tag is never a
   pull reference. Optional `archive` is relative to the index, must name an existing file, and is
-  omitted when unavailable. A Development Kind archive retains its published repository identity
+  omitted when unavailable. A Local-environment Kind archive retains its published repository identity
   so containerd resolves the imported name and digest. With no index, an `IImageRealizer` may
   acquire the digest-pinned manifest artifact but must preserve its repository and digest; the
   direct digest-pinned artifact remains the other acquisition path.
-- **Kind loading is a Development gather action.** The same kubeconfig resolution used for the
+- **Kind loading is a Local-environment gather action.** The same kubeconfig resolution used for the
   Kubernetes client supplies the current context. A `kind-<cluster>` context plus an advertised
   archive invokes `kind load image-archive <archive> --name <cluster>` before observer/client
   startup. Successful loads are deduplicated by context and digest for the gateway session. The
@@ -58,7 +58,7 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
   honors cancellation. A missing executable warns and skips the command, after which a configured
   registry may supply late binding; unresolved late binding fails rather than falling through to
   an implicit pull. A started command's non-zero exit is an actionable gather failure.
-  Non-Development and non-Kind paths do not start a process.
+  Non-Local and non-Kind paths do not start a process.
 - **Observed state has one Kubernetes writer.** The single list+watch informer publishes locally
   realized lifecycle and `ResourceEndpoint` observations through the application-scoped state
   manager exposed by the gateway. A failing liveness signal can observe `Degraded`; it is never a

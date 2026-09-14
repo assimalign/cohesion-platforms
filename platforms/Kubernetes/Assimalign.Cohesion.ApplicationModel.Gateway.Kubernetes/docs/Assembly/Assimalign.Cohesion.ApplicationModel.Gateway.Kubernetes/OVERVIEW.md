@@ -8,7 +8,7 @@ observes workload state through the Kubernetes API.
 Design item 35 extends [`KubernetesGatewayOptions`](KubernetesGatewayOptions/OVERVIEW.md) with a
 validated application image-index path and registry resolution. During Gather, the gateway
 resolves only a resource's own `ArtifactRef.Self`, keeps every reference digest-pinned, loads an
-advertised archive into a Development Kind cluster, preserves a concrete pinned entry registry,
+advertised archive into a Local-environment Kind cluster, preserves a concrete pinned entry registry,
 or applies a target registry only when the entry registry is omitted or null.
 
 See the project [overview](../../OVERVIEW.md) and [design](../../DESIGN.md) for the compiler,

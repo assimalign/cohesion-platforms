@@ -30,7 +30,7 @@ public partial class DockerGatewayTests
         GatewayControlPlane.Configure(options, GatewayRunMode.Run);
         options.Controllers.Add(new CapturingController());
         var gateway = new DockerGateway(options, () => new DockerEngineClient(engineServer.Endpoint));
-        IApplicationBuilder builder = Application.CreateBuilder(ApplicationName.Parse("appa"), ["--environment", "Development"]);
+        IApplicationBuilder builder = Application.CreateBuilder(ApplicationName.Parse("appa"), ["--environment", "Local"]);
         builder.AddResource(CreateManifest($"registry.example/worker@sha256:{new string('a', 64)}"));
         builder.UseGateway(gateway);
         IApplicationModel model = builder.Build().Model;

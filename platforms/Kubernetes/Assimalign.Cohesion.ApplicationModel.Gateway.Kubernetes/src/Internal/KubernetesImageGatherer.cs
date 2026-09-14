@@ -36,7 +36,7 @@ internal sealed class KubernetesImageGatherer
     public async Task<IContainerImageArtifact> GatherAsync(
         IApplicationResource resource,
         ArtifactRef artifactReference,
-        bool isDevelopment,
+        bool isLocal,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
@@ -105,7 +105,7 @@ internal sealed class KubernetesImageGatherer
         }
 
         KindImageLoadResult kindLoad = KindImageLoadResult.NotKind;
-        if (isDevelopment && archivePath is not null)
+        if (isLocal && archivePath is not null)
         {
             kindLoad = await _kindImages
                 .LoadIfKindAsync(archivePath, entry.Digest, cancellationToken)
@@ -121,7 +121,7 @@ internal sealed class KubernetesImageGatherer
             throw new InvalidOperationException(
                 $"Image index entry for resource '{resource.Name}' has a late-bound registry, " +
                 $"but {nameof(KubernetesGatewayOptions)}.{nameof(KubernetesGatewayOptions.ContainerRegistry)} " +
-                "is not configured and the image was not acquired through a Development Kind archive path.");
+                "is not configured and the image was not acquired through a Local Kind archive path.");
         }
 
         string? registry = isLateBound && !usesKindRoute

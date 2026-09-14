@@ -38,7 +38,7 @@ registration order before mandatory Cohesion metadata is restored. A null patch 
 
 When `ImageIndexPath` is set, Gather requires the index application and the resource entry's
 authority-free repository/digest to match the manifest and validates its required lowercase OCI
-`platform`. Optional `archive` is relative and must be omitted when unavailable. In Development
+`platform`. Optional `archive` is relative and must be omitted when unavailable. Under the `Local` environment
 on a `kind-<cluster>` context, an advertised archive is verified and passed to
 `kind load image-archive --name <cluster>`. If Kind is unavailable, an entry whose `registry` is
 omitted or null requires `ContainerRegistry`; there is no implicit tag or registry pull fallback.
