@@ -11,6 +11,14 @@ inputs:
   project:
     description: "Project/assembly name (e.g. Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes)."
     required: true
+  cohesion-ref:
+    description: >-
+      When set, build against a sibling checkout of assimalign/cohesion at this ref (branch, tag or SHA)
+      instead of the staging feed: .github/scripts/Pack-CohesionSibling.ps1 clones it to ../cohesion and packs the
+      consumed package closure into its _out/packages, which build/Targets/Build.References.Packages.targets
+      picks up automatically. Used while this branch tracks unreleased cohesion work; empty means the feed.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -19,6 +27,11 @@ runs:
       uses: actions/setup-dotnet@v4
       with:
         global-json-file: global.json
+
+    - name: Pack the sibling cohesion checkout
+      if: ${{ inputs.cohesion-ref != '' }}
+      shell: pwsh
+      run: ./.github/scripts/Pack-CohesionSibling.ps1 -Ref "${{ inputs.cohesion-ref }}"
 
     # Assimalign.Cohesion.* packages come from the GitHub Packages staging feed. The workflow
     # GITHUB_TOKEN authenticates (packages published from public assimalign repos are readable

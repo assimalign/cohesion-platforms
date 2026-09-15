@@ -30,5 +30,30 @@ public static class KubernetesGatewayExtensions
             configure(options);
             return builder.UseGateway(new KubernetesGateway(options));
         }
+
+        /// <summary>
+        /// Selects Kubernetes and applies common gateway arguments plus the platform-specific
+        /// <c>--context</c> and <c>--kubeconfig</c> options.
+        /// </summary>
+        /// <param name="args">The gateway command-line arguments.</param>
+        /// <param name="configure">Optional additional option configuration.</param>
+        /// <returns>The builder, for chaining.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="args"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException">
+        /// A common or Kubernetes-specific gateway argument is missing or malformed.
+        /// </exception>
+        public IApplicationBuilder UseKubernetesGateway(
+            string[] args,
+            Action<KubernetesGatewayOptions>? configure = null)
+        {
+            ArgumentNullException.ThrowIfNull(args);
+
+            var options = new KubernetesGatewayOptions();
+            ApplicationGatewayCommandLine.Apply(options, args);
+            KubernetesGatewayCommandLine.Apply(options, args);
+            configure?.Invoke(options);
+            return builder.UseGateway(new KubernetesGateway(options));
+        }
     }
+
 }

@@ -2,22 +2,30 @@
     <!--
         Local inner-loop feed: when a sibling cohesion checkout has packed nupkgs
         (installer/scripts/Install-Local.ps1 or dotnet pack -> _out/packages), restore
-        resolves Assimalign.Cohesion.* from it. Exists-guarded so CI and machines
-        without the sibling checkout are unaffected.
+        resolves Assimalign.Cohesion.* from it. Cohesion package releases are immutable:
+        advance the release floor to consume a newer line, and never name a version that
+        is absent from its feed. The Exists-guarded CohesionSiblingPackageVersion property
+        is intentionally overridable so inner-loop builds can select the exact .local
+        identity; CI and machines without the sibling checkout use the release floor.
     -->
     <PropertyGroup>
         <_CohesionSiblingFeed>$(CohesionRepositoryDirectory)..\cohesion\_out\packages</_CohesionSiblingFeed>
         <!-- Claude worktrees live at <repo>\.claude\worktrees\<name>; probe the outer checkout's sibling too. -->
         <_CohesionSiblingFeed Condition="!Exists('$(_CohesionSiblingFeed)')">$(CohesionRepositoryDirectory)..\..\..\..\cohesion\_out\packages</_CohesionSiblingFeed>
         <RestoreAdditionalProjectSources Condition="Exists('$(_CohesionSiblingFeed)')">$(RestoreAdditionalProjectSources);$(_CohesionSiblingFeed)</RestoreAdditionalProjectSources>
+
+        <_CohesionPackageVersionFloor>[10.0.1-preview.3, )</_CohesionPackageVersionFloor>
+        <_CohesionConsumedPackageVersion>$(_CohesionPackageVersionFloor)</_CohesionConsumedPackageVersion>
+        <_CohesionConsumedPackageVersion Condition="Exists('$(_CohesionSiblingFeed)') AND '$(CohesionSiblingPackageVersion)' != ''">[$(CohesionSiblingPackageVersion)]</_CohesionConsumedPackageVersion>
     </PropertyGroup>
 
     <!-- #region Packages & Dependencies -->
     <ItemGroup>
         <!-- Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). -->
-        <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="10.0.1-preview.2" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="10.0.1-preview.2" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="10.0.1-preview.2" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" Version="$(_CohesionConsumedPackageVersion)" />
     </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="Sharprompt" Version="3.1.1" />
