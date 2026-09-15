@@ -459,13 +459,40 @@ public class KubernetesImageGathererTests
     {
         public TestDirectory()
         {
-            Path = System.IO.Path.Combine(
+            string path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 $"cohesion-kubernetes-image-tests-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
+            Directory.CreateDirectory(path);
+            Path = ResolvePhysicalPath(path);
         }
 
+        /// <summary>
+        /// The root with every symbolic link resolved, the form archive paths come back in: on macOS
+        /// <see cref="System.IO.Path.GetTempPath"/> returns <c>/var/folders/…</c>, a link to <c>/private/var/…</c>.
+        /// </summary>
         public string Path { get; }
+
+        private static string ResolvePhysicalPath(string path)
+        {
+            string fullPath = System.IO.Path.GetFullPath(path);
+            string root = System.IO.Path.GetPathRoot(fullPath)!;
+            string current = root;
+            foreach (string component in fullPath[root.Length..].Split(
+                [System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = System.IO.Path.Combine(current, component);
+                FileSystemInfo? target = Directory.Exists(current)
+                    ? new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true)
+                    : null;
+                if (target is not null)
+                {
+                    current = System.IO.Path.GetFullPath(target.FullName);
+                }
+            }
+
+            return System.IO.Path.GetFullPath(current);
+        }
 
         public string CreateFile(string relativePath)
         {
