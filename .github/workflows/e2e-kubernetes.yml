@@ -40,6 +40,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      # While this branch tracks unreleased cohesion work, restore from a sibling checkout packed on the
+      # runner (see .github/scripts/Pack-CohesionSibling.ps1); clear the COHESION_SIBLING_REF repository
+      # variable once the consumed cohesion line is on the staging feed.
+      - name: Pack the sibling cohesion checkout
+        if: ${{ vars.COHESION_SIBLING_REF != '' }}
+        shell: pwsh
+        run: ./.github/scripts/Pack-CohesionSibling.ps1 -Ref "${{ vars.COHESION_SIBLING_REF }}"
       - name: Configure the package feed
         shell: bash
         env:
