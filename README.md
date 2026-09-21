@@ -10,9 +10,13 @@ processes, Docker containers, or Kubernetes workloads without changing applicati
 cohesion repo ships the contracts, the guided gateway base, and the `LocalGateway`; **this repo
 implements the platform gateways**:
 
+At application `Build()`, each resource-area planner produces a validated, platform-neutral
+`ResourcePlan` (`cohesion/plan/v1`). Exactly one compiler for the selected platform translates
+those plans into platform objects; compilers never dispatch on resource kind, area, or CLR type.
+
 | Area | Package | Target |
 | --- | --- | --- |
-| [`platforms/Containers`](platforms/Containers/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Shared container machinery (image index, OCI store, state manager, registry) |
+| [`platforms/Containers`](platforms/Containers/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Shared container machinery (image index, OCI store, registry, test primitives) |
 | [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` | Kubernetes clusters (Kind on Podman for development) |
 | [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | Docker-compatible engines (Podman locally) |
 
@@ -38,15 +42,23 @@ dotnet test platforms/<Area>/<Project>/tests/
 
 ### Getting the `Assimalign.Cohesion.*` packages
 
-Restore resolves them from one of two places (see `nuget.config`):
+The three centrally managed Cohesion dependencies use the release floor
+`[10.0.0-preview.1, )`. Published package identities are immutable per release: bump that floor
+to pick up a newer Cohesion line, and never pin a version that is absent from the configured feed.
 
-1. **Sibling checkout (inner loop, automatic):** if `../cohesion/_out/packages` exists next to
-   this repo, it is appended as a restore source. Populate it from the cohesion checkout with
-   `dotnet pack` (or `pwsh installer/scripts/Install-Local.ps1`).
-2. **GitHub Packages staging feed:** `https://nuget.pkg.github.com/assimalign/index.json` — added
-   automatically in CI; locally add it with a token that has `read:packages`. The feed uses
-   delete-then-replace semantics on a constant version, so use a no-cache restore when picking up
-   refreshed upstream bits.
+Restore resolves the floor or an explicit inner-loop identity from one of two places (see
+`nuget.config`):
+
+1. **Sibling checkout (inner loop):** if `../cohesion/_out/packages` exists next to this repo, it
+   is appended automatically. Populate a complete local package set from the cohesion checkout
+   with `pwsh installer/scripts/Install-Local.ps1`, then select its exact identity with
+   `-p:CohesionSiblingPackageVersion=10.0.0-preview.1.local`. The property is honored only while
+   the sibling feed exists and is intentionally overridable for the next local line. The `.local`
+   prerelease sorts above the canonical prerelease; the exact sibling override therefore makes
+   the floor resolve to the inner-loop pack when both identities are present.
+2. **GitHub Packages:** `https://nuget.pkg.github.com/assimalign/index.json` is the immutable
+   release/staging source used by CI, where no sibling checkout exists. Local authenticated use
+   requires a token with `read:packages`; keep credentials outside this repository.
 
 ## Repository conventions
 

@@ -23,11 +23,14 @@ internal static class KubernetesClientFactory
     /// <exception cref="InvalidOperationException">No cluster configuration could be resolved.</exception>
     public static IKubernetes Create(KubernetesGatewayOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
         return new k8s.Kubernetes(ResolveConfiguration(options));
     }
 
-    private static KubernetesClientConfiguration ResolveConfiguration(KubernetesGatewayOptions options)
+    internal static KubernetesClientConfiguration ResolveConfiguration(KubernetesGatewayOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         if (options.KubeConfigPath is not null)
         {
             if (!File.Exists(options.KubeConfigPath))

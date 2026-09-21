@@ -1,0 +1,58 @@
+{
+  "schema": "cohesion/plan/v1",
+  "resource": "schema-migrate",
+  "kind": "Job",
+  "workload": {
+    "kind": "Job",
+    "replicas": 1,
+    "stableIdentity": false,
+    "gate": {
+      "terminals": [
+        "Stopped",
+        "Failed"
+      ],
+      "satisfying": [
+        "Stopped"
+      ]
+    },
+    "stopGraceSeconds": 30,
+    "restartPolicy": "OnFailure"
+  },
+  "container": {
+    "name": "schema-migrate",
+    "artifact": "self",
+    "ports": [
+      {
+        "endpoint": "control",
+        "containerPort": 8080,
+        "protocol": "tcp",
+        "scheme": "http",
+        "certificate": ""
+      }
+    ],
+    "mounts": [],
+    "environment": {
+      "COHESION_APPLICATION": "appa",
+      "COHESION_RESOURCE": "schema-migrate",
+      "COHESION_ENVIRONMENT": "Development"
+    },
+    "probes": []
+  },
+  "controlPlane": {
+    "endpoint": "control",
+    "path": "/cohesion/v1"
+  },
+  "volumes": [],
+  "services": [
+    {
+      "name": "schema-migrate-control",
+      "endpoint": "control",
+      "port": 8080,
+      "protocol": "tcp",
+      "headless": false,
+      "governing": false
+    }
+  ],
+  "exposures": [],
+  "hints": {}
+}

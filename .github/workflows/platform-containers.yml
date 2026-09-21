@@ -30,3 +30,4 @@ jobs:
           area: platforms
           category: Containers
           project: ${{ matrix.projects }}
+          cohesion-ref: ${{ vars.COHESION_SIBLING_REF }}

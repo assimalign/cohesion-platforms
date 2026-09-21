@@ -1,13 +1,46 @@
 using System;
+using System.Collections.Generic;
+
+using k8s;
+using k8s.Models;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
 /// <summary>
 /// Options controlling how the <see cref="KubernetesGateway"/> connects to a cluster,
-/// applies objects, and bounds readiness and teardown.
+/// registers controller overrides, applies objects, and bounds readiness and teardown.
 /// </summary>
-public sealed class KubernetesGatewayOptions
+public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 {
+    /// <summary>The namespace containing gateway infrastructure. Defaults to <c>cohesion-system</c>.</summary>
+    public string SystemNamespace { get; set; } = "cohesion-system";
+
+    /// <summary>The gateway service account DNS label. Defaults to <c>cohesion-gateway</c>.</summary>
+    public string SystemServiceAccount { get; set; } = "cohesion-gateway";
+
+    /// <summary>The digest-pinned gateway executable image, required for bootstrap and optional system rendering.</summary>
+    public string? SystemImage { get; set; }
+
+    /// <summary>The requested persistent state capacity. Required when system storage is requested.</summary>
+    public string? SystemStorageSize { get; set; }
+
+    /// <summary>The optional storage class for gateway state.</summary>
+    public string? SystemStorageClass { get; set; }
+
+    /// <summary>The external control-plane exposure. Defaults to <see cref="KubernetesSystemExposure.None"/>.</summary>
+    public KubernetesSystemExposure SystemExposure { get; set; }
+
+    /// <summary>The DNS host required when exposing the control plane through an Ingress.</summary>
+    public string? SystemIngressHost { get; set; }
+
+    /// <summary>The controller class required when exposing the control plane through an Ingress.</summary>
+    public string? SystemIngressClass { get; set; }
+
+    /// <summary>Whether bootstrap applies its emitted installation. Defaults to true; false emits only.</summary>
+    public bool BootstrapApply { get; set; } = true;
+
+    private readonly Dictionary<ResourceName, List<Action<IKubernetesObject<V1ObjectMeta>>>> _patches = new();
+
     /// <summary>
     /// An explicit kubeconfig file path. When <see langword="null"/>, the gateway resolves
     /// a configuration from the <c>KUBECONFIG</c> environment variable, then the default
@@ -23,21 +56,190 @@ public sealed class KubernetesGatewayOptions
     public string? ContextName { get; set; }
 
     /// <summary>
-    /// The server-side-apply field manager under which the gateway claims ownership of the
-    /// fields it applies. Defaults to <c>cohesion-gateway</c>.
+    /// Gets or sets the optional <c>application.images.json</c> path used to gather resource
+    /// images. When specified, skips Local publishing; the entry must match any digest-pinned
+    /// image declared by its manifest. Source manifests may omit their image.
+    /// </summary>
+    public string? ImageIndexPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional registry authority applied to image-index entries that omit or
+    /// null their registry. A pinned entry registry takes precedence. Specify an authority such
+    /// as <c>registry.example.test:5000</c>, without a URI scheme or repository path.
+    /// </summary>
+    public string? ContainerRegistry { get; set; }
+
+    /// <summary>
+    /// The fallback server-side-apply field manager for gateway-scoped bootstrap objects.
+    /// Application namespaces and resource objects always use
+    /// <c>&lt;application&gt;@&lt;gateway-identity&gt;</c>. Defaults to <c>cohesion-gateway</c>.
     /// </summary>
     public string FieldManager { get; set; } = "cohesion-gateway";
 
     /// <summary>
-    /// The maximum time to wait for a resource to become ready before treating startup as
-    /// failed. Defaults to 60&#160;seconds.
+    /// Gets or sets the optional image realizer used to acquire a digest-pinned manifest image
+    /// when <see cref="ImageIndexPath"/> is not specified. Its result must preserve the manifest
+    /// repository and digest. When omitted, the validated manifest image is used directly.
     /// </summary>
-    public TimeSpan ReadinessBudget { get; set; } = TimeSpan.FromSeconds(60);
+    public IImageRealizer? ImageRealizer { get; set; }
 
     /// <summary>
-    /// The budget for deleting the application namespace when the gateway stops. Deletion
-    /// still in progress when the budget elapses is abandoned best-effort. Defaults to
-    /// 30&#160;seconds.
+    /// Gets or sets the sink for compiler warnings. Each compilation reports every distinct
+    /// unknown plan-hint key; reconciliation suppresses repeated keys within one gateway session.
+    /// Defaults to standard error.
+    /// </summary>
+    public Action<string> WarningHandler { get; set; } = Console.Error.WriteLine;
+
+    /// <summary>
+    /// The maximum time allowed for owned namespace deletion after successful teardown.
+    /// Normal observer shutdown never deletes a namespace. Defaults to 30&#160;seconds.
     /// </summary>
     public TimeSpan StopGrace { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Registers a Kubernetes-native patch for objects of type <typeparamref name="TResource"/>
+    /// compiled for one resource. Patches run in registration order before mandatory Cohesion
+    /// ownership, resource-label, and plan-hash metadata is restored. Controller-managed rollout
+    /// revisions are assigned after patches during reconciliation.
+    /// </summary>
+    /// <typeparam name="TResource">The Kubernetes object type to patch.</typeparam>
+    /// <param name="resource">The Cohesion resource whose compiled objects may be patched.</param>
+    /// <param name="patch">The platform-specific mutation to apply.</param>
+    /// <returns>These options, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="patch"/> is <see langword="null"/>.</exception>
+    public KubernetesGatewayOptions Patch<TResource>(
+        ResourceName resource,
+        Action<TResource> patch)
+        where TResource : class, IKubernetesObject<V1ObjectMeta>
+    {
+        ArgumentNullException.ThrowIfNull(patch);
+
+        if (!_patches.TryGetValue(resource, out List<Action<IKubernetesObject<V1ObjectMeta>>>? registrations))
+        {
+            registrations = new List<Action<IKubernetesObject<V1ObjectMeta>>>();
+            _patches.Add(resource, registrations);
+        }
+
+        registrations.Add(candidate =>
+        {
+            if (candidate is TResource typed)
+            {
+                patch(typed);
+            }
+        });
+        return this;
+    }
+
+    internal void ApplyPatches(
+        ResourceName resource,
+        IKubernetesObject<V1ObjectMeta> candidate)
+    {
+        if (!_patches.TryGetValue(resource, out List<Action<IKubernetesObject<V1ObjectMeta>>>? registrations))
+        {
+            return;
+        }
+
+        for (int index = 0; index < registrations.Count; index++)
+        {
+            registrations[index](candidate);
+        }
+    }
+
+    internal void ValidateKubernetes()
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(SystemNamespace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(SystemServiceAccount);
+        KubernetesMetadata.RequireDnsLabel(SystemNamespace, nameof(SystemNamespace));
+        KubernetesMetadata.RequireDnsLabel(SystemServiceAccount, nameof(SystemServiceAccount));
+        if (!Enum.IsDefined(SystemExposure))
+        {
+            throw new ArgumentOutOfRangeException(nameof(SystemExposure));
+        }
+        if (SystemImage is not null)
+        {
+            if (string.IsNullOrWhiteSpace(SystemImage))
+            {
+                throw new ArgumentException("SystemImage (--cohesion-system-image) must be a digest-pinned image reference.", nameof(SystemImage));
+            }
+
+            _ = Containers.ContainerImageArtifacts.Create(default, SystemImage);
+        }
+        if (SystemStorageSize is not null && string.IsNullOrWhiteSpace(SystemStorageSize))
+        {
+            throw new ArgumentException("SystemStorageSize must not be empty.", nameof(SystemStorageSize));
+        }
+        if (SystemStorageSize is not null)
+        {
+            try
+            {
+                if (new ResourceQuantity(SystemStorageSize).ToDecimal() <= 0)
+                {
+                    throw new ArgumentException("SystemStorageSize (--cohesion-system-storage) must be positive.", nameof(SystemStorageSize));
+                }
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException)
+            {
+                throw new ArgumentException("SystemStorageSize (--cohesion-system-storage) must be a valid positive Kubernetes resource quantity.", nameof(SystemStorageSize), exception);
+            }
+        }
+        if (SystemStorageClass is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemStorageClass);
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemStorageSize);
+        }
+        if (SystemExposure == KubernetesSystemExposure.Ingress)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemIngressHost);
+            ArgumentException.ThrowIfNullOrWhiteSpace(SystemIngressClass);
+            if (Uri.CheckHostName(SystemIngressHost) != UriHostNameType.Dns)
+            {
+                throw new ArgumentException("SystemIngressHost must be a DNS host.", nameof(SystemIngressHost));
+            }
+        }
+        if (KubeConfigPath is not null && string.IsNullOrWhiteSpace(KubeConfigPath))
+        {
+            throw new ArgumentException("KubeConfigPath must not be empty when specified.", nameof(KubeConfigPath));
+        }
+
+        if (ContextName is not null && string.IsNullOrWhiteSpace(ContextName))
+        {
+            throw new ArgumentException("ContextName must not be empty when specified.", nameof(ContextName));
+        }
+
+        if (ImageIndexPath is not null && string.IsNullOrWhiteSpace(ImageIndexPath))
+        {
+            throw new ArgumentException(
+                "ImageIndexPath must not be empty when specified.",
+                nameof(ImageIndexPath));
+        }
+
+        if (ContainerRegistry is not null && !IsRegistryAuthority(ContainerRegistry))
+        {
+            throw new ArgumentException(
+                "ContainerRegistry must be a registry authority without a URI scheme or repository path.",
+                nameof(ContainerRegistry));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(FieldManager);
+        ArgumentNullException.ThrowIfNull(WarningHandler);
+        if (StopGrace <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(StopGrace), "StopGrace must be greater than zero.");
+        }
+    }
+
+    private static bool IsRegistryAuthority(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Contains("://", StringComparison.Ordinal)
+            || value.IndexOfAny(['/', '\\', '@', '?', '#']) >= 0)
+        {
+            return false;
+        }
+
+        return Uri.TryCreate($"http://{value}", UriKind.Absolute, out Uri? uri)
+            && !string.IsNullOrWhiteSpace(uri.Host)
+            && string.IsNullOrEmpty(uri.UserInfo)
+            && string.Equals(uri.AbsolutePath, "/", StringComparison.Ordinal);
+    }
 }

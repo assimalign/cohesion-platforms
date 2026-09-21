@@ -251,7 +251,7 @@ The interface remains the canonical public surface; concrete types derive from t
 
 ## Service composition
 
-This repo implements the deployment/hosting plane for Cohesion's application model: platform gateways realize an `IApplicationModel` (from `Assimalign.Cohesion.ApplicationModel`) onto a concrete target (Kubernetes, Docker). Preserve the Cohesion layering model (L1 = foundation libraries and SDK/tooling, L2 = application runtime and composition, L3 = service platforms; see `docs/DELIVERY_ROADMAP.md` in the cohesion repo) and the gateway layering rules in `platform-areas.md` — gateways reference ApplicationModel contracts and `{Resource}.ApplicationModel` manifest packages only, never `{Resource}.Application` runtimes.
+This repo implements the deployment/hosting plane for Cohesion's application model: platform gateways realize an `IApplicationModel` (from `Assimalign.Cohesion.ApplicationModel`) onto a concrete target (Kubernetes, Docker). Preserve the Cohesion layering model (L1 = foundation libraries and SDK/tooling, L2 = application runtime and composition, L3 = service platforms; see `docs/DELIVERY_ROADMAP.md` in the cohesion repo) and the gateway layering rules in `platform-areas.md` — shipped platform projects may reference only the generic ApplicationModel contract, Gateway base, shared Containers libraries, and thin `<Area>.Client` packages; they never reference `<Area>.ApplicationModel`, `*.Hosting`, `<Area>.Application` runtimes, or `Microsoft.Extensions.*`.
 
 ## Async / await
 
