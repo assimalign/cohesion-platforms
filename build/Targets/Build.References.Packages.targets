@@ -14,7 +14,7 @@
         <_CohesionSiblingFeed Condition="!Exists('$(_CohesionSiblingFeed)')">$(CohesionRepositoryDirectory)..\..\..\..\cohesion\_out\packages</_CohesionSiblingFeed>
         <RestoreAdditionalProjectSources Condition="Exists('$(_CohesionSiblingFeed)')">$(RestoreAdditionalProjectSources);$(_CohesionSiblingFeed)</RestoreAdditionalProjectSources>
 
-        <_CohesionPackageVersionFloor>[10.0.1-preview.3, )</_CohesionPackageVersionFloor>
+        <_CohesionPackageVersionFloor>[10.0.0-preview.1, )</_CohesionPackageVersionFloor>
         <_CohesionConsumedPackageVersion>$(_CohesionPackageVersionFloor)</_CohesionConsumedPackageVersion>
         <_CohesionConsumedPackageVersion Condition="Exists('$(_CohesionSiblingFeed)') AND '$(CohesionSiblingPackageVersion)' != ''">[$(CohesionSiblingPackageVersion)]</_CohesionConsumedPackageVersion>
     </PropertyGroup>
@@ -29,7 +29,7 @@
     </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="Sharprompt" Version="3.1.1" />
-        <_CohesionPackage Include="KubernetesClient" Version="17.0.4" />
+        <_CohesionPackage Include="KubernetesClient" Version="17.0.14" />
         <_CohesionPackage Include="NUlid" Version="1.7.2" />
         <_CohesionPackage Include="System.Threading.RateLimiting" Version="10.0.0"/>
         <_CohesionPackage Include="System.Security.Cryptography.Xml" Version="10.0.0" />

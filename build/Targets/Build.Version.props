@@ -10,7 +10,7 @@
             semver is welcome) while the numeric core feeds AssemblyVersion /
             FileVersion (where the C# compiler enforces numeric-only via CS7034).
         -->
-        <CohesionPatchVersion>1-preview.3</CohesionPatchVersion>
+        <CohesionPatchVersion>0-preview.1</CohesionPatchVersion>
 
         <!-- Numeric core. Suitable for AssemblyVersion / FileVersion. -->
         <_CohesionPatchCore>$(CohesionPatchVersion.Split('-')[0])</_CohesionPatchCore>

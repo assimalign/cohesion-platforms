@@ -19,7 +19,7 @@ This repo uses the same centralized-MSBuild model as the cohesion repo, minus co
 
 - Root `Directory.Build.props`/`.targets` are two-line shims importing `build/Build.props` and `build/Build.targets`, which import the `build/Targets/*.props|targets` chain (Global, TargetFramework, Branding, Version, Constants, References, Rules).
 - Shared build logic lives in `build/Targets/` — lift any block shared by 2+ sibling csprojs into the chain. Library csprojs should stay under ~10 lines.
-- **Versioning:** `$(CohesionVersion)` in `build/Targets/Build.Version.props` is the single source of truth for this repository's own package outputs (major derived from the TFM; currently `10.0.1-preview.3`). The consumed Cohesion dependency floor is separate and lives in `Build.References.Packages.targets`. Per-project `<Version>` overrides are forbidden; advance the output identity rather than replacing a published package.
+- **Versioning:** `$(CohesionVersion)` in `build/Targets/Build.Version.props` is the single source of truth for this repository's own package outputs (major derived from the TFM; currently `10.0.0-preview.1`). The consumed Cohesion dependency floor is separate and lives in `Build.References.Packages.targets`. Per-project `<Version>` overrides are forbidden; advance the output identity rather than replacing a published package.
 - **Target framework:** `TargetFrameworkLatest` (`net10.0`) in `build/Targets/Build.TargetFramework.props`; SDK pinned in `global.json` — keep both in lockstep with the cohesion repo.
 
 ## References
@@ -41,12 +41,12 @@ This repo uses the same centralized-MSBuild model as the cohesion repo, minus co
   when present, and CI adds the authenticated Assimalign GitHub Packages source
   (`https://nuget.pkg.github.com/assimalign/index.json`).
 - Published versions are **immutable per release**. The three central Cohesion pins use the release
-  floor `[10.0.1-preview.3, )`; advance that floor to consume a newer Cohesion line, and never pin
+  floor `[10.0.0-preview.1, )`; advance that floor to consume a newer Cohesion line, and never pin
   an identity that is absent from the configured feed.
 - Inner-loop builds automatically append the sibling checkout's local feed
   (`../cohesion/_out/packages`, populated by `installer/scripts/Install-Local.ps1`). After packing a
   complete local closure, pass the overridable `CohesionSiblingPackageVersion` property to select
-  the exact local identity `10.0.1-preview.3.local`. The `.local` prerelease sorts above the
+  the exact local identity `10.0.0-preview.1.local`. The `.local` prerelease sorts above the
   canonical prerelease while remaining a distinct, never-published package identity.
 - CI has no sibling checkout, so it uses the release floor against GitHub Packages. Do not add a
   local credential block or check credentials into `nuget.config`.

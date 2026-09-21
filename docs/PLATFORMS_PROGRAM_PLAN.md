@@ -44,7 +44,7 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 
 ## Stages
 
-- **Stage 0 — Delivery gate (W01 + off-gate re-pin).** `L04.01.01.01/.02` establish the build and feed. Design item 33 (`L04.01.01.05`) then advances the contract floor to `10.0.1-preview.3`, adopts the public state manager, and lands COHPLT001; it must complete before the Kubernetes or Docker plan compilers. `.03/.04` can trail inside the original stage.
+- **Stage 0 — Delivery gate (W01 + off-gate re-pin).** `L04.01.01.01/.02` establish the build and feed. Design item 33 (`L04.01.01.05`) then advances the contract floor to `10.0.0-preview.1`, adopts the public state manager, and lands COHPLT001; it must complete before the Kubernetes or Docker plan compilers. `.03/.04` can trail inside the original stage.
 - **Stage 1 — Container foundation + K8s bring-up (W02).** Two lanes: (a) Containers `.01/.02/.03`; (b) Kubernetes `.02` (`.01`, the AOT spike, was closed as obsolete when the repo's AOT mandate was dropped — the skeleton codes against `KubernetesClient` directly).
 - **Stage 2 — Kubernetes end-to-end (W03).** Design item 34 (`.09`, incorporating the `.03/.04/.07` slices) plus Kubernetes `.06`, after item 33. Design item 35 (`Containers .07` / #32) incorporates Containers `.04/.05` and Kubernetes `.05`. Exit criterion: the sample application reaches `Running` on Kind-on-Podman through its validated `ResourcePlan`, with dependency ordering, `Blocked` propagation, non-destructive `StopAsync`, and namespace removal through teardown/`UninstallAsync` proven separately. Docker design item 36 (`L04.01.04` / #23, incorporating its `.01`–`.04` slices) may start in parallel after the same re-pin.
 - **Stage 3 — Docker end-to-end + registry topologies (W04).** Complete Docker's remaining `.05` real-daemon E2E harness and Kubernetes `.08`; design item 35 incorporates Containers `.06` but does not implement the node-reachable registry topology tracked by Kubernetes `.08` / #22.
@@ -54,7 +54,7 @@ Program root: **[#1](https://github.com/assimalign/cohesion-platforms/issues/1) 
 
 ### L04.01.01 — Delivery
 
-The repo uses a two-line root `Directory.Build.props/.targets` → `build/Build.props|targets` → `build/Targets/*` chain, name-only `CohesionProjectReference`, central `CohesionPackageReference` pins, and one `$(CohesionVersion)` for its own outputs. Cohesion dependencies use the immutable release floor `[10.0.1-preview.3, )`; consuming a newer line requires bumping that floor, never replacing an existing package identity. A sibling `../cohesion/_out/packages` feed is appended automatically, and a developer may select a complete `Install-Local.ps1` pack set exactly with `CohesionSiblingPackageVersion=10.0.1-preview.3.local`. CI has no sibling checkout and restores the floor from GitHub Packages. COHPLT001 validates shipped platform projects after reference resolution.
+The repo uses a two-line root `Directory.Build.props/.targets` → `build/Build.props|targets` → `build/Targets/*` chain, name-only `CohesionProjectReference`, central `CohesionPackageReference` pins, and one `$(CohesionVersion)` for its own outputs. Cohesion dependencies use the immutable release floor `[10.0.0-preview.1, )`; consuming a newer line requires bumping that floor, never replacing an existing package identity. A sibling `../cohesion/_out/packages` feed is appended automatically, and a developer may select a complete `Install-Local.ps1` pack set exactly with `CohesionSiblingPackageVersion=10.0.0-preview.1.local`. CI has no sibling checkout and restores the floor from GitHub Packages. COHPLT001 validates shipped platform projects after reference resolution.
 
 ### L04.01.02 — Containers (shared, platform-neutral)
 
@@ -233,7 +233,7 @@ real-daemon harness remains `.05` / #28:
 
 ## Cross-repo dependencies (cohesion)
 
-1. **Package feed** — immutable `10.0.1-preview.3` Cohesion packages are present in the sibling feed and GitHub Packages. This repo consumes a `>=` floor and optionally an exact, complete `.local` sibling identity; a newer line requires a new package version and a pin bump.
+1. **Package feed** — immutable `10.0.0-preview.1` Cohesion packages are present in the sibling feed and GitHub Packages. This repo consumes a `>=` floor and optionally an exact, complete `.local` sibling identity; a newer line requires a new package version and a pin bump.
 2. **State manager visibility (resolved)** — cohesion made `InMemoryResourceStateManager` public in design item 18. This repo consumes it and has deleted the former Containers-owned copy.
 3. **Fresh package set for compiler work** — item 34 consumes the preview.3 contracts packed by
    item 33. Later items likewise require a fresh, complete cohesion pack so platform compilers
@@ -243,7 +243,7 @@ real-daemon harness remains `.05` / #28:
    the Docker Engine client precedent. The later base-hosting guard correction does not change
    that implementation or extend rule 3's direct-reference allowlist.
 5. **Plan conformance fixtures** — vendor cohesion's checked-in `KindMatrixTests` plan fixtures when compiler implementation begins, so Docker and Kubernetes prove byte-equivalent generic-plan semantics without loading any `<Area>.ApplicationModel` assembly.
-6. **Publication gate after 31t/31b** — the refreshed fixtures require the completed v1 contract; CI restoring the older preview fails. The required `[10.0.1-preview.3, )` floor remains unchanged and permits compatible later previews. Publication alone does not guarantee selection while the old minimum is available: NuGet applies its [lowest applicable version rule](https://learn.microsoft.com/en-us/nuget/concepts/dependency-resolution#lowest-applicable-version) to non-floating ranges.
+6. **Publication gate after 31t/31b** — the refreshed fixtures require the completed v1 contract; CI restoring the older preview fails. The required `[10.0.0-preview.1, )` floor remains unchanged and permits compatible later previews. Publication alone does not guarantee selection while the old minimum is available: NuGet applies its [lowest applicable version rule](https://learn.microsoft.com/en-us/nuget/concepts/dependency-resolution#lowest-applicable-version) to non-floating ranges.
 7. **Base-hosting closure correction (resolved, 2026-09-14)** — commit `0c186b2` aligned COHPLT001 and rule 3 with the allowed Gateway base's legitimate Hosting, Hosting.Health, and Hosting.Resources dependencies. The whole solution builds against the fresh `.local` closure with zero COHPLT001 failures; platform projects still never reference the base-hosting trio directly.
 
 ## Environment (local dev)

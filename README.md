@@ -43,7 +43,7 @@ dotnet test platforms/<Area>/<Project>/tests/
 ### Getting the `Assimalign.Cohesion.*` packages
 
 The three centrally managed Cohesion dependencies use the release floor
-`[10.0.1-preview.3, )`. Published package identities are immutable per release: bump that floor
+`[10.0.0-preview.1, )`. Published package identities are immutable per release: bump that floor
 to pick up a newer Cohesion line, and never pin a version that is absent from the configured feed.
 
 Restore resolves the floor or an explicit inner-loop identity from one of two places (see
@@ -52,7 +52,7 @@ Restore resolves the floor or an explicit inner-loop identity from one of two pl
 1. **Sibling checkout (inner loop):** if `../cohesion/_out/packages` exists next to this repo, it
    is appended automatically. Populate a complete local package set from the cohesion checkout
    with `pwsh installer/scripts/Install-Local.ps1`, then select its exact identity with
-   `-p:CohesionSiblingPackageVersion=10.0.1-preview.3.local`. The property is honored only while
+   `-p:CohesionSiblingPackageVersion=10.0.0-preview.1.local`. The property is honored only while
    the sibling feed exists and is intentionally overridable for the next local line. The `.local`
    prerelease sorts above the canonical prerelease; the exact sibling override therefore makes
    the floor resolve to the inner-loop pack when both identities are present.
