@@ -62,6 +62,7 @@ internal sealed class KubernetesGatewayTrustKeyRepository : IGatewayTrustKeyRepo
         cancellationToken.ThrowIfCancellationRequested();
         using IKubernetes? client = _api is null ? KubernetesClientFactory.Create(_options) : null;
         IKubernetesResourceApi api = _api ?? new KubernetesResourceApi(client!, _owner);
+        await EnsureNamespaceAsync(api, application, gateway, cancellationToken).ConfigureAwait(false);
         ECDsa? generated = null;
         try
         {
@@ -155,6 +156,33 @@ internal sealed class KubernetesGatewayTrustKeyRepository : IGatewayTrustKeyRepo
         finally
         {
             generated?.Dispose();
+        }
+    }
+
+    private async Task EnsureNamespaceAsync(IKubernetesResourceApi api, ApplicationName application,
+        ResourceName gateway, CancellationToken cancellationToken)
+    {
+        string owner = _namespaceName == KubernetesMetadata.NamespaceName(application) ? $"{application}@{gateway}" : _owner;
+        var desired = new V1Namespace
+        {
+            ApiVersion = "v1", Kind = "Namespace",
+            Metadata = new V1ObjectMeta
+            {
+                Name = _namespaceName,
+                Annotations = new Dictionary<string, string> { [KubernetesMetadata.OwnerAnnotation] = owner },
+                Labels = new Dictionary<string, string> { [KubernetesMetadata.ManagedByLabel] = KubernetesMetadata.ManagedByValue },
+            },
+        };
+        IKubernetesObject<V1ObjectMeta>? existing = await api.ReadAsync(desired, cancellationToken).ConfigureAwait(false);
+        if (existing is null && await api.TryCreateAsync(desired, cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        existing ??= await api.ReadAsync(desired, cancellationToken).ConfigureAwait(false);
+        if (existing is not V1Namespace || existing.Metadata?.Annotations?.TryGetValue(KubernetesMetadata.OwnerAnnotation, out string? actual) != true || actual != owner)
+        {
+            throw new InvalidOperationException($"Trust namespace '{_namespaceName}' is not owned by '{owner}'; trust storage cannot adopt it.");
         }
     }
 

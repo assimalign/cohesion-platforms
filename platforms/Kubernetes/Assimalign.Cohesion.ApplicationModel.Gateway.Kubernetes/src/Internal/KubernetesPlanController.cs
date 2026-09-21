@@ -2258,6 +2258,7 @@ internal sealed class KubernetesPlanController : IApplicationResourceController
         public static KubernetesObjectIdentity Create(
             k8s.IKubernetesObject<k8s.Models.V1ObjectMeta> resource)
         {
+            KubernetesObjectTypes.Restore(resource);
             string apiVersion = resource.ApiVersion
                 ?? throw new InvalidOperationException(
                     "A supported Kubernetes object must have apiVersion.");

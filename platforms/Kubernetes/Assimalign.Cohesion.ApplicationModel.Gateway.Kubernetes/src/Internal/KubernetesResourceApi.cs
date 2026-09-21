@@ -363,7 +363,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, configMaps.Items);
+        AddItems(objects, configMaps.Items, configMaps.ApiVersion, configMaps.Kind);
 
         V1SecretList secrets = await _client.CoreV1
             .ListNamespacedSecretAsync(
@@ -371,7 +371,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, secrets.Items);
+        AddItems(objects, secrets.Items, secrets.ApiVersion, secrets.Kind);
 
         V1ServiceList services = await _client.CoreV1
             .ListNamespacedServiceAsync(
@@ -379,7 +379,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, services.Items);
+        AddItems(objects, services.Items, services.ApiVersion, services.Kind);
 
         V1PersistentVolumeClaimList claims = await _client.CoreV1
             .ListNamespacedPersistentVolumeClaimAsync(
@@ -387,7 +387,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, claims.Items);
+        AddItems(objects, claims.Items, claims.ApiVersion, claims.Kind);
 
         V1DeploymentList deployments = await _client.AppsV1
             .ListNamespacedDeploymentAsync(
@@ -395,7 +395,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, deployments.Items);
+        AddItems(objects, deployments.Items, deployments.ApiVersion, deployments.Kind);
 
         V1StatefulSetList statefulSets = await _client.AppsV1
             .ListNamespacedStatefulSetAsync(
@@ -403,7 +403,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, statefulSets.Items);
+        AddItems(objects, statefulSets.Items, statefulSets.ApiVersion, statefulSets.Kind);
 
         V1DaemonSetList daemonSets = await _client.AppsV1
             .ListNamespacedDaemonSetAsync(
@@ -411,7 +411,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, daemonSets.Items);
+        AddItems(objects, daemonSets.Items, daemonSets.ApiVersion, daemonSets.Kind);
 
         V1JobList jobs = await _client.BatchV1
             .ListNamespacedJobAsync(
@@ -419,7 +419,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 labelSelector: labelSelector,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        AddItems(objects, jobs.Items);
+        AddItems(objects, jobs.Items, jobs.ApiVersion, jobs.Kind);
 
         return objects;
     }
@@ -515,7 +515,7 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
 
     private static void AddItems<T>(
         ICollection<IKubernetesObject<V1ObjectMeta>> destination,
-        IEnumerable<T>? items)
+        IEnumerable<T>? items, string? apiVersion, string? listKind)
         where T : IKubernetesObject<V1ObjectMeta>
     {
         if (items is null)
@@ -525,6 +525,8 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
 
         foreach (T item in items)
         {
+            string? kind = listKind?.EndsWith("List", StringComparison.Ordinal) == true ? listKind[..^4] : null;
+            KubernetesObjectTypes.Restore(item, apiVersion, kind);
             destination.Add(item);
         }
     }

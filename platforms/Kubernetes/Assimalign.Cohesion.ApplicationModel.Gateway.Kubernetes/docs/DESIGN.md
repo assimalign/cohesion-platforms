@@ -38,27 +38,20 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
   volume updates in place; `bootstrap-token` is reserved even when no credential is present. A
   compiled, workload-kind-aware `cohesion.io/workload-revision` on every pod template lets
   readiness ignore overlapping pods from an older rollout without changing the plan hash.
-- **Gather resolves only the resource's own image.** When `ImageIndexPath` is configured, Gather
-  reads the source-generated `cohesion/images/v1` application index, requires its application to
-  match the manifest, validates the required lowercase OCI `platform`, and resolves the plan's
-  `ArtifactRef.Self` by `ResourceName`. The authority-free repository and digest must exactly
-  match the digest-pinned manifest artifact before registry resolution. A concrete entry registry
-  authority is pinned and cannot be overridden. A configured `ContainerRegistry` prefixes the
-  repository only when `registry` is omitted or null on the non-Kind route, and a tag is never a
-  pull reference. Optional `archive` is relative to the index, must name an existing file, and is
-  omitted when unavailable. A Local-environment Kind archive retains its published repository identity
-  so containerd resolves the imported name and digest. With no index, an `IImageRealizer` may
-  acquire the digest-pinned manifest artifact but must preserve its repository and digest; the
-  direct digest-pinned artifact remains the other acquisition path.
-- **Kind loading is a Local-environment gather action.** The same kubeconfig resolution used for the
-  Kubernetes client supplies the current context. A `kind-<cluster>` context plus an advertised
-  archive invokes `kind load image-archive <archive> --name <cluster>` before observer/client
-  startup. Successful loads are deduplicated by context and digest for the gateway session. The
-  process inherits the caller's environment, including `KIND_EXPERIMENTAL_PROVIDER=podman`, and
-  honors cancellation. A missing executable warns and skips the command, after which a configured
-  registry may supply late binding; unresolved late binding fails rather than falling through to
-  an implicit pull. A started command's non-zero exit is an actionable gather failure.
-  Non-Local and non-Kind paths do not start a process.
+- **The gateway owns source image identity.** A source artifact.image may be null. Gather resolves
+  ArtifactRef.Self from the index and verifies its application; any declared package image must
+  agree. Local source applications use the shared SDK publisher with the target node architecture
+  before gather. Explicit indexes bypass publication. Mixed architectures require a pre-published
+  index. Models retained privately during validation provide gather's missing owning-model context;
+  no upstream interface gains implementation state.
+- **Kind uses a registry route.** A provisioned registry:2 container on Podman's kind network
+  exposes localhost:5001 to the host. Kind config patches enable containerd certs.d, including its
+  v2 images plugin; per-node hosts.toml maps localhost:5001 to cohesion-registry:5000. The gateway
+  verifies archives in the shared OCI store and pushes with Registry API v2, preserving manifest
+  bytes and digest. ContainerRegistry supplies the late-bound authority; Local Kind defaults to
+  localhost:5001. Pods pull authority/repository@sha256:digest normally. The archive loader and
+  its tag-only import path are removed. A pinned index registry still wins. Registry provisioning
+  remains explicit and is reusable through the bundled script and KubernetesKindCluster API.
 - **Observed state has one Kubernetes writer.** The single list+watch informer publishes locally
   realized lifecycle and `ResourceEndpoint` observations through the application-scoped state
   manager exposed by the gateway. A failing liveness signal can observe `Degraded`; it is never a
@@ -138,11 +131,11 @@ propagation, startup rollback, non-destructive stop, and destructive uninstall.
 - **`KUBECONFIG` is a path list.** Resolution mirrors kubectl: explicit `KubeConfigPath` →
   `KUBECONFIG` (first existing entry in the platform path-separated list) → default
   `~/.kube/config` → in-cluster configuration. Failure is actionable.
-- **Image acquisition stays out of the compiler.** Index parsing, late binding, and Kind loading
+- **Image acquisition stays out of the compiler.** SDK publication, index parsing, late binding, and registry push
   happen in Gather. The compiler still receives one validated `IContainerImageArtifact` beside the
   immutable plan and always emits `repository@digest` with `IfNotPresent`; direct render never
-  reads an index or contacts a process/cluster. Embedded-registry node reachability is deliberately
-  left to the topology work in cohesion-platforms#22.
+  reads an index or contacts a process/cluster. Kind node reachability is provisioned separately
+  through the registry container and containerd hosts route.
 
 ## AOT posture
 
@@ -162,11 +155,10 @@ remains preferred for dependency and startup hygiene.
 
 Design item 34 replaces the pre-plan, capability-interface controller direction with the generic
 compiler/controller path and packages the `kubernetes` `CohesionGatewayProvider`. Design item 35
-adds application-index resolution, pinned or target-supplied registry identity, and the Kind
-archive-load path while leaving the compiler unchanged. Both the acquisition component and Kind
-command runner are tested through internal seams; the ordinary suite requires no live cluster,
-and the real Kind smoke is explicitly opted in and dynamically skipped when its prerequisites are
-absent.
+adds application-index resolution and pinned or target-supplied registry identity. Phase 5b adds
+Local SDK publication and the Kind registry route while leaving acquisition outside the compiler.
+The invocation and registry protocol are tested through interfaces and fake HTTP handlers; the
+ordinary suite requires no live cluster. The area README describes live registry verification.
 
 The following criteria cannot be completed honestly inside this package against the current
 upstream contract:
@@ -192,11 +184,11 @@ upstream contract:
   the unresolved multi-model system installation is deployable. Existing multi-model realization
   remains unchanged when no control-plane factory is configured.
 - The current model/resolver contracts expose neither a port-forward lifetime nor a root-versus-
-  member gateway topology marker. Development port-forward management and enforcement that only
+  member gateway topology marker. Local port-forward management and enforcement that only
   the root `IApplicationSet` gateway owns Production therefore require upstream seams; namespace
   ownership and explicit adoption are enforced here regardless.
 - `ApplicationGateway.GatherAsync` receives only `IApplicationResource`, not its owning model or
-  plan. Kubernetes validation therefore records the Development flag and `ArtifactRef` against the
+  plan. Kubernetes validation therefore records the owning model and `ArtifactRef` against the
   exact resource instance before Gather. `ImageIndexPath` identifies one application index; a
   first-class application-to-index resolver is still needed for an application-set session that
   consumes distinct index files for different member applications.
@@ -208,7 +200,7 @@ upstream contract:
   model containing a custom-controlled local resource also preserves its namespace even when all
   built-in delete outcomes succeed.
 - The upstream application builder rejects `--realize` when this provider is selected, before
-  gathering or reconcile, and directs Development callers to Local, InProcess, or Docker. No
+  gathering or reconcile, and directs developer-machine callers to Local, InProcess, or Docker. No
   Kubernetes-specific resource-area or external-realization branch is added to the compiler.
 
 These gaps are explicit compatibility boundaries, not invitations for Kubernetes to inspect a
@@ -326,3 +318,18 @@ still execute its SDK-generated option hook; custom Program option behavior is t
 responsibility. Same-namespace installations align the Namespace annotation with model.Owner;
 other infrastructure remains owned by FieldManager. Offline composed render emits each additional
 application Namespace before its resource objects.
+
+## Pristine sessions and application previews
+
+Trust storage ensures its namespace precedes Secret creation, with owner checks on existing
+namespaces and concurrent create results. The observer then establishes the application namespace.
+Teardown keeps its refusal to delete SystemNamespace; applications using that namespace deliberately
+retain it. Typed list metadata is restored before stale-object identity comparison so repeated
+apply can match and update objects whose list entries omit apiVersion/kind.
+
+The resource compiler sets runAsNonRoot and user/group/fsGroup 1654 on every pod template, retaining
+0400 bootstrap projections. Kubernetes volume ownership makes the token readable to the non-root
+.NET image. Native patches run afterward and can replace the defaults; v1 plans carry no user/group
+specification. Full offline render emits only application objects when both system image/storage
+are absent. Supplying either requests system rendering and requires both; bootstrap always requires
+both. Neither render path publishes images or contacts a cluster.

@@ -14,6 +14,9 @@ verified store, and exposes that store through an optional pull-only loopback re
 | [`ContainerImageIndexes`](ContainerImageIndexes/OVERVIEW.md) | Reads, validates, resolves, and registry-binds `cohesion/image/v1` resource indexes and `cohesion/images/v1` application indexes. |
 | [`IApplicationImageIndex`](IApplicationImageIndex/OVERVIEW.md) | Represents one application's ordered resource-image entries. |
 | [`IContainerImageIndexEntry`](IContainerImageIndexEntry/OVERVIEW.md) | Represents one resource's validated image metadata. |
+| [`ContainerImagePublishing`](ContainerImagePublishing/OVERVIEW.md) | Maps target architecture, invokes SDK publication, and reloads the index. |
+| [`IContainerImagePublisher`](IContainerImagePublisher/OVERVIEW.md) | Testable SDK target invocation. |
+| [`OciRegistryPush`](OciRegistryPush/OVERVIEW.md) | Pushes verified store content by digest over Registry API v2. |
 | [`OciImageStores`](OciImageStores/OVERVIEW.md) | Creates content-addressed OCI image stores. |
 | [`IOciImageStore`](IOciImageStore/OVERVIEW.md) | Ingests and verifies image layouts and archives. |
 | [`EmbeddedOciRegistries`](EmbeddedOciRegistries/OVERVIEW.md) | Creates pull-only loopback registries. |

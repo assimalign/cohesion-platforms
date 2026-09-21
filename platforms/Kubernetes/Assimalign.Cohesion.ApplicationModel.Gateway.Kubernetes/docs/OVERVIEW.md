@@ -35,22 +35,16 @@ Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-appro
 - NuGet `buildTransitive` metadata — contributes the statically generated `kubernetes` gateway
   provider and declares `RequiresJit=true`.
 
-**Design item 35 (`L04.01.02.07` / #32) integration:** an optional `ImageIndexPath` makes Gather
-read the validated `cohesion/images/v1` application index and resolve only the resource's own
-`ArtifactRef.Self` entry. The index application and authority-free repository/digest must match
-the manifest, and the required lowercase OCI `platform` is validated. A concrete entry registry
-is pinned and cannot be overridden; `ContainerRegistry` prefixes the repository only when
-`registry` is omitted or null on the non-Kind route. Optional `archive` is relative, is validated
-before use, and is omitted when unavailable. In Development, a selected
-`kind-<cluster>` context loads an advertised
-archive through `kind load image-archive --name <cluster>` once per context/digest; the process
-inherits `KIND_EXPERIMENTAL_PROVIDER` and the pod keeps the archive's published repository
-identity, including any pinned entry registry, rather than receiving a target registry override.
-A missing Kind executable warns and skips the daemon-load
-attempt; late binding then uses a configured registry or fails, never an implicit pull. A no-index custom realizer may acquire only the
-digest-pinned manifest identity; the direct-digest path and hermetic render surface remain
-available. Export and Kubernetes import are included; system installation, SDK render/bootstrap dispatch,
-and the public platform CLI hook are implemented in item 37. Operational boundaries appear below.
+**Design item 35 integration:** source manifests may omit `artifact.image`. In Local, Gather
+invokes the SDK's `CohesionPublishImages` target with the target node's Linux architecture and
+reloads the resulting application index. An explicit `ImageIndexPath` bypasses publication.
+Each resource resolves only its own `ArtifactRef.Self`; a declared manifest image must match
+the index repository/digest. A pinned index registry remains pinned. Late-bound images use
+`ContainerRegistry`; Local Kind defaults to `localhost:5001`. Verified archives are ingested
+into the shared OCI store and pushed by digest over Registry API v2. Nodes pull through the
+provisioned containerd hosts route to `cohesion-registry:5000`. No Kind archive import or
+manifest-digest alias is needed. Offline rendering resolves an explicit index without publishing
+or contacting the cluster. Manifest-only digest-pinned images keep their existing path.
 
 **Dependencies:** the generic ApplicationModel + Gateway base packages, `platforms/Containers`,
 and `KubernetesClient`. COHPLT001 forbids resource-area `.ApplicationModel`, `*.Hosting`,
@@ -82,15 +76,14 @@ because that resource cannot report the outcome needed to authorize namespace de
   one system listen port. Live multi-model control-plane sessions and multi-model bootstrap apply
   fail explicitly pending a routing contract; offline multi-model rendering remains a review surface.
 - Current resolver/model contracts carry neither a managed port-forward lifetime nor a gateway
-  topology role. Development port-forwarding and Production root-owner enforcement need those
+  topology role. Local port-forwarding and Production root-owner enforcement need those
   upstream seams; this package still enforces namespace/object ownership and explicit adoption.
 - The upstream application builder refuses `--realize` for Kubernetes before reconcile and directs
-  Development use to Local, InProcess, or Docker.
+  developer-machine use to Local, InProcess, or Docker.
 
-**Status:** design item 33 delivered the contract/package gate; item 34 delivers the generic
-Kubernetes plan compiler/controller and provider metadata. Item 35 adds application-index
-resolution, pinned or target-supplied registry identity, and the Development Kind archive-load path;
-arbitrary non-Kind registry reachability remains tracked separately.
+**Status:** the gateway includes application-index resolution, SDK publication for the target
+architecture, and digest-preserving registry push for Local Kind. Registry provisioning is
+available as a script and through `KubernetesKindCluster.ProvisionAsync`.
 
 ## System and command modes
 
@@ -102,10 +95,10 @@ Cluster permissions are limited to namespace get/patch and global pod list/watch
 application shares the system namespace, and broaden for cross-namespace reconciliation.
 `SystemNamespace=cohesion-system`, `SystemServiceAccount=cohesion-gateway`, `SystemExposure=None`,
 and `BootstrapApply=true` are defaults. `SystemImage` and persistent `SystemStorageSize` are
-explicit requirements for rendering/bootstrap; optional storage class and Ingress host/class are
+explicit requirements for a system installation; optional storage class and Ingress host/class are
 platform options. Ingress requires both host and class; LoadBalancer adds a separate Service.
 
-`RenderAsync` emits installation first then models/resource plans in declaration order with empty
+`RenderAsync` emits the installation only when its image/storage options are supplied, then models/resource plans in declaration order with empty
 resolved inputs, offline manifest/index artifacts, and no Gather call. Unresolved mount objects
 are previews requiring runtime input resolution. `BootstrapAsync` always emits and optionally
 applies; false is offline emission. Default application intentionally follows the owner-approved
@@ -119,4 +112,4 @@ allocation independently. The typed Kubernetes resolver exposes this URL for `re
 Only public trust material belongs in ConfigMaps. Native P-256 key persistence uses the public
 `IGatewayTrustKeyRepository` seam; upstream still issues and verifies developer export tokens.
 
-See [the area README](../../README.md) for switches and exact opt-in Kind prerequisites.
+See [the area README](../../README.md) for switches and Kind provisioning and verification.

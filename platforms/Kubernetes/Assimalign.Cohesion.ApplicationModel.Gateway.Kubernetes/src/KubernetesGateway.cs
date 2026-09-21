@@ -37,6 +37,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     private readonly Dictionary<IApplicationResource, ImageGatherContext> _imageContexts =
         new(ReferenceEqualityComparer.Instance);
 
+    private readonly Dictionary<IApplicationModel, string?> _publishedIndexes = new(ReferenceEqualityComparer.Instance);
     private IKubernetes? _client;
     private bool _namespaceShutdownFailed;
 
@@ -55,21 +56,13 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A Kubernetes option is invalid.</exception>
     public KubernetesGateway(KubernetesGatewayOptions options)
-        : this(options, CreateKindImageLoader(options))
-    {
-    }
-
-    internal KubernetesGateway(
-        KubernetesGatewayOptions options,
-        IKindImageLoader kindImageLoader)
         : base(options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(kindImageLoader);
         options.ValidateKubernetes();
         options.TrustKeyRepository ??= new KubernetesGatewayTrustKeyRepository(options);
         _options = options;
-        _imageGatherer = new KubernetesImageGatherer(options, kindImageLoader);
+        _imageGatherer = new KubernetesImageGatherer(options);
         var resources = new KubernetesGatewayResourceApi(GetRequiredClient);
         KubernetesPlanController? planController = null;
         _observations = new KubernetesGatewayObservationRegistry(
@@ -132,22 +125,33 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         }
 
         string? image = manifestResource.Manifest.Artifact.Image;
-        if (string.IsNullOrWhiteSpace(image))
+        if (image is not null)
         {
-            throw new InvalidOperationException(
-                $"Resource '{descriptor.Resource.Name}' cannot be realized by the Kubernetes gateway because " +
-                "its manifest does not declare artifact.image.");
+            _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
         }
 
-        _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
-
         _imageContexts[descriptor.Resource] = new ImageGatherContext(
-            model.Environment.IsLocal,
+            model,
             plan.Container.Artifact);
     }
 
     /// <inheritdoc/>
     protected override async Task<IResourceArtifact> GatherAsync(
+        IApplicationResource resource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GatherImageAsync(resource, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _publishedIndexes.Clear();
+            throw;
+        }
+    }
+
+    private async Task<IResourceArtifact> GatherImageAsync(
         IApplicationResource resource,
         CancellationToken cancellationToken)
     {
@@ -157,13 +161,38 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
                 $"Resource '{resource.Name}' has no validated Kubernetes image-gather context.");
         }
 
-        return await _imageGatherer
-            .GatherAsync(
-                resource,
-                context.ArtifactReference,
-                context.IsLocal,
-                cancellationToken)
-            .ConfigureAwait(false);
+        if (!_publishedIndexes.TryGetValue(context.Model, out string? indexPath))
+        {
+            indexPath = await ContainerImagePublishing.PrepareAsync(context.Model, _options.ImageIndexPath,
+                ReadTargetArchitectureAsync, ContainerImagePublishing.CreatePublisher(), cancellationToken).ConfigureAwait(false);
+            _publishedIndexes[context.Model] = indexPath;
+        }
+        return await _imageGatherer.GatherAsync(resource, context.ArtifactReference,
+            context.Model.Environment.IsLocal, cancellationToken, indexPath).ConfigureAwait(false);
+    }
+
+    private async Task<string> ReadTargetArchitectureAsync(CancellationToken cancellationToken)
+    {
+        using IKubernetes client = KubernetesClientFactory.Create(_options);
+        V1NodeList nodes = await client.CoreV1.ListNodeAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        string? architecture = null;
+        foreach (V1Node node in nodes.Items)
+        {
+            if (node.Spec?.Unschedulable == true)
+            {
+                continue;
+            }
+
+            string current = node.Status?.NodeInfo?.Architecture
+                ?? throw new InvalidOperationException($"Node '{node.Metadata.Name}' has no architecture.");
+            if (architecture is not null && architecture != current)
+            {
+                throw new InvalidOperationException("Local image publishing requires a homogeneous target architecture; use a pre-published ImageIndexPath for a mixed cluster.");
+            }
+
+            architecture = current;
+        }
+        return architecture ?? throw new InvalidOperationException("The target cluster has no schedulable nodes.");
     }
 
     /// <inheritdoc/>
@@ -350,6 +379,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         IReadOnlyList<IApplicationModel> models,
         CancellationToken cancellationToken)
     {
+        _publishedIndexes.Clear();
         ArgumentNullException.ThrowIfNull(models);
         if (models.Count > 1 && _options.ControlPlane is not null)
         {
@@ -419,6 +449,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     /// <inheritdoc/>
     protected override async Task StopObserverAsync(CancellationToken cancellationToken)
     {
+        _publishedIndexes.Clear();
         IKubernetes? client = _client;
         if (client is null)
         {
@@ -803,15 +834,6 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     private static string CreateAbsoluteAddress(ResourceEndpoint endpoint) =>
         Uri.CreateEndpoint(endpoint.Scheme, endpoint.Host!, endpoint.Port).ToEndpointString();
 
-    private static IKindImageLoader CreateKindImageLoader(KubernetesGatewayOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return new KindImageLoader(
-            options,
-            new KubernetesContextResolver(),
-            new KindCommandRunner());
-    }
-
     private static void RequireObjectOwnership(
         V1ObjectMeta? metadata,
         string description,
@@ -840,7 +862,7 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     private readonly record struct ExportRegistration(string Owner, bool Adopt);
 
     private readonly record struct ImageGatherContext(
-        bool IsLocal,
+        IApplicationModel Model,
         ArtifactRef ArtifactReference);
 
     internal sealed class NamespaceRegistration : IDisposable

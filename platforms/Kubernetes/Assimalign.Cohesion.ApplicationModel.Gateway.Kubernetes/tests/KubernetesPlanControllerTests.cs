@@ -20,6 +20,23 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
 public class KubernetesPlanControllerTests
 {
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Reapply: Typed list items without GVK update in place")]
+    public async Task ReconcileAsync_OnListItemsWithoutTypeMetadata_ShouldUpdateInPlace()
+    {
+        var api = new FakeApi { PersistAppliedObjects = true };
+        var observations = new FakeObservations();
+        var controller = new KubernetesPlanController(new KubernetesGatewayOptions(), new KubernetesPlanCompiler(), api, observations);
+        FakeContext context = CreateContext();
+        await controller.ReconcileAsync(context);
+        api.SupportedObjects = api.AppliedObjects.ToArray();
+        foreach (var existing in api.SupportedObjects) { existing.ApiVersion = null; existing.Kind = null; }
+        api.ClearRecordings();
+        await controller.ReconcileAsync(context);
+        api.SupportedObjects.OfType<V1Deployment>().Single().ApiVersion.ShouldBe("apps/v1");
+        api.Deleted.ShouldBeEmpty();
+        observations.RegisterCount.ShouldBe(2);
+    }
+
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Controller: Should apply the compiled set in dependency order")]
     public async Task ReconcileAsync_OnV1Plan_ShouldApplyInDependencyOrder()
     {
@@ -1171,7 +1188,7 @@ public class KubernetesPlanControllerTests
         public string? ThrowAfterJsonPatchKind { get; init; }
         public string? DelayedDeleteKind { get; init; }
         public int DeletionReadCount { get; private set; }
-        public IReadOnlyList<IKubernetesObject<V1ObjectMeta>> SupportedObjects { get; init; } = [];
+        public IReadOnlyList<IKubernetesObject<V1ObjectMeta>> SupportedObjects { get; set; } = [];
         public IReadOnlyList<V1PersistentVolumeClaim> NamespaceClaims { get; init; } = [];
         public string? ListedNamespace { get; private set; }
         public string? ListedResourceLabel { get; private set; }

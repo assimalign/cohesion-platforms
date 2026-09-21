@@ -76,7 +76,8 @@ The fields and their required/optional status are exact:
 `cohesion/plan/v1` has exactly one artifact reference: `ArtifactRef.Self` serialized as `"self"`.
 A gateway resolving a plan must select the unique index entry whose `resource` equals that plan's
 resource. It must reject a missing entry, a duplicate entry, another artifact reference, a
-tag-only manifest image, or a manifest repository/digest that differs from the selected entry.
+tag-only manifest image, or a declared manifest repository/digest that differs from the selected entry.
+Source manifests may omit the image; the selected index entry then owns the identity.
 The per-resource index is never searched for another resource's artifact.
 
 When `registry` is omitted or JSON `null`, a target-supplied authority such as
@@ -84,9 +85,11 @@ When `registry` is omitted or JSON `null`, a target-supplied authority such as
 `registry.example.test:5000/example/appa-api@sha256:…`. When `registry` contains a concrete
 authority, that authority is pinned: it prefixes `repository`, and a target-supplied registry is
 ignored rather than replacing it. An unresolved late-bound registry is valid only for a verified
-local archive that loads by immutable image ID (Docker) or into Kind. It must not fall through to
+local archive that loads by immutable image ID (Docker). Local Kind binds to its provisioned
+registry and pushes the verified image by digest. It must not fall through to
 a tag or an implicit public registry.
 
 The SDK container-publish item owns writing `image.json` and gathering
 `application.images.json`. This package owns strict reading, validation, archive resolution, and
-target acquisition; it never builds an image.
+target acquisition. Its shared Local preflight invokes the SDK target, which owns image building
+and fingerprint freshness. An explicit pre-published index bypasses this invocation.

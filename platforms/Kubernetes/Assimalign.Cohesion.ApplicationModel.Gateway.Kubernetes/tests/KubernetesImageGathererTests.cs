@@ -16,366 +16,104 @@ public class KubernetesImageGathererTests
     private static readonly string _digest = $"sha256:{new string('a', 64)}";
     private static readonly string _image = $"example/test@{_digest}";
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should resolve own entry and preserve repository for a Kind archive")]
-    public async Task GatherAsync_OnMatchingOwnEntry_ShouldLoadArchiveWithRepository()
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Gather: Resolve source and package images through the Kind registry")]
+    [InlineData(null)]
+    [InlineData("package")]
+    public async Task GatherAsync_OnLocalKindArchive_ShouldPushAndBindDigest(string? manifestImage)
     {
-        // Arrange
         using var directory = new TestDirectory();
-        string archivePath = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var options = new KubernetesGatewayOptions
-        {
-            ImageIndexPath = indexPath,
-            ContainerRegistry = "localhost:5000",
-        };
-        var kindImages = new RecordingKindImageLoader();
-        var archives = new RecordingArchiveVerifier();
-        var gatherer = new KubernetesImageGatherer(options, kindImages, archives);
-        IApplicationResource resource = CreateResource(_image);
+        directory.CreateFile("web.tar");
+        string path = await directory.WriteIndexAsync("appa", "example/test", _digest, "web.tar", null);
+        var route = new RecordingRegistryRoute();
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path }, route);
+        IApplicationResource resource = CreateResource(manifestImage is null ? null : _image);
+        IContainerImageArtifact artifact = await gatherer.GatherAsync(resource, ArtifactRef.Self, true, CancellationToken.None);
+        artifact.Repository.ShouldBe("localhost:5001/example/test");
+        artifact.Digest.ShouldBe(_digest);
+        route.Pushes.ShouldHaveSingleItem().ShouldBe($"localhost:5001/example/test@{_digest}");
+    }
 
-        // Act
-        IContainerImageArtifact artifact = await gatherer.GatherAsync(
-            resource,
-            ArtifactRef.Self,
-            isLocal: true,
-            CancellationToken.None);
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Gather: Honor pinned and configured registries")]
+    [InlineData(null, "registry.test:5000", "registry.test:5000/example/test")]
+    [InlineData("pinned.test", "ignored.test", "pinned.test/example/test")]
+    public async Task GatherAsync_OnRegistrySelection_ShouldPreservePrecedence(string? pinned, string configured, string expected)
+    {
+        using var directory = new TestDirectory();
+        string path = await directory.WriteIndexAsync("appa", "example/test", _digest, null, pinned);
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path, ContainerRegistry = configured }, new RecordingRegistryRoute());
+        var artifact = await gatherer.GatherAsync(CreateResource(null), ArtifactRef.Self, true, CancellationToken.None);
+        artifact.Repository.ShouldBe(expected);
+    }
 
-        // Assert
-        artifact.Resource.ShouldBe(resource.Id);
+    [Theory(DisplayName = "Cohesion Test [Kubernetes] - Gather: Reject conflicting index identities")]
+    [InlineData("other", "a")]
+    [InlineData("appa", "b")]
+    public async Task GatherAsync_OnConflictingIdentity_ShouldReject(string application, string digestCharacter)
+    {
+        using var directory = new TestDirectory();
+        string path = await directory.WriteIndexAsync(application, "example/test", $"sha256:{new string(digestCharacter[0], 64)}", null, null);
+        var route = new RecordingRegistryRoute();
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path }, route);
+        await Should.ThrowAsync<InvalidDataException>(() => gatherer.GatherAsync(CreateResource(_image), ArtifactRef.Self, true, CancellationToken.None));
+        route.Pushes.ShouldBeEmpty();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather: Reject missing archive before pushing")]
+    public async Task GatherAsync_OnMissingArchive_ShouldReject()
+    {
+        using var directory = new TestDirectory();
+        string path = await directory.WriteIndexAsync("appa", "example/test", _digest, "missing.tar", null);
+        var route = new RecordingRegistryRoute();
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path }, route);
+        await Should.ThrowAsync<FileNotFoundException>(() => gatherer.GatherAsync(CreateResource(null), ArtifactRef.Self, true, CancellationToken.None));
+        route.Pushes.ShouldBeEmpty();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather: Development must not use the Local Kind route")]
+    public async Task GatherAsync_OnNonLocalModel_ShouldNotProbeKind()
+    {
+        using var directory = new TestDirectory();
+        string path = await directory.WriteIndexAsync("appa", "example/test", _digest, null, null);
+        var route = new RecordingRegistryRoute();
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path, ContainerRegistry = "registry.test" }, route);
+        var artifact = await gatherer.GatherAsync(CreateResource(null), ArtifactRef.Self, false, CancellationToken.None);
+        artifact.Repository.ShouldBe("registry.test/example/test");
+        route.Probes.ShouldBe(0);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather: Reject unbound registry outside Kind")]
+    public async Task GatherAsync_OnUnboundRegistry_ShouldReject()
+    {
+        using var directory = new TestDirectory();
+        string path = await directory.WriteIndexAsync("appa", "example/test", _digest, null, null);
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions { ImageIndexPath = path }, new RecordingRegistryRoute { IsKind = false });
+        await Should.ThrowAsync<InvalidOperationException>(() => gatherer.GatherAsync(CreateResource(null), ArtifactRef.Self, true, CancellationToken.None));
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather: Preserve a digest-pinned manifest without an index")]
+    public async Task GatherAsync_OnPackageManifest_ShouldUseImage()
+    {
+        var gatherer = new KubernetesImageGatherer(new KubernetesGatewayOptions(), new RecordingRegistryRoute());
+        var artifact = await gatherer.GatherAsync(CreateResource(_image), ArtifactRef.Self, false, CancellationToken.None);
         artifact.Repository.ShouldBe("example/test");
         artifact.Digest.ShouldBe(_digest);
-        artifact.Tag.ShouldBe("latest");
-        KindImageLoad call = kindImages.Calls.ShouldHaveSingleItem();
-        call.ArchivePath.ShouldBe(Path.GetFullPath(archivePath));
-        call.Digest.ShouldBe(_digest);
-        archives.Calls.ShouldBe(1);
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should bind late-bound registry outside Kind")]
-    public async Task GatherAsync_OnLateBoundNonKindEntry_ShouldBindRegistry()
+    private sealed class RecordingRegistryRoute : IKubernetesImageRegistryRoute
     {
-        // Arrange
-        using var directory = new TestDirectory();
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: null,
-            registry: null);
-        var options = new KubernetesGatewayOptions
+        public bool IsKind { get; init; } = true;
+        public int Probes { get; private set; }
+        public List<string> Pushes { get; } = [];
+        public Task<bool> IsKindAsync(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); Probes++; return Task.FromResult(IsKind); }
+        public Task PushAsync(IContainerImageIndexEntry entry, string indexPath, string registry, CancellationToken cancellationToken)
         {
-            ImageIndexPath = indexPath,
-            ContainerRegistry = "localhost:5000",
-        };
-        var gatherer = new KubernetesImageGatherer(
-            options,
-            new RecordingKindImageLoader(KindImageLoadResult.NotKind),
-            new RecordingArchiveVerifier());
-
-        // Act
-        IContainerImageArtifact artifact = await gatherer.GatherAsync(
-            CreateResource(_image),
-            ArtifactRef.Self,
-            isLocal: false,
-            CancellationToken.None);
-
-        // Assert
-        artifact.Repository.ShouldBe("localhost:5000/example/test");
-        artifact.Digest.ShouldBe(_digest);
+            cancellationToken.ThrowIfCancellationRequested();
+            Pushes.Add($"{registry}/{entry.Repository}@{entry.Digest}");
+            return Task.CompletedTask;
+        }
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should preserve a pinned index registry")]
-    public async Task GatherAsync_OnPinnedRegistry_ShouldIgnoreConfiguredRegistry()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: null,
-            registry: "registry.example:5000");
-        var options = new KubernetesGatewayOptions
-        {
-            ImageIndexPath = indexPath,
-            ContainerRegistry = "other.example:5000",
-        };
-        var kindImages = new RecordingKindImageLoader();
-        var gatherer = new KubernetesImageGatherer(
-            options,
-            kindImages,
-            new RecordingArchiveVerifier());
-
-        // Act
-        IContainerImageArtifact artifact = await gatherer.GatherAsync(
-            CreateResource(_image),
-            ArtifactRef.Self,
-            isLocal: true,
-            CancellationToken.None);
-
-        // Assert
-        artifact.Repository.ShouldBe("registry.example:5000/example/test");
-        kindImages.Calls.ShouldBeEmpty();
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should refuse an index for another application")]
-    public async Task GatherAsync_OnDifferentIndexApplication_ShouldRejectIndex()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        string indexPath = await directory.WriteIndexAsync(
-            application: "other",
-            repository: "example/test",
-            digest: _digest,
-            archive: null,
-            registry: null);
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            new RecordingKindImageLoader(),
-            new RecordingArchiveVerifier());
-
-        // Act
-        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: false,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain("belongs to application 'other'", Case.Sensitive);
-        exception.Message.ShouldContain("manifest application 'appa'", Case.Sensitive);
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should refuse an index identity that differs from the manifest")]
-    public async Task GatherAsync_OnDifferentIndexDigest_ShouldRejectIndex()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        string indexedDigest = $"sha256:{new string('b', 64)}";
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: indexedDigest,
-            archive: null,
-            registry: null);
-        var kindImages = new RecordingKindImageLoader();
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            kindImages,
-            new RecordingArchiveVerifier());
-
-        // Act
-        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: true,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain(indexedDigest, Case.Sensitive);
-        exception.Message.ShouldContain(_digest, Case.Sensitive);
-        kindImages.Calls.ShouldBeEmpty();
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should refuse a missing advertised archive")]
-    public async Task GatherAsync_OnMissingAdvertisedArchive_ShouldRejectIndex()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/missing.tar",
-            registry: null);
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            new RecordingKindImageLoader(),
-            new RecordingArchiveVerifier());
-
-        // Act
-        FileNotFoundException exception = await Should.ThrowAsync<FileNotFoundException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: true,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain("images", Case.Sensitive);
-        exception.Message.ShouldContain("missing.tar", Case.Sensitive);
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should verify archive bytes before invoking Kind")]
-    public async Task GatherAsync_OnCorruptArchive_ShouldRejectBeforeKindLoad()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        _ = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var kindImages = new RecordingKindImageLoader();
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            kindImages,
-            new RejectingArchiveVerifier());
-
-        // Act
-        InvalidDataException exception = await Should.ThrowAsync<InvalidDataException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: true,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain("digest verification failed", Case.Sensitive);
-        kindImages.Calls.ShouldBeEmpty();
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should not load a Kind archive outside Development")]
-    public async Task GatherAsync_OnNonDevelopmentModel_ShouldNotLoadKindArchive()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        _ = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var kindImages = new RecordingKindImageLoader();
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions
-            {
-                ImageIndexPath = indexPath,
-                ContainerRegistry = "registry.example:5000",
-            },
-            kindImages,
-            new RecordingArchiveVerifier());
-
-        // Act
-        _ = await gatherer.GatherAsync(
-            CreateResource(_image),
-            ArtifactRef.Self,
-            isLocal: false,
-            CancellationToken.None);
-
-        // Assert
-        kindImages.Calls.ShouldBeEmpty();
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should refuse unresolved late binding outside a Kind archive path")]
-    public async Task GatherAsync_OnLateBoundNonKindImageWithoutRegistry_ShouldRejectIndex()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        _ = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var kindImages = new RecordingKindImageLoader(KindImageLoadResult.NotKind);
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            kindImages,
-            new RecordingArchiveVerifier());
-
-        // Act
-        InvalidOperationException exception = await Should.ThrowAsync<InvalidOperationException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: true,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain(
-            nameof(KubernetesGatewayOptions.ContainerRegistry),
-            Case.Sensitive);
-        kindImages.Calls.Count.ShouldBe(1);
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should refuse unresolved late binding when Kind is unavailable")]
-    public async Task GatherAsync_OnLateBoundImageWithUnavailableKind_ShouldRejectIndex()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        _ = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions { ImageIndexPath = indexPath },
-            new RecordingKindImageLoader(KindImageLoadResult.KindUnavailable),
-            new RecordingArchiveVerifier());
-
-        // Act
-        InvalidOperationException exception = await Should.ThrowAsync<InvalidOperationException>(
-            () => gatherer.GatherAsync(
-                CreateResource(_image),
-                ArtifactRef.Self,
-                isLocal: true,
-                CancellationToken.None));
-
-        // Assert
-        exception.Message.ShouldContain(
-            nameof(KubernetesGatewayOptions.ContainerRegistry),
-            Case.Sensitive);
-        exception.Message.ShouldContain("not acquired", Case.Sensitive);
-    }
-
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Gather image: Should use a registry when Kind is unavailable")]
-    public async Task GatherAsync_OnLateBoundImageWithUnavailableKindAndRegistry_ShouldBindRegistry()
-    {
-        // Arrange
-        using var directory = new TestDirectory();
-        _ = directory.CreateFile(Path.Combine("images", "web.tar"));
-        string indexPath = await directory.WriteIndexAsync(
-            application: "appa",
-            repository: "example/test",
-            digest: _digest,
-            archive: "images/web.tar",
-            registry: null);
-        var gatherer = new KubernetesImageGatherer(
-            new KubernetesGatewayOptions
-            {
-                ImageIndexPath = indexPath,
-                ContainerRegistry = "localhost:5000",
-            },
-            new RecordingKindImageLoader(KindImageLoadResult.KindUnavailable),
-            new RecordingArchiveVerifier());
-
-        // Act
-        IContainerImageArtifact artifact = await gatherer.GatherAsync(
-            CreateResource(_image),
-            ArtifactRef.Self,
-            isLocal: true,
-            CancellationToken.None);
-
-        // Assert
-        artifact.Repository.ShouldBe("localhost:5000/example/test");
-        artifact.Digest.ShouldBe(_digest);
-    }
-
-    private static IApplicationResource CreateResource(string image)
+    private static IApplicationResource CreateResource(string? image)
     {
         IApplicationBuilder builder = Application.CreateBuilder(
             ApplicationName.Parse("appa"),
@@ -408,52 +146,6 @@ public class KubernetesImageGathererTests
             },
         }).Resource;
     }
-
-    private sealed class RecordingKindImageLoader : IKindImageLoader
-    {
-        private readonly KindImageLoadResult _result;
-
-        public RecordingKindImageLoader(KindImageLoadResult result = KindImageLoadResult.Loaded) =>
-            _result = result;
-
-        public List<KindImageLoad> Calls { get; } = [];
-
-        public Task<KindImageLoadResult> LoadIfKindAsync(
-            string archivePath,
-            string digest,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Calls.Add(new KindImageLoad(archivePath, digest));
-            return Task.FromResult(_result);
-        }
-    }
-
-    private sealed class RecordingArchiveVerifier : IKubernetesImageArchiveVerifier
-    {
-        public int Calls { get; private set; }
-
-        public Task VerifyAsync(
-            IContainerImageIndexEntry entry,
-            string imageIndexPath,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Calls++;
-            return Task.CompletedTask;
-        }
-    }
-
-    private sealed class RejectingArchiveVerifier : IKubernetesImageArchiveVerifier
-    {
-        public Task VerifyAsync(
-            IContainerImageIndexEntry entry,
-            string imageIndexPath,
-            CancellationToken cancellationToken) =>
-            Task.FromException(new InvalidDataException("digest verification failed"));
-    }
-
-    private sealed record KindImageLoad(string ArchivePath, string Digest);
 
     private sealed class TestDirectory : IDisposable
     {

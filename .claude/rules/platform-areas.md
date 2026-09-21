@@ -24,8 +24,9 @@ derives from the public guided base `ApplicationGateway` (package
   never assembly-scans for them.
 - `State` — cohesion's public `InMemoryResourceStateManager`, or another
   `IApplicationResourceStateManager` implementation with the same level-triggered contract.
-- `GatherAsync` — **locates and validates** a deployable artifact; it never builds. Container
-  gateways resolve a pre-built, digest-pinned image through the image index.
+- `GatherAsync` — prepares Local application images through the SDK target before locating and
+  validating an artifact (owner decision, 2026-09-21, Phase 5b). Explicit indexes bypass publishing;
+  SDK freshness decides whether rebuilding is necessary. Compilers remain pure.
 - `StartObserverAsync` / `StopObserverAsync` — the platform's single observer lifecycle.
 
 ## Hard rules

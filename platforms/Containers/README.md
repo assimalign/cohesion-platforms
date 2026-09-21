@@ -24,9 +24,8 @@ pull-only Registry API v2 (`GET`/`HEAD`). This BCL implementation preserves COHP
 program-plan suggestion to use `Web.Routing` would transitively bring the forbidden
 `Assimalign.Cohesion.Hosting` assembly into this shipped project.
 
-The cohesion SDK item will produce and gather the documented indexes. General registry
-reachability from Kubernetes nodes remains Kubernetes `L04.01.03.08` / #22; this area does not
-invent that topology.
+The cohesion SDK produces and gathers the documented indexes. Kind registry provisioning and
+node routing belong to the Kubernetes area; this area owns the shared push protocol.
 
 ## Layering
 
@@ -39,3 +38,18 @@ invent that topology.
   reverse, and the two platform areas never reference each other.
 
 See `.claude/rules/platform-areas.md` for the binding architecture rules.
+
+## Local image preparation and registry push
+
+ContainerImagePublishing maps target architecture, invokes CohesionPublishImages through
+IContainerImagePublisher, and reloads the resulting index. It never reimplements SDK freshness.
+MsBuildContainerImagePublisher uses argument-list process invocation and kills its child tree on
+cancellation. Explicit indexes bypass both publishing and target inspection. Source manifests
+resolve their own index entry without requiring artifact.image; package identity is still checked.
+
+OciRegistryPush uploads a verified OCI store closure through Registry API v2. It rechecks hashes,
+HEADs blobs, uploads missing content, PUTs the manifest by its unchanged digest, and verifies digest
+acknowledgements. Upload locations must stay on the selected registry authority. The client reads
+internal OciImageStore content directly within this assembly; IOciImageStore was not widened.
+The embedded registry remains pull-only and loopback-bound. Kind uses a provisioned registry
+container for node reachability. See the [Distribution API](https://distribution.github.io/distribution/spec/api/).

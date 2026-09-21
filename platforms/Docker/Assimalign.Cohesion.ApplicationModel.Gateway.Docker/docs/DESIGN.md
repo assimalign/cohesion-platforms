@@ -94,8 +94,11 @@ private named-pipe shim around the currently unavailable Cohesion Connections pa
 `GET /version` supplies the daemon range, intersected with client v1.25–v1.51; the highest common
 version is cached. Malformed ranges or no overlap fail before versioned requests.
 
-Gather never builds. A configured `cohesion/images/v1` application index must match the model and
-manifest's authority-free repository/digest. A pinned entry registry wins; `ContainerRegistry`
+Local source models invoke the shared Containers SDK publisher using the engine's architecture,
+then gather the produced index. Explicit ImageIndexPath bypasses publishing and engine architecture
+inspection. SDK freshness decides whether to rebuild; the compiler remains pure. A source manifest
+may omit artifact.image; any declared image is checked against the index. The index must belong to
+the model and resolves only ArtifactRef.Self. A pinned entry registry wins; `ContainerRegistry`
 binds only an omitted registry. Archive paths resolve relative to the index without traversal.
 Live acquisition needs a registry or archive for late-bound entries. The realizer verifies an
 existing image, loads a verified manifest/config/layer closure, or pulls by digest, and the gateway

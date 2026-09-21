@@ -90,13 +90,19 @@ public sealed partial class KubernetesGateway
         ValidateNormalizedNames(models);
         // Assemble every document before writing, so invalid resource plans cannot produce
         // a seemingly usable partial installation. Rendering never gathers or contacts Kubernetes.
-        var objects = new List<IKubernetesObject<V1ObjectMeta>>(KubernetesSystemInstallation.Create(_options, models));
+        var objects = new List<IKubernetesObject<V1ObjectMeta>>();
+        bool includeSystem = _options.SystemImage is not null || _options.SystemStorageSize is not null;
+        if (includeSystem)
+        {
+            objects.AddRange(KubernetesSystemInstallation.Create(_options, models));
+        }
+
         IApplicationImageIndex? index = _options.ImageIndexPath is null ? null
             : await ContainerImageIndexes.ReadApplicationAsync(_options.ImageIndexPath, cancellationToken).ConfigureAwait(false);
         foreach (IApplicationModel model in models)
         {
             string namespaceName = KubernetesMetadata.NamespaceName(model.Name);
-            if (namespaceName != _options.SystemNamespace)
+            if (!includeSystem || namespaceName != _options.SystemNamespace)
             {
                 V1ObjectMeta metadata = KubernetesMetadata.CreateObjectMeta(namespaceName, namespaceName, "cohesion-gateway", "namespace/v1", model.Owner);
                 metadata.NamespaceProperty = null;
@@ -235,15 +241,16 @@ public sealed partial class KubernetesGateway
     private IContainerImageArtifact ResolveRenderArtifact(
         IApplicationModel model, IApplicationResource resource, ResourcePlan plan, IApplicationImageIndex? index)
     {
-        if (resource is not IManifestResource manifest || string.IsNullOrWhiteSpace(manifest.Manifest.Artifact.Image))
+        if (resource is not IManifestResource manifest)
         {
             throw new InvalidOperationException($"Resource '{resource.Name}' has no manifest artifact.image.");
         }
 
-        IContainerImageArtifact expected = ContainerImageArtifacts.Create(resource.Id, manifest.Manifest.Artifact.Image);
+        IContainerImageArtifact? expected = manifest.Manifest.Artifact.Image is string image
+            ? ContainerImageArtifacts.Create(resource.Id, image) : null;
         if (index is null)
         {
-            return expected;
+            return expected ?? throw new InvalidDataException($"Resource '{resource.Name}' requires a pre-published ImageIndexPath for offline rendering.");
         }
 
         if (index.Application != model.Name)
@@ -252,7 +259,7 @@ public sealed partial class KubernetesGateway
         }
 
         IContainerImageIndexEntry entry = ContainerImageIndexes.Resolve(index, resource.Name, plan.Container.Artifact);
-        if (entry.Repository != expected.Repository || entry.Digest != expected.Digest)
+        if (expected is not null && (entry.Repository != expected.Repository || entry.Digest != expected.Digest))
         {
             throw new InvalidDataException($"Image index for '{resource.Name}' does not match the manifest repository and digest.");
         }

@@ -17,6 +17,7 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 internal sealed class FakeGatewayTrustKeyApi : IKubernetesResourceApi, IDisposable
 {
     private V1Secret? _stored;
+    public V1Namespace? Namespace { get; set; }
     private int _version;
 
     public int Reads { get; private set; }
@@ -46,6 +47,7 @@ internal sealed class FakeGatewayTrustKeyApi : IKubernetesResourceApi, IDisposab
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (resource is V1Namespace) { return Task.FromResult<IKubernetesObject<V1ObjectMeta>?>(Namespace); }
         Reads++;
         LastReadName = resource.Metadata.Name;
         LastReadNamespace = resource.Metadata.NamespaceProperty;
@@ -57,6 +59,8 @@ internal sealed class FakeGatewayTrustKeyApi : IKubernetesResourceApi, IDisposab
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (resource is V1Namespace ns) { Namespace = ns; return Task.FromResult(true); }
+        if (Namespace is null) { throw new InvalidOperationException("Namespace must precede Secret creation."); }
         Creates++;
         BeforeCreate?.Invoke(this);
         if (_stored is not null || ConflictEveryCreate)

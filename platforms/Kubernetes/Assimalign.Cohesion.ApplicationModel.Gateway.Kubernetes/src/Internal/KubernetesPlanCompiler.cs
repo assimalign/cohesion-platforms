@@ -1197,6 +1197,13 @@ internal sealed class KubernetesPlanCompiler
             Spec = new V1PodSpec
             {
                 Containers = [container],
+                SecurityContext = new V1PodSecurityContext
+                {
+                    RunAsNonRoot = true,
+                    RunAsUser = 1654,
+                    RunAsGroup = 1654,
+                    FsGroup = 1654,
+                },
                 RestartPolicy = restartPolicy,
                 TerminationGracePeriodSeconds = plan.Workload.StopGraceSeconds,
                 Volumes = volumes,

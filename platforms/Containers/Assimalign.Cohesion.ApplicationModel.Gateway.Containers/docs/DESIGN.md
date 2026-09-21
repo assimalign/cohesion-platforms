@@ -7,7 +7,8 @@
 ## Design intent
 
 Docker and Kubernetes gateways share one problem that has nothing to do with either platform:
-turning *pre-built, digest-pinned container images* into gathered artifacts a gateway can realize.
+preparing source application images through the SDK and turning digest-pinned images into
+gathered artifacts a gateway can realize.
 This package owns that problem — the artifact/index model, digest verification, the OCI store —
 so each platform gateway supplies only its reconcile/observe specifics.
 
@@ -20,9 +21,12 @@ so each platform gateway supplies only its reconcile/observe specifics.
   `InMemoryResourceStateManager` from `Assimalign.Cohesion.ApplicationModel.Gateway`. Rejected
   alternative: retaining a Containers-owned copy — duplicate lifecycle behavior would drift from
   the gateway contract and force this repo to repeat upstream's state-manager test matrix.
-- **Gather, never build.** `GatherAsync` locates/validates artifacts produced upstream by
-  `PublishContainer`. Rejected alternative: building images inside the gateway — collapses the
-  build/run boundary the upstream design draws deliberately.
+- **Local preparation delegates to the SDK.** The owner decision of 2026-09-21 replaces the
+  prebuilt-only Local loop: a container gateway invokes CohesionPublishImages before resolving
+  artifacts, while the SDK owns fingerprint freshness. Explicit indexes bypass publishing.
+  The IContainerImagePublisher seam permits command testing without starting MSBuild. Its default
+  invoker uses dotnet msbuild with -restore and a target RID; it never publishes the running
+  apphost output. Streams are relayed explicitly and cancellation kills the child process tree.
 - **No compiler here.** Docker and Kubernetes each own exactly one compiler for `ResourcePlan`;
   shared Containers code owns only artifact/image/registry mechanics and test primitives. A shared
   compiler would erase platform-specific validation and object construction boundaries.
@@ -65,17 +69,31 @@ cohesion service — keeps the cohesion AOT posture.
 
 `ContainerImageIndexes` resolves and validates metadata; `OciImageStores` ingests bytes;
 `EmbeddedOciRegistries` serves verified bytes. Docker uses the archive path for verified
-load/run-by-ID and pulls registry-backed images through the Engine API by digest. Kubernetes loads
-verified archives into Kind under the `Local` environment or returns a registry-resolved digest, preserving
+load/run-by-ID and pulls registry-backed images through the Engine API by digest. Kubernetes pushes
+verified archives to the provisioned Local Kind registry or returns a registry-resolved digest, preserving
 the entry's pinned authority or applying a target authority only when `registry` is omitted or
 null.
 
-The embedded listener is deliberately loopback-only. Making it reachable from arbitrary
-Kubernetes nodes requires the mirror/NodePort topology tracked by Kubernetes `L04.01.03.08` / #22
-and is not inferred here.
+The embedded listener is deliberately loopback-only. Kind uses a separate registry container reachable from the node network; this listener
+remains useful for loopback consumers. Arbitrary cluster topology is outside this package.
 
 ## Non-goals
 
 - No platform API clients (Kubernetes/Docker specifics live in their areas).
-- No image *building* or tag resolution against remote registries.
-- No push API, registry authentication, garbage collection, or Kubernetes reachability topology.
+- No image builder implementation or tag resolution against remote registries; building remains an SDK target.
+- No registry authentication, garbage collection, or Kubernetes reachability provisioning.
+
+## Publication identity and delivery
+
+The source application's own manifest supplies artifact.project. Models in the current contract
+carry member manifests only, so the resolver falls back to the entry assembly's embedded
+cohesion/resource.json, checking its application and gateway identity. This is a local compatibility
+path; it does not widen IApplicationModel, add a project-path switch, or scan assemblies.
+
+The push client stays beside OciImageStore and reads its existing internal verified-content
+methods. IOciImageStore remains an ingestion contract. Reusing the internal content reader avoids
+exposing filesystem/blob state through that public interface. Each push rechecks hashes, uploads
+only missing blobs, sends the original manifest by digest, and requires matching acknowledgements.
+Upload Location remains within the registry authority; authentication and redirect-based storage
+services are outside the local-registry protocol scope. Kind's container network is provisioned by
+the Kubernetes area rather than by changing the embedded registry's loopback binding.

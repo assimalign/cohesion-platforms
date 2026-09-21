@@ -193,6 +193,19 @@ public sealed class KubernetesSystemInstallationTests
         RenderGolden.Verify(text, Path.Combine("system", "composite.yaml"));
     }
 
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Render: Application preview needs no system image or storage")]
+    public async Task RenderAsync_OnApplicationOnlyModel_ShouldOmitSystemInstallation()
+    {
+        using var output = new StringWriter();
+        await new KubernetesGateway(new KubernetesGatewayOptions { KubeConfigPath = "missing-kubeconfig" })
+            .RenderAsync([Model()], output, CancellationToken.None);
+        string rendered = output.ToString();
+        rendered.ShouldContain("Deployment", Case.Sensitive);
+        rendered.ShouldContain("web", Case.Sensitive);
+        rendered.ShouldNotContain("cohesion-gateway-state", Case.Sensitive);
+        rendered.ShouldNotContain("ClusterRole", Case.Sensitive);
+    }
+
     internal static KubernetesGatewayOptions Options(KubernetesSystemExposure exposure = KubernetesSystemExposure.None) => new()
     {
         SystemImage = Image,

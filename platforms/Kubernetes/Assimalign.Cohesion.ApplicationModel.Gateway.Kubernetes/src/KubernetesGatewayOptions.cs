@@ -18,7 +18,7 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
     /// <summary>The gateway service account DNS label. Defaults to <c>cohesion-gateway</c>.</summary>
     public string SystemServiceAccount { get; set; } = "cohesion-gateway";
 
-    /// <summary>The digest-pinned gateway executable image, required for bootstrap and rendering.</summary>
+    /// <summary>The digest-pinned gateway executable image, required for bootstrap and optional system rendering.</summary>
     public string? SystemImage { get; set; }
 
     /// <summary>The requested persistent state capacity. Required when system storage is requested.</summary>
@@ -57,8 +57,8 @@ public sealed class KubernetesGatewayOptions : ApplicationGatewayOptions
 
     /// <summary>
     /// Gets or sets the optional <c>application.images.json</c> path used to gather resource
-    /// images. When specified, the index entry for the resource must match the digest-pinned
-    /// image declared by its manifest.
+    /// images. When specified, skips Local publishing; the entry must match any digest-pinned
+    /// image declared by its manifest. Source manifests may omit their image.
     /// </summary>
     public string? ImageIndexPath { get; set; }
 

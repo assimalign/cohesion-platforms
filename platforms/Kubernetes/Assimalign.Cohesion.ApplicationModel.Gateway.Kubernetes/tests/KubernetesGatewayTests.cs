@@ -119,19 +119,12 @@ public class KubernetesGatewayTests
         exception.Message.ShouldContain(nameof(IManifestResource));
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should reject a manifest without an image")]
-    public void Build_OnManifestWithoutImage_ShouldRejectResource()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Accept a source manifest without an image")]
+    public void Build_OnManifestWithoutImage_ShouldAcceptResource()
     {
-        // Arrange
         IApplicationBuilder builder = CreateBuilder();
         builder.AddResource(CreateManifest(image: null));
-
-        // Act
-        InvalidOperationException exception = Should.Throw<InvalidOperationException>(
-            () => builder.UseKubernetesGateway().Build());
-
-        // Assert
-        exception.Message.ShouldContain("artifact.image", Case.Sensitive);
+        builder.UseKubernetesGateway().Build().ShouldNotBeNull();
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Build: Should reject an unpinned image")]

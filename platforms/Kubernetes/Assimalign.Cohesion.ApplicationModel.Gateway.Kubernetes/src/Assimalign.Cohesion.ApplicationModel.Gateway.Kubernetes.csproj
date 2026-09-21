@@ -16,4 +16,7 @@
 			Pack="true"
 			PackagePath="buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.props" />
 	</ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../scripts/New-CohesionKindCluster.ps1" LogicalName="cohesion/New-CohesionKindCluster.ps1" />
+  </ItemGroup>
 </Project>

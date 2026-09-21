@@ -59,39 +59,60 @@ Developer-Experience Design item 33 and §12 deviations (10)–(11), owner-appro
   `buildTransitive`, so `Sdk.Gateway` can generate its static provider switch without naming a
   platform type upstream.
 
-## Design item 35 image acquisition
+## Image publication and the Local Kind registry
 
-- `KubernetesGatewayOptions.ImageIndexPath` selects a source-generated, validated
-  `cohesion/images/v1` `application.images.json`. Gather resolves only the current plan's
-  `ArtifactRef.Self` entry, verifies that the index application matches the resource manifest,
-  validates the required lowercase OCI `platform`, and requires the entry's authority-free
-  repository and digest to equal the manifest's digest-pinned image. An advertised `archive` is
-  resolved relative to the index without allowing escape and must exist; the field is omitted
-  when unavailable. Gather locates and loads prebuilt image bits; it never builds an image.
-- `KubernetesGatewayOptions.ContainerRegistry` is an authority without a URI scheme or repository
-  path. It prefixes the authority-free repository only when entry `registry` is omitted or null.
-  A concrete entry registry is pinned, takes precedence, and cannot be replaced by the option;
-  tags remain metadata only. Acquisition routes are exclusive: a Development Kind archive keeps
-  the entry's published repository identity so containerd can find the imported digest, while a
-  non-Kind late-bound route applies the configured registry authority. Registry network
-  reachability remains the topology work tracked by
-  [#22](https://github.com/assimalign/cohesion-platforms/issues/22).
-- For a Development model whose selected kubeconfig context is `kind-<cluster>`, an advertised
-  archive is loaded with `kind load image-archive <archive> --name <cluster>` before Kubernetes
-  client startup. Successful loads are deduplicated by context and digest for the gateway
-  session. The child process inherits `KIND_EXPERIMENTAL_PROVIDER` (including `podman`); a missing
-  `kind` executable produces a warning and skips the command. A configured registry then supplies
-  late binding; without either successful loading or a registry, gather fails rather than allowing
-  an implicit pull. Non-Kind and non-Development paths never invoke it.
-- When `ImageIndexPath` is omitted, a custom `IImageRealizer` may acquire the manifest's declared
-  image but cannot resolve a tag-only key or substitute another repository/digest. The direct
-  digest-pinned-manifest path remains available. Render continues to accept an already resolved
-  artifact and never reads an index, starts a registry, or invokes Kind.
+Source manifests may leave `artifact.image` null. The gateway resolves `ArtifactRef.Self`
+through the validated application image index. Package manifests with a digest-pinned image
+retain their identity; an index must agree with that repository and digest when both are present.
+An explicit `ImageIndexPath` always wins and skips publishing.
+
+For a Local source model without an explicit index, the gateway reads the target node architecture
+and invokes `dotnet msbuild <apphost.csproj> -restore -t:CohesionPublishImages -p:Configuration=Debug
+-p:CohesionImageRuntimeIdentifier=<rid> -p:RuntimeIdentifier=<rid> -p:PublishDir=<staging>/`.
+The shared Containers publisher maps arm64 to linux-arm64 and amd64 to linux-x64, then reloads
+`application.images.json` under the apphost's `obj/cohesion/images/Debug/<rid>` directory.
+It invokes the SDK once per application session; SDK fingerprints decide whether images are current.
+A mixed-architecture cluster requires a pre-published index. No compiler starts a build or accesses a cluster.
+
+The apphost path comes from its own `artifact.project`. Current upstream models expose member
+manifests only, so the shared resolver first checks the model and then reads the running apphost's
+embedded `cohesion/resource.json`, checking its application and gateway application-model identity.
+There is no project-path switch and no change to `IApplicationModel`.
+
+Provision a Podman-backed cluster using:
+
+```powershell
+./platforms/Kubernetes/scripts/New-CohesionKindCluster.ps1 -Name cohesion-docs
+# Explicitly replace an older cluster without containerd registry configuration:
+./platforms/Kubernetes/scripts/New-CohesionKindCluster.ps1 -Name cohesion-docs -Recreate
+```
+
+The same bundled script is available through `KubernetesKindCluster.ProvisionAsync(name, recreate)`.
+It creates or starts `cohesion-registry` (registry:2), maps 127.0.0.1:5001 to container port 5000,
+connects it to Podman's `kind` network, enables `/etc/containerd/certs.d` via Kind's
+`containerdConfigPatches` (including the containerd 2 images plugin), writes each node's
+`/etc/containerd/certs.d/localhost:5001/hosts.toml` to route to
+`http://cohesion-registry:5000`, and applies the standard `kube-public/local-registry-hosting`
+ConfigMap. Reusing a compatible cluster is incremental; incompatible clusters require explicit recreation.
+See the [upstream Kind recipe](https://kind.sigs.k8s.io/docs/user/local-registry/).
+
+For Local `kind-*` contexts, the gateway verifies published archives into the Containers OCI store
+and pushes missing blobs with Registry API v2 HEAD/POST/PUT and the manifest with PUT by digest.
+It verifies the registry's digest acknowledgement. There is no Kind archive import or digest alias.
+The Deployment pulls `localhost:5001/<repository>@sha256:<digest>` normally. Repeat runs reuse
+registry blobs. `ContainerRegistry` overrides the default authority for late-bound entries; a
+pinned index registry retains precedence. Loopback registries use HTTP; other authorities use HTTPS.
+Private-registry authentication is outside this local route. Registry lifecycle belongs to provisioning;
+stopping a gateway leaves the registry available for pods and later runs. Stop it with
+`podman stop cohesion-registry` when ending the local environment; provisioning starts it again.
+
+Offline rendering requires an explicit index or a manifest image. It never publishes, pushes,
+or contacts the target. The direct per-resource renderer still accepts a resolved artifact.
 
 ## Design item 37 system installation and discovery
 
 `KubernetesGateway` implements the upstream `IApplicationGatewayRenderer` and
-`IApplicationGatewayBootstrapper` contracts. `--mode render` emits system objects first, followed
+`IApplicationGatewayBootstrapper` contracts. `--mode render` emits system objects only when SystemImage and SystemStorageSize are configured, followed
 by every model and resource plan in declaration order. It reads a configured image index offline,
 validates digest identity, and never gathers images, invokes Kind, or contacts a cluster. Unresolved
 mounts retain empty ConfigMap/Secret shapes; resolve inputs before applying resource previews.
@@ -147,7 +168,7 @@ are ignored; missing and empty recognized values name the offending switch.
   advertises `RequiresJit=true`, preventing `Sdk.Gateway` auto mode from selecting NativeAOT for a
   KubernetesClient-based gateway. A typed REST client on Cohesion's own HTTP stack remains a
   dependency-hygiene option, not an AOT necessity.
-- Development target: **Kind on Podman** (`KIND_EXPERIMENTAL_PROVIDER=podman`), daemon-load image
+- Local target: **Kind on Podman** (`KIND_EXPERIMENTAL_PROVIDER=podman`), registry image
   path first; registry topologies later ([#22](https://github.com/assimalign/cohesion-platforms/issues/22)).
 - Plan probes combine with workload/pod status to produce the plan-derived readiness gate.
   Ready Service `Endpoints` are also required for long-running workloads. Probe/restart-driven
@@ -192,14 +213,14 @@ contracts do not expose:
   trust initialization can precede the observer hook); multi-model bootstrap apply is refused
   before API access. Offline rendering/emit-only bootstrap remains available for review and does
   not imply that the unresolved multi-model installation can be deployed.
-- Existing resolver/model contracts provide neither a managed Development port-forward lifetime
+- Existing resolver/model contracts provide neither a managed Local port-forward lifetime
   nor a root-versus-member gateway role. Those features need upstream seams before the package can
   manage forwarding or reject a standalone per-area Production gateway reliably.
 - Cohesion's application builder already refuses `--realize` for the Kubernetes gateway and names
-  Local, InProcess, and Docker as the Development-only alternatives; the plan controller therefore
+  Local, InProcess, and Docker as the Local-only alternatives; the plan controller therefore
   never receives a locally realized cross-application plan.
 - The optional image-index path names one application's index. The upstream gateway gather hook
-  supplies a resource but not its owning model, so validation records the model's Development
+  supplies a resource but not its owning model, so validation records the model's Local
   flag and `ArtifactRef` for that exact resource before gathering. A future application-to-index
   resolver is required if one gateway session must consume distinct index files for multiple
   member applications.
@@ -207,17 +228,31 @@ contracts do not expose:
 See `.claude/rules/platform-areas.md` for the binding architecture rules and
 [docs/PLATFORMS_PROGRAM_PLAN.md](../../docs/PLATFORMS_PROGRAM_PLAN.md) for sequencing.
 
-## Opt-in Kind verification
+## Kind verification
 
-Normal tests need no cluster. The explicit smoke requires Podman installed with its engine or
-machine running, Kind and kubectl on PATH, an existing Kind cluster created with
-`KIND_EXPERIMENTAL_PROVIDER=podman`, a matching kubeconfig context, and a prebuilt OCI archive
-whose image is named by its SHA-256 manifest digest. The archive must match the node architecture.
-Set `COHESION_RUN_KIND_SMOKE=1`, `COHESION_KIND_SMOKE_CLUSTER=<cluster>`,
-`COHESION_KIND_SMOKE_ARCHIVE=<absolute archive path>`, and
-`COHESION_KIND_SMOKE_DIGEST=sha256:<64 hex characters>`; retain
-`KIND_EXPERIMENTAL_PROVIDER=podman` for cluster enumeration and loading. Run the Kubernetes test
-project with filter `FullyQualifiedName~KindImageLoaderSmokeTests` and inspect TRX results: exactly
-one executed passing test is required. Missing prerequisites cause a skip, which is not smoke
-validation. This smoke exercises archive loading only; it does not prove system installation,
-Ingress/LB reachability, or control-plane authentication on a real cluster.
+Normal tests need no cluster. For a live check, start the Podman machine and run
+`pwsh -File platforms/Kubernetes/scripts/New-CohesionKindCluster.ps1 -Name <cluster>`.
+Use `-Recreate` only when intentionally replacing an existing cluster whose containerd registry
+configuration is incompatible. Keep Kind and kubectl on PATH and set
+`KIND_EXPERIMENTAL_PROVIDER=podman`.
+
+Run the apphost with `--gateway kubernetes --context kind-<cluster> --environment Local --mode apply`.
+Leave `ImageIndexPath` unset to exercise SDK publication; set it to a pre-published index to
+exercise acquisition alone. Verify that the Deployment image starts with
+`localhost:5001/` and ends with `@sha256:<manifest digest>`, and wait for its pod to become Ready.
+Repeat apply to check reconciliation, then run `--mode teardown`. Stop any port-forwards and
+registry processes started for verification. There is no archive-import smoke or digest alias.
+
+## Bootstrap permissions and session ordering
+
+Every compiled workload has a default pod security context: runAsNonRoot=true and
+runAsUser/runAsGroup/fsGroup=1654, matching the .NET runtime-deps image. Bootstrap projections
+retain defaultMode=0400; Kubernetes applies the fsGroup ownership/read permissions so the
+non-root process can read the token. The v1 plan has no user/group field. Native workload patches
+run after compilation and may replace these defaults when a different image requires it.
+
+Trust-key storage ensures its namespace exists before creating a Secret, including on a pristine
+cluster. Shared system namespaces retain their owner checks and are never adopted for trust storage.
+Application teardown still refuses to delete SystemNamespace; keep the default cohesion-system
+if the application's own namespace should disappear on teardown. Read-side typed list metadata is
+restored before stale-object identity comparisons, allowing repeated apply over existing objects.

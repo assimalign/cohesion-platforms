@@ -33,9 +33,14 @@ OCI infrastructure belongs to `platforms/Containers`.
 - Stop gracefully stops containers and releases supervision while retaining persistent network
   and claim state. Teardown deletes in reverse order and continues after failures. Shared networks
   with custom controllers remain conservatively retained until their delete outcomes are exposed.
-- Images are digest-pinned. An optional application image index is validated against the manifest;
-  a pinned registry wins over `ContainerRegistry`. Gather locates/verifies/loads/pulls existing
-  artifacts and never builds. Containers run by verified immutable engine image ID.
+- Source manifests may leave artifact.image null; the gateway resolves ArtifactRef.Self from the
+  image index. Package images remain digest-pinned and are checked against the index when supplied.
+  In Local, without an explicit ImageIndexPath, the shared Containers publisher invokes the apphost
+  SDK image target in Debug using the engine architecture (arm64 → linux-arm64, amd64 → linux-x64),
+  then reloads the index. The SDK owns freshness; each session invokes the target. Explicit indexes
+  skip publication. The apphost project comes from its own manifest; see the Kubernetes README
+  for the current embedded-manifest fallback. A pinned registry wins over ContainerRegistry.
+  Containers run by verified immutable engine image ID after archive load or digest pull.
 
 ## Command line, rendering, and control plane
 

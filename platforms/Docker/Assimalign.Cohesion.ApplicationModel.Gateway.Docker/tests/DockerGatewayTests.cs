@@ -73,8 +73,10 @@ public partial class DockerGatewayTests
         exception.ParamName.ShouldBe("configure");
     }
 
-    [Fact(DisplayName = "Cohesion Test [Docker] - Gather: Should resolve an application image index, bind its registry, and return the pulled image ID")]
-    public async Task GatherAsync_OnApplicationImageIndex_ShouldPullDigestAndReturnImageId()
+    [Theory(DisplayName = "Cohesion Test [Docker] - Gather: Resolve source and package image indexes by digest")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GatherAsync_OnApplicationImageIndex_ShouldPullDigestAndReturnImageId(bool sourceManifest)
     {
         // Arrange
         string root = Path.Combine(
@@ -102,7 +104,7 @@ public partial class DockerGatewayTests
             IApplicationBuilder builder = Application.CreateBuilder(
                 ApplicationName.Parse("appa"),
                 []);
-            builder.AddResource(CreateManifest($"{repository}@{digest}"));
+            builder.AddResource(CreateManifest(sourceManifest ? null! : $"{repository}@{digest}"));
             builder.UseGateway(gateway);
             IApplication application = builder.Build();
             IApplicationGateway control = gateway;

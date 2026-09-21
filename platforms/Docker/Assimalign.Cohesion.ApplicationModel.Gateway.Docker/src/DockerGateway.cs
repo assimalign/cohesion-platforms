@@ -31,6 +31,8 @@ public sealed class DockerGateway :
     private readonly DockerPlanController _planController;
     private readonly IReadOnlyList<IApplicationResourceController> _controllers;
 
+    private readonly Dictionary<IApplicationResource, IApplicationModel> _imageModels = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<IApplicationModel, string?> _publishedIndexes = new(ReferenceEqualityComparer.Instance);
     private IDockerEngineClient? _engine;
 
     /// <summary>Initializes a Docker gateway with default options.</summary>
@@ -117,13 +119,12 @@ public sealed class DockerGateway :
         }
 
         string? image = manifestResource.Manifest.Artifact.Image;
-        if (string.IsNullOrWhiteSpace(image))
+        if (image is not null)
         {
-            throw new InvalidOperationException(
-                $"Resource '{descriptor.Resource.Name}' cannot be realized by Docker because artifact.image is absent.");
+            _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
         }
 
-        _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
+        _imageModels[descriptor.Resource] = model;
 
         _ = DockerPlanController.ReadRestartPolicy(plan, descriptor.Resource);
         string exitCodes = manifestResource.Manifest.Lifecycle.ExitCodes;
@@ -139,6 +140,21 @@ public sealed class DockerGateway :
         IApplicationResource resource,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            return await GatherImageAsync(resource, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _publishedIndexes.Clear();
+            throw;
+        }
+    }
+
+    private async Task<IResourceArtifact> GatherImageAsync(
+        IApplicationResource resource,
+        CancellationToken cancellationToken)
+    {
         if (resource is not IManifestResource manifestResource)
         {
             throw new InvalidOperationException(
@@ -146,17 +162,20 @@ public sealed class DockerGateway :
         }
 
         string? imageReference = manifestResource.Manifest.Artifact.Image;
-        if (string.IsNullOrWhiteSpace(imageReference))
+        IApplicationModel model = _imageModels[resource];
+        if (!_publishedIndexes.TryGetValue(model, out string? preparedIndex))
         {
-            throw new InvalidOperationException(
-                $"Resource '{resource.Name}' cannot be realized by Docker because artifact.image is absent.");
+            preparedIndex = await ContainerImagePublishing.PrepareAsync(model, _options.ImageIndexPath,
+                async token => (await GetEngine().GetVersionAsync(token).ConfigureAwait(false)).Arch
+                    ?? throw new InvalidOperationException("The Docker engine returned no architecture."),
+                ContainerImagePublishing.CreatePublisher(), cancellationToken).ConfigureAwait(false);
+            _publishedIndexes[model] = preparedIndex;
         }
-
-        string realizationReference = imageReference;
+        string realizationReference = imageReference ?? string.Empty;
         IContainerImageArtifact? indexedArtifact = null;
         IReadOnlyDictionary<string, string> archives =
             new Dictionary<string, string>(_options.ImageArchives, StringComparer.Ordinal);
-        if (_options.ImageIndexPath is string imageIndexPath)
+        if (preparedIndex is string imageIndexPath)
         {
             IApplicationImageIndex index = await ContainerImageIndexes
                 .ReadApplicationAsync(imageIndexPath, cancellationToken)
@@ -173,11 +192,9 @@ public sealed class DockerGateway :
                 index,
                 resource.Name,
                 ArtifactRef.Self);
-            IContainerImageArtifact declared = ContainerImageArtifacts.Create(
-                resource.Id,
-                imageReference);
-            if (!string.Equals(declared.Repository, entry.Repository, StringComparison.Ordinal)
-                || !string.Equals(declared.Digest, entry.Digest, StringComparison.OrdinalIgnoreCase))
+            IContainerImageArtifact? declared = imageReference is null ? null : ContainerImageArtifacts.Create(resource.Id, imageReference!);
+            if (declared is not null && (!string.Equals(declared.Repository, entry.Repository, StringComparison.Ordinal)
+                || !string.Equals(declared.Digest, entry.Digest, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidDataException(
                     $"Image index '{imageIndexPath}' entry for resource '{resource.Name}' declares '{entry.Repository}@{entry.Digest}', not manifest artifact.image '{declared.Repository}@{declared.Digest}'.");
@@ -206,6 +223,11 @@ public sealed class DockerGateway :
             archives = indexedArchives;
         }
 
+        if (realizationReference.Length == 0)
+        {
+            throw new InvalidOperationException($"Resource '{resource.Name}' needs an ImageIndexPath or Local image publication to resolve ArtifactRef.Self.");
+        }
+
         IDockerEngineClient engine = GetEngine();
         IImageRealizer realizer = _options.ImageRealizer
             ?? new DockerImageRealizer(engine, archives);
@@ -229,7 +251,7 @@ public sealed class DockerGateway :
             $"{realized.Repository}@{realized.Digest}",
             realized.Tag);
         IContainerImageArtifact requiredArtifact = indexedArtifact
-            ?? ContainerImageArtifacts.Create(resource.Id, imageReference);
+            ?? ContainerImageArtifacts.Create(resource.Id, imageReference!);
         if (!string.Equals(
                 validated.Repository,
                 requiredArtifact.Repository,
@@ -294,6 +316,7 @@ public sealed class DockerGateway :
         IReadOnlyList<IApplicationModel> models,
         CancellationToken cancellationToken)
     {
+        _publishedIndexes.Clear();
         ArgumentNullException.ThrowIfNull(models);
         await GetEngine().PingAsync(cancellationToken).ConfigureAwait(false);
         _planController.BeginSession();
@@ -309,6 +332,7 @@ public sealed class DockerGateway :
         }
         finally
         {
+            _publishedIndexes.Clear();
             lock (_engineGate)
             {
                 _engine?.Dispose();
@@ -394,12 +418,11 @@ public sealed class DockerGateway :
         IManifestResource resource,
         CancellationToken cancellationToken)
     {
-        IContainerImageArtifact declared = ContainerImageArtifacts.Create(
-            resource.Id, resource.Manifest.Artifact.Image
-                ?? throw new InvalidDataException($"Resource '{resource.Name}' has no manifest artifact.image."));
+        IContainerImageArtifact? declared = resource.Manifest.Artifact.Image is string image
+            ? ContainerImageArtifacts.Create(resource.Id, image) : null;
         if (_options.ImageIndexPath is not string indexPath)
         {
-            return declared;
+            return declared ?? throw new InvalidDataException($"Resource '{resource.Name}' requires a pre-published ImageIndexPath for offline rendering.");
         }
 
         IApplicationImageIndex index = await ContainerImageIndexes.ReadApplicationAsync(
@@ -411,8 +434,8 @@ public sealed class DockerGateway :
         }
 
         IContainerImageIndexEntry entry = ContainerImageIndexes.Resolve(index, resource.Name, ArtifactRef.Self);
-        if (!string.Equals(entry.Repository, declared.Repository, StringComparison.Ordinal)
-            || !string.Equals(entry.Digest, declared.Digest, StringComparison.OrdinalIgnoreCase))
+        if (declared is not null && (!string.Equals(entry.Repository, declared.Repository, StringComparison.Ordinal)
+            || !string.Equals(entry.Digest, declared.Digest, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidDataException(
                 $"Image index '{indexPath}' entry for resource '{resource.Name}' differs from manifest artifact.image '{declared.Repository}@{declared.Digest}'.");

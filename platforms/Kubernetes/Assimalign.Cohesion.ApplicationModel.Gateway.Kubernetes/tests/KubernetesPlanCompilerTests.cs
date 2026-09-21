@@ -157,6 +157,11 @@ public class KubernetesPlanCompilerTests
 
         bootstrapProjection.Name.ShouldBe("appa-api-secret");
         bootstrapVolume.Projected.DefaultMode.ShouldBe(256);
+        var security = first.Objects.OfType<V1Deployment>().Single().Spec.Template.Spec.SecurityContext;
+        security.RunAsNonRoot.ShouldBe(true);
+        security.RunAsUser.ShouldBe(1654);
+        security.RunAsGroup.ShouldBe(1654);
+        security.FsGroup.ShouldBe(1654);
         bootstrapItem.Key.ShouldBe("bootstrap-token");
         bootstrapItem.Path.ShouldBe("bootstrap.token");
         bootstrapMount.MountPath.ShouldBe("/var/run/cohesion");
@@ -404,6 +409,7 @@ public class KubernetesPlanCompilerTests
         var options = new KubernetesGatewayOptions();
         options.Patch<V1Deployment>(planCase.Plan.Resource, deployment =>
         {
+            deployment.Spec.Template.Spec.SecurityContext = new V1PodSecurityContext { RunAsUser = 2000, RunAsGroup = 2000, FsGroup = 2000 };
             deployment.Metadata.Name = "changed";
             deployment.Metadata.NamespaceProperty = "changed";
             deployment.Metadata.Labels = new Dictionary<string, string> { ["custom"] = "preserved" };
@@ -415,6 +421,7 @@ public class KubernetesPlanCompilerTests
         KubernetesPlanCompilation result = Compile(planCase, options: options);
         V1Deployment workload = result.Objects.OfType<V1Deployment>().Single();
 
+        workload.Spec.Template.Spec.SecurityContext.RunAsUser.ShouldBe(2000);
         workload.Metadata.Name.ShouldBe(planCase.Plan.Resource.Value);
         workload.Metadata.NamespaceProperty.ShouldBe("appa");
         workload.Metadata.Labels["custom"].ShouldBe("preserved");

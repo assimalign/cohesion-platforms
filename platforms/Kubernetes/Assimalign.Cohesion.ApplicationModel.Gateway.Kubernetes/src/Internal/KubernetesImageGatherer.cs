@@ -10,34 +10,20 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 internal sealed class KubernetesImageGatherer
 {
     private readonly KubernetesGatewayOptions _options;
-    private readonly IKindImageLoader _kindImages;
-    private readonly IKubernetesImageArchiveVerifier _archives;
+    private readonly IKubernetesImageRegistryRoute _registry;
 
-    public KubernetesImageGatherer(
-        KubernetesGatewayOptions options,
-        IKindImageLoader kindImages)
-        : this(options, kindImages, new KubernetesImageArchiveVerifier())
+    public KubernetesImageGatherer(KubernetesGatewayOptions options, IKubernetesImageRegistryRoute? registry = null)
     {
-    }
-
-    internal KubernetesImageGatherer(
-        KubernetesGatewayOptions options,
-        IKindImageLoader kindImages,
-        IKubernetesImageArchiveVerifier archives)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(kindImages);
-        ArgumentNullException.ThrowIfNull(archives);
         _options = options;
-        _kindImages = kindImages;
-        _archives = archives;
+        _registry = registry ?? new KubernetesImageRegistryRoute(options);
     }
 
     public async Task<IContainerImageArtifact> GatherAsync(
         IApplicationResource resource,
         ArtifactRef artifactReference,
         bool isLocal,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? imageIndexPath = null)
     {
         ArgumentNullException.ThrowIfNull(resource);
         if (resource is not IManifestResource manifestResource)
@@ -48,27 +34,22 @@ internal sealed class KubernetesImageGatherer
         }
 
         string? image = manifestResource.Manifest.Artifact.Image;
-        if (string.IsNullOrWhiteSpace(image))
+        imageIndexPath ??= _options.ImageIndexPath;
+        if (imageIndexPath is null)
         {
-            throw new InvalidOperationException(
-                $"Resource '{resource.Name}' cannot be realized by the Kubernetes gateway because " +
-                "its manifest does not declare artifact.image.");
-        }
+            if (image is null)
+            {
+                throw new InvalidOperationException($"Resource '{resource.Name}' needs an ImageIndexPath or Local image publication to resolve ArtifactRef.Self.");
+            }
 
-        if (_options.ImageIndexPath is null)
-        {
-            return await GatherWithoutIndexAsync(resource, image, cancellationToken)
-                .ConfigureAwait(false);
+            return await GatherWithoutIndexAsync(resource, image, cancellationToken).ConfigureAwait(false);
         }
-
-        IContainerImageArtifact expected = ContainerImageArtifacts.Create(resource.Id, image);
-        IApplicationImageIndex index = await ReadIndexAsync(
-            _options.ImageIndexPath,
-            cancellationToken).ConfigureAwait(false);
+        IContainerImageArtifact? expected = image is null ? null : ContainerImageArtifacts.Create(resource.Id, image);
+        IApplicationImageIndex index = await ReadIndexAsync(imageIndexPath, cancellationToken).ConfigureAwait(false);
         if (index.Application != manifestResource.Manifest.Application)
         {
             throw new InvalidDataException(
-                $"Application image index '{_options.ImageIndexPath}' belongs to application " +
+                $"Application image index '{imageIndexPath}' belongs to application " +
                 $"'{index.Application}', not manifest application '{manifestResource.Manifest.Application}' " +
                 $"for resource '{resource.Name}'.");
         }
@@ -77,56 +58,48 @@ internal sealed class KubernetesImageGatherer
             index,
             resource.Name,
             artifactReference);
-        if (!string.Equals(entry.Repository, expected.Repository, StringComparison.Ordinal)
-            || !string.Equals(entry.Digest, expected.Digest, StringComparison.Ordinal))
+        if (expected is not null && (!string.Equals(entry.Repository, expected.Repository, StringComparison.Ordinal)
+            || !string.Equals(entry.Digest, expected.Digest, StringComparison.Ordinal)))
         {
             throw new InvalidDataException(
-                $"Application image index '{_options.ImageIndexPath}' entry for resource " +
+                $"Application image index '{imageIndexPath}' entry for resource " +
                 $"'{resource.Name}' declares '{entry.Repository}@{entry.Digest}', but the " +
                 $"resource manifest declares '{expected.Repository}@{expected.Digest}'.");
         }
 
         string? archivePath = ContainerImageIndexes.ResolveArchivePath(
-            _options.ImageIndexPath,
+            imageIndexPath,
             entry);
         if (archivePath is not null && !File.Exists(archivePath))
         {
             throw new FileNotFoundException(
                 $"Image archive '{archivePath}' advertised for resource '{resource.Name}' by " +
-                $"application image index '{_options.ImageIndexPath}' does not exist.",
+                $"application image index '{imageIndexPath}' does not exist.",
                 archivePath);
         }
 
-        if (archivePath is not null)
+        string? registry = entry.Registry ?? _options.ContainerRegistry;
+        if (isLocal && await _registry.IsKindAsync(cancellationToken).ConfigureAwait(false))
         {
-            await _archives
-                .VerifyAsync(entry, _options.ImageIndexPath, cancellationToken)
-                .ConfigureAwait(false);
+            registry ??= "localhost:5001";
+            if (archivePath is not null && entry.Registry is null)
+            {
+                await _registry.PushAsync(entry, imageIndexPath, registry, cancellationToken).ConfigureAwait(false);
+            }
+            else if (archivePath is not null)
+            {
+                await new KubernetesImageArchiveVerifier().VerifyAsync(entry, imageIndexPath, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (archivePath is not null)
+        {
+            await new KubernetesImageArchiveVerifier().VerifyAsync(entry, imageIndexPath, cancellationToken).ConfigureAwait(false);
+        }
+        if (registry is null)
+        {
+            throw new InvalidOperationException($"Image index entry for resource '{resource.Name}' has a late-bound registry; configure KubernetesGatewayOptions.ContainerRegistry or provision a Local Kind registry.");
         }
 
-        KindImageLoadResult kindLoad = KindImageLoadResult.NotKind;
-        if (isLocal && archivePath is not null)
-        {
-            kindLoad = await _kindImages
-                .LoadIfKindAsync(archivePath, entry.Digest, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        bool isLateBound = entry.Registry is null;
-        bool usesKindRoute = kindLoad == KindImageLoadResult.Loaded;
-        if (isLateBound
-            && _options.ContainerRegistry is null
-            && !usesKindRoute)
-        {
-            throw new InvalidOperationException(
-                $"Image index entry for resource '{resource.Name}' has a late-bound registry, " +
-                $"but {nameof(KubernetesGatewayOptions)}.{nameof(KubernetesGatewayOptions.ContainerRegistry)} " +
-                "is not configured and the image was not acquired through a Local Kind archive path.");
-        }
-
-        string? registry = isLateBound && !usesKindRoute
-            ? _options.ContainerRegistry
-            : null;
         return ContainerImageIndexes.CreateArtifact(resource.Id, entry, registry);
     }
 
