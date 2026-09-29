@@ -71,8 +71,8 @@ it does not implement token policy. The listener serves authenticated
 ## Delivery boundaries
 
 `ResourceInputs.TrustBundle`, when nonempty, becomes sensitive `/var/run/cohesion/trust.pem` with
-`ResourceEnvironment.TrustBundlePath`. The internal compiler-only `telemetryHeaders` input becomes
-sensitive `/var/run/cohesion/telemetry.headers` with `ResourceEnvironment.TelemetryHeadersPath`.
+`AppEnvironment.Variables.TrustBundlePath`. The internal compiler-only `telemetryHeaders` input becomes
+sensitive `/var/run/cohesion/telemetry.headers` with `AppEnvironment.Variables.TelemetryHeadersPath`.
 Empty inputs add no file, tmpfs, or environment entry. The upstream telemetry carrier remains
 private, so normal Docker reconciliation cannot obtain those headers yet; Docker does not invent
 telemetry endpoint/protocol values. The public application trust key remains ordinary public data.
@@ -90,7 +90,8 @@ pull has no private-registry auth carrier, and OCI-layout load still needs the r
 
 The shipped project depends only on generic ApplicationModel/Gateway contracts and shared Containers;
 COHPLT001 forbids resource-area ApplicationModel, Hosting, Application runtimes, and Microsoft.Extensions
-assemblies. The ControlPlane package reference is test-only here. The library's explicit
+assemblies, and the layering rule also excludes area Client and ApplicationModel.Orchestration packages
+(review-enforced for now). The ControlPlane package reference is test-only here. The library's explicit
 `IsAotCompatible=true` and `RequiresJit=false` are the scoped item 36 choice, not a repository-wide
 mandate; the upstream SDK's early auto-AOT allowlist remains a separate integration concern.
 

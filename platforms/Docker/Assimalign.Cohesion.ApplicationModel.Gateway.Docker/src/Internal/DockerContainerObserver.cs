@@ -6,8 +6,6 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Assimalign.Cohesion.Core;
-
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 
 internal sealed class DockerContainerObserver

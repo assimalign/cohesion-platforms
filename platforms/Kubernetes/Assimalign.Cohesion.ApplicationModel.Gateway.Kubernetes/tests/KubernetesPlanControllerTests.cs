@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 using k8s;
 using k8s.Models;
@@ -95,7 +94,7 @@ public class KubernetesPlanControllerTests
                 CancellationToken.None);
 
         refreshed.Objects.OfType<V1ConfigMap>().Single().Data[
-            ResourceEnvironment.Endpoint("http", "PUBLIC_URL")]
+            AppEnvironment.Variables.Endpoint("http", "PUBLIC_URL")]
             .ShouldBe("http://worker.example.test:8080");
         string refreshedRevision = refreshed.Objects
             .OfType<V1Deployment>()
@@ -147,7 +146,7 @@ public class KubernetesPlanControllerTests
         api.Deleted.ShouldBe(["Job"]);
         api.Applied.ShouldBe(["Job"]);
         refreshed.Objects.OfType<V1ConfigMap>().Single().Data[
-            ResourceEnvironment.Endpoint("http", "PUBLIC_URL")]
+            AppEnvironment.Variables.Endpoint("http", "PUBLIC_URL")]
             .ShouldBe("http://worker.example.test:8080");
         api.GetPersisted<V1Job>().Spec.Template.Metadata.Annotations[
             KubernetesMetadata.RuntimeInputRevisionAnnotation]
@@ -216,7 +215,7 @@ public class KubernetesPlanControllerTests
         }
 
         V1ConfigMap finalConfigMap = api.GetPersisted<V1ConfigMap>();
-        finalConfigMap.Data[ResourceEnvironment.Endpoint("http", "PUBLIC_URL")]
+        finalConfigMap.Data[AppEnvironment.Variables.Endpoint("http", "PUBLIC_URL")]
             .ShouldBe("http://new.example.test:8080");
         Encoding.UTF8.GetString(finalConfigMap.BinaryData["settings"]).ShouldBe("two");
         string staleRevision = staleRefresh.Objects
@@ -304,7 +303,7 @@ public class KubernetesPlanControllerTests
         api.JsonPatches.Select(static item => item.Kind)
             .ShouldBe(["ConfigMap", "Deployment"]);
         recovered.Objects.OfType<V1ConfigMap>().Single().Data[
-            ResourceEnvironment.Endpoint("http", "PUBLIC_URL")]
+            AppEnvironment.Variables.Endpoint("http", "PUBLIC_URL")]
             .ShouldBe("http://worker.example.test:8080");
         recovered.Objects.OfType<V1Deployment>().Single().Spec.Template.Metadata.Annotations[
             KubernetesMetadata.WorkloadRevisionAnnotation]

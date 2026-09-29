@@ -9,7 +9,6 @@ using Shouldly;
 using Xunit;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
@@ -180,7 +179,7 @@ public partial class DockerPlanCompilerTests
         secret.Sensitive.ShouldBeTrue();
         bootstrap.Sensitive.ShouldBeTrue();
         result.Container.Tmpfs.ShouldBe(["/run/secrets", "/var/run/cohesion"]);
-        result.Container.Environment[ResourceEnvironment.BootstrapTokenPath]
+        result.Container.Environment[AppEnvironment.Variables.BootstrapTokenPath]
             .ShouldBe("/var/run/cohesion/bootstrap.token");
         result.Container.Environment.Values.ShouldNotContain("secret-value");
         result.Container.Environment.Values.ShouldNotContain("bootstrap-value");
@@ -202,7 +201,7 @@ public partial class DockerPlanCompilerTests
         published.HostIp.ShouldBe("0.0.0.0");
         published.HostPort.ShouldBe(8443);
         published.ContainerPort.ShouldBe(8443);
-        result.Container.Environment[ResourceEnvironment.Endpoint("https", "PUBLIC_URL")]
+        result.Container.Environment[AppEnvironment.Variables.Endpoint("https", "PUBLIC_URL")]
             .ShouldBe("https://localhost:8443");
         DockerPortPublishPlan[] probeBindings = result.Container.PortBindings
             .Where(binding => binding.ProbeOnly)

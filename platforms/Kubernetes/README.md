@@ -162,8 +162,9 @@ are ignored; missing and empty recognized values name the offending switch.
 
 - Depends on the generic ApplicationModel contract + Gateway base (NuGet),
   `platforms/Containers`, and `KubernetesClient` (centrally pinned). It never references a
-  resource area's `.ApplicationModel`, `*.Hosting`, `.Application` runtime, or
-  `Microsoft.Extensions.*` assembly.
+  resource area's `.Client`, `.ApplicationModel`, `.ApplicationModel.Orchestration`, `*.Hosting`,
+  or `.Application` runtime, or any `Microsoft.Extensions.*` assembly. Stores, the certificate
+  authority, trust, telemetry, and credentials arrive only as the model's `ApplicationProviders`.
 - **AOT:** this repo carries no `IsAotCompatible` mandate (owner decision, 2026-07-20). The package
   advertises `RequiresJit=true`, preventing `Sdk.Gateway` auto mode from selecting NativeAOT for a
   KubernetesClient-based gateway. A typed REST client on Cohesion's own HTTP stack remains a

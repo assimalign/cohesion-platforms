@@ -11,8 +11,6 @@ using System.Threading.Tasks;
 using Shouldly;
 using Xunit;
 
-using Assimalign.Cohesion.Core;
-
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
 public class DockerPlanControllerTests

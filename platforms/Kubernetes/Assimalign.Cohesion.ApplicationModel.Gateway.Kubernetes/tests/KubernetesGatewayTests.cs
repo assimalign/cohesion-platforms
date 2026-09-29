@@ -607,6 +607,7 @@ public class KubernetesGatewayTests
         public IReadOnlyList<IApplicationResource> Resources => _inner.Resources;
         public IReadOnlyList<ResourceManifest> Manifests => _inner.Manifests;
         public IReadOnlyList<ResourcePlan> Plans => _inner.Plans;
+        public ApplicationProviders Providers => _inner.Providers;
     }
 
     private sealed class PlanOverrideModel : IApplicationModel
@@ -636,6 +637,7 @@ public class KubernetesGatewayTests
         public IReadOnlyList<IApplicationResource> Resources => _inner.Resources;
         public IReadOnlyList<ResourceManifest> Manifests => _inner.Manifests;
         public IReadOnlyList<ResourcePlan> Plans { get; }
+        public ApplicationProviders Providers => _inner.Providers;
     }
 
     private sealed class PlanOverrideDescriptor : IApplicationResourceDescriptor

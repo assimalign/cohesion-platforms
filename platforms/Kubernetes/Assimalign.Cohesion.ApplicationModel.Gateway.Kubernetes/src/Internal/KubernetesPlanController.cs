@@ -9,8 +9,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Assimalign.Cohesion.Core;
-
 using k8s;
 using k8s.Models;
 
@@ -268,7 +266,7 @@ internal sealed class KubernetesPlanController : IApplicationResourceController
         var publicKeys = new HashSet<string>(StringComparer.Ordinal);
         for (int index = 0; index < context.Plan.Exposures.Count; index++)
         {
-            publicKeys.Add(ResourceEnvironment.Endpoint(
+            publicKeys.Add(AppEnvironment.Variables.Endpoint(
                 context.Plan.Exposures[index].Endpoint,
                 "PUBLIC_URL"));
         }

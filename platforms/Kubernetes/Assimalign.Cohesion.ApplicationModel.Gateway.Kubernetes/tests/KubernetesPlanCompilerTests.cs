@@ -10,7 +10,6 @@ using Shouldly;
 using Xunit;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
@@ -92,7 +91,7 @@ public class KubernetesPlanCompilerTests
         KubernetesPlanCompilation result = Compile(CreateCase("web"));
         V1ConfigMap configuration = result.Objects.OfType<V1ConfigMap>().Single();
 
-        configuration.Data[ResourceEnvironment.Endpoint("http", "HOST")].ShouldBe("0.0.0.0");
+        configuration.Data[AppEnvironment.Variables.Endpoint("http", "HOST")].ShouldBe("0.0.0.0");
         result.Endpoints.Single(endpoint => endpoint.Name == "http").Host
             .ShouldBe("appa-api-http.appa.svc");
     }
@@ -113,10 +112,10 @@ public class KubernetesPlanCompilerTests
             ]);
         V1ConfigMap configuration = result.Objects.OfType<V1ConfigMap>().Single();
 
-        configuration.Data[ResourceEnvironment.Endpoint("https", "PUBLIC_URL")]
+        configuration.Data[AppEnvironment.Variables.Endpoint("https", "PUBLIC_URL")]
             .ShouldBe("https://api.example.test:8443");
         configuration.Data.ShouldNotContainKey(
-            ResourceEnvironment.Endpoint("http", "PUBLIC_URL"));
+            AppEnvironment.Variables.Endpoint("http", "PUBLIC_URL"));
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Compiler: Should map declared probes one-to-one")]
@@ -166,7 +165,7 @@ public class KubernetesPlanCompilerTests
         bootstrapItem.Path.ShouldBe("bootstrap.token");
         bootstrapMount.MountPath.ShouldBe("/var/run/cohesion");
         bootstrapMount.SubPath.ShouldBeNull();
-        first.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.BootstrapTokenPath]
+        first.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.BootstrapTokenPath]
             .ShouldBe("/var/run/cohesion/bootstrap.token");
     }
 
@@ -332,16 +331,16 @@ public class KubernetesPlanCompilerTests
             dependencies: [dependency]);
         V1ConfigMap configuration = result.Objects.OfType<V1ConfigMap>().Single();
 
-        configuration.Data[ResourceEnvironment.Dependency("orders", "http", "URL")]
+        configuration.Data[AppEnvironment.Variables.Dependency("orders", "http", "URL")]
             .ShouldBe("http://orders-http.appa.svc:8080");
-        configuration.Data[ResourceEnvironment.Dependency("orders", "http", "HOST")]
+        configuration.Data[AppEnvironment.Variables.Dependency("orders", "http", "HOST")]
             .ShouldBe("orders-http.appa.svc");
-        configuration.Data[ResourceEnvironment.Dependency("orders", "http", "PORT")]
+        configuration.Data[AppEnvironment.Variables.Dependency("orders", "http", "PORT")]
             .ShouldBe("8080");
-        configuration.Data[ResourceEnvironment.Dependency("orders", "http", "SCHEME")]
+        configuration.Data[AppEnvironment.Variables.Dependency("orders", "http", "SCHEME")]
             .ShouldBe("http");
         configuration.Data.ShouldNotContainKey(
-            ResourceEnvironment.Dependency("orders", "metrics", "URL"));
+            AppEnvironment.Variables.Dependency("orders", "metrics", "URL"));
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Dependencies: Should remove unavailable optional endpoint values")]
@@ -617,7 +616,7 @@ public class KubernetesPlanCompilerTests
         secret.Type.ShouldBe("Opaque");
         secret.Data.Keys.ShouldHaveSingleItem().ShouldBe("tls");
         secret.Data["tls"].ShouldBe(CertificateBundle);
-        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Mount("tls")]
+        result.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.Mount("tls")]
             .ShouldBe("/cohesion/mounts/tls");
         V1VolumeMount mount = PodSpec(result).Containers.Single().VolumeMounts.Single();
         mount.Name.ShouldBe("cohesion-secret");
@@ -718,9 +717,9 @@ public class KubernetesPlanCompilerTests
         string[] paths = ["bootstrap.token", "trust.pem", "telemetry.headers"];
         string[] variables =
         [
-            ResourceEnvironment.BootstrapTokenPath,
-            ResourceEnvironment.TrustBundlePath,
-            ResourceEnvironment.TelemetryHeadersPath,
+            AppEnvironment.Variables.BootstrapTokenPath,
+            AppEnvironment.Variables.TrustBundlePath,
+            AppEnvironment.Variables.TelemetryHeadersPath,
         ];
         byte[][] contents = [tokenBytes, trustBytes, headerBytes];
         bool[] present = [token, trust, headers];
@@ -777,8 +776,8 @@ public class KubernetesPlanCompilerTests
             }
         }
 
-        configuration.Data.ShouldNotContainKey(ResourceEnvironment.TelemetryEndpoint);
-        configuration.Data.ShouldNotContainKey(ResourceEnvironment.TelemetryProtocol);
+        configuration.Data.ShouldNotContainKey(AppEnvironment.Variables.TelemetryEndpoint);
+        configuration.Data.ShouldNotContainKey(AppEnvironment.Variables.TelemetryProtocol);
         result.PlanHash.ShouldBe(Compile(planCase, ResourceInputs.Empty).PlanHash);
     }
 
@@ -788,7 +787,7 @@ public class KubernetesPlanCompilerTests
         // Arrange
         PlanCase planCase = CreateCase("daemon-set");
         string[] variables =
-        [ResourceEnvironment.BootstrapTokenPath, ResourceEnvironment.TrustBundlePath, ResourceEnvironment.TelemetryHeadersPath];
+        [AppEnvironment.Variables.BootstrapTokenPath, AppEnvironment.Variables.TrustBundlePath, AppEnvironment.Variables.TelemetryHeadersPath];
         var environment = new Dictionary<string, string>(planCase.Plan.Container.Environment);
         foreach (string variable in variables)
         {
@@ -836,7 +835,7 @@ public class KubernetesPlanCompilerTests
         preview.Objects.OfType<V1Secret>().Single().Data.ShouldBeEmpty();
         PodSpec(preview).Containers.Single().VolumeMounts
             .ShouldContain(mount => mount.SubPath == "tls" && mount.MountPath == "/cohesion/mounts/tls");
-        preview.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Mount("tls")]
+        preview.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.Mount("tls")]
             .ShouldBe("/cohesion/mounts/tls");
     }
 
@@ -861,7 +860,7 @@ public class KubernetesPlanCompilerTests
 
         // Assert
         result.Endpoints.Single(endpoint => endpoint.Name == "https").Scheme.ShouldBe(expectedScheme);
-        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Endpoint("https", "SCHEME")]
+        result.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.Endpoint("https", "SCHEME")]
             .ShouldBe(expectedScheme);
         PodSpec(result).Containers.Single().ReadinessProbe.HttpGet.Scheme.ShouldBe(probeScheme);
     }
@@ -886,7 +885,7 @@ public class KubernetesPlanCompilerTests
         compiled.ReadinessProbe.HttpGet.Port.Value.ShouldBe(port.ContainerPort.ToString());
         compiled.ReadinessProbe.HttpGet.Scheme.ShouldBe("HTTPS");
         result.Endpoints.Single().Scheme.ShouldBe("https");
-        result.Objects.OfType<V1ConfigMap>().Single().Data[ResourceEnvironment.Endpoint(port.Endpoint, "SCHEME")]
+        result.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.Endpoint(port.Endpoint, "SCHEME")]
             .ShouldBe("https");
         compiled.LivenessProbe.ShouldBeNull();
         compiled.StartupProbe.ShouldBeNull();
@@ -1062,10 +1061,10 @@ public class KubernetesPlanCompilerTests
 
     private static string[] DependencyVariables(string resource, string endpoint) =>
     [
-        ResourceEnvironment.Dependency(resource, endpoint, "URL"),
-        ResourceEnvironment.Dependency(resource, endpoint, "HOST"),
-        ResourceEnvironment.Dependency(resource, endpoint, "PORT"),
-        ResourceEnvironment.Dependency(resource, endpoint, "SCHEME"),
+        AppEnvironment.Variables.Dependency(resource, endpoint, "URL"),
+        AppEnvironment.Variables.Dependency(resource, endpoint, "HOST"),
+        AppEnvironment.Variables.Dependency(resource, endpoint, "PORT"),
+        AppEnvironment.Variables.Dependency(resource, endpoint, "SCHEME"),
     ];
 
     private static ResourceManifest CreateManifest(ResourcePlan plan) => new()

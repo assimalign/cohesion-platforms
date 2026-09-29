@@ -7,7 +7,6 @@ using System.Text;
 using System.Text.Json;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 
@@ -114,21 +113,21 @@ internal sealed class DockerPlanCompiler
         {
             AddFile(files, filePaths, BootstrapPath, inputs.BootstrapCredential, sensitive: true);
             AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(BootstrapPath));
-            environment[ResourceEnvironment.BootstrapTokenPath] = BootstrapPath;
+            environment[AppEnvironment.Variables.BootstrapTokenPath] = BootstrapPath;
         }
 
         if (!inputs.TrustBundle.IsEmpty)
         {
             AddFile(files, filePaths, TrustBundlePath, inputs.TrustBundle, sensitive: true);
             AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(TrustBundlePath));
-            environment[ResourceEnvironment.TrustBundlePath] = TrustBundlePath;
+            environment[AppEnvironment.Variables.TrustBundlePath] = TrustBundlePath;
         }
 
         if (!telemetryHeaders.IsEmpty)
         {
             AddFile(files, filePaths, TelemetryHeadersPath, telemetryHeaders, sensitive: true);
             AddTmpfs(tmpfs, tmpfsPaths, GetParentPath(TelemetryHeadersPath));
-            environment[ResourceEnvironment.TelemetryHeadersPath] = TelemetryHeadersPath;
+            environment[AppEnvironment.Variables.TelemetryHeadersPath] = TelemetryHeadersPath;
         }
 
         var portBindings = CreatePortBindings(plan);
@@ -575,38 +574,38 @@ internal sealed class DockerPlanCompiler
             plan.Container.Environment,
             StringComparer.Ordinal)
         {
-            [ResourceEnvironment.Gateway] = "docker",
-            [ResourceEnvironment.ContentRoot] = ContentRoot,
+            [AppEnvironment.Variables.Gateway] = "docker",
+            [AppEnvironment.Variables.ContentRoot] = ContentRoot,
         };
 
         if (!inputs.ApplicationTrustKey.IsEmpty)
         {
-            environment[ResourceEnvironment.ApplicationTrustKey] =
+            environment[AppEnvironment.Variables.ApplicationTrustKey] =
                 Encoding.UTF8.GetString(inputs.ApplicationTrustKey.Span);
         }
 
         for (int index = 0; index < plan.Container.Mounts.Count; index++)
         {
             MountBinding mount = plan.Container.Mounts[index];
-            environment[ResourceEnvironment.Mount(mount.Mount)] = mount.ContainerPath;
+            environment[AppEnvironment.Variables.Mount(mount.Mount)] = mount.ContainerPath;
         }
 
         for (int index = 0; index < plan.Container.Ports.Count; index++)
         {
             PortBinding port = plan.Container.Ports[index];
-            environment[ResourceEnvironment.Endpoint(port.Endpoint, "HOST")] = "0.0.0.0";
-            environment[ResourceEnvironment.Endpoint(port.Endpoint, "PORT")] =
+            environment[AppEnvironment.Variables.Endpoint(port.Endpoint, "HOST")] = "0.0.0.0";
+            environment[AppEnvironment.Variables.Endpoint(port.Endpoint, "PORT")] =
                 port.ContainerPort.ToString(CultureInfo.InvariantCulture);
-            environment[ResourceEnvironment.Endpoint(port.Endpoint, "SCHEME")] =
+            environment[AppEnvironment.Variables.Endpoint(port.Endpoint, "SCHEME")] =
                 FindScheme(plan, port.Endpoint);
             ExposureSpec? exposure = FindExposure(plan.Exposures, port.Endpoint);
             if (exposure is null)
             {
-                environment.Remove(ResourceEnvironment.Endpoint(port.Endpoint, "PUBLIC_URL"));
+                environment.Remove(AppEnvironment.Variables.Endpoint(port.Endpoint, "PUBLIC_URL"));
             }
             else
             {
-                environment[ResourceEnvironment.Endpoint(port.Endpoint, "PUBLIC_URL")] =
+                environment[AppEnvironment.Variables.Endpoint(port.Endpoint, "PUBLIC_URL")] =
                     Uri.CreateEndpoint(exposure.Scheme, publicHost, exposure.Port)
                         .ToEndpointString();
             }
@@ -773,7 +772,7 @@ internal sealed class DockerPlanCompiler
                     && dependency.State is not ResourceLifecycle.Degraded
                         ? null
                         : FindObservedDependencyEndpoint(dependency, endpointName);
-                string variable = ResourceEnvironment.Dependency(
+                string variable = AppEnvironment.Variables.Dependency(
                     dependency.Resource.ToString(),
                     endpointName,
                     "URL");
@@ -848,10 +847,10 @@ internal sealed class DockerPlanCompiler
         string resource,
         string endpoint)
     {
-        environment.Remove(ResourceEnvironment.Dependency(resource, endpoint, "URL"));
-        environment.Remove(ResourceEnvironment.Dependency(resource, endpoint, "HOST"));
-        environment.Remove(ResourceEnvironment.Dependency(resource, endpoint, "PORT"));
-        environment.Remove(ResourceEnvironment.Dependency(resource, endpoint, "SCHEME"));
+        environment.Remove(AppEnvironment.Variables.Dependency(resource, endpoint, "URL"));
+        environment.Remove(AppEnvironment.Variables.Dependency(resource, endpoint, "HOST"));
+        environment.Remove(AppEnvironment.Variables.Dependency(resource, endpoint, "PORT"));
+        environment.Remove(AppEnvironment.Variables.Dependency(resource, endpoint, "SCHEME"));
     }
 
     private static void ApplyDependencyEndpoint(
@@ -869,12 +868,12 @@ internal sealed class DockerPlanCompiler
         }
 
         Uri address = Uri.CreateEndpoint(endpoint.Scheme, endpoint.Host, endpoint.Port);
-        environment[ResourceEnvironment.Dependency(resource, endpoint.Name, "URL")] =
+        environment[AppEnvironment.Variables.Dependency(resource, endpoint.Name, "URL")] =
             address.ToEndpointString();
-        environment[ResourceEnvironment.Dependency(resource, endpoint.Name, "HOST")] = address.IdnHost;
-        environment[ResourceEnvironment.Dependency(resource, endpoint.Name, "PORT")] =
+        environment[AppEnvironment.Variables.Dependency(resource, endpoint.Name, "HOST")] = address.IdnHost;
+        environment[AppEnvironment.Variables.Dependency(resource, endpoint.Name, "PORT")] =
             address.Port.ToString(CultureInfo.InvariantCulture);
-        environment[ResourceEnvironment.Dependency(resource, endpoint.Name, "SCHEME")] = address.Scheme;
+        environment[AppEnvironment.Variables.Dependency(resource, endpoint.Name, "SCHEME")] = address.Scheme;
     }
 
     private static string ComputeRuntimeHash(

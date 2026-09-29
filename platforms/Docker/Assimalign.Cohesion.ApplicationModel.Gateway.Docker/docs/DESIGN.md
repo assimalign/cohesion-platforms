@@ -28,7 +28,7 @@ silently collapsed.
 ## Endpoints, probes, and restart
 
 One application network carries stable resource/service aliases. Observations use canonical
-`System.Uri` endpoint values and `ResourceEnvironment` keys. `PortBinding.Scheme` is authoritative;
+`System.Uri` endpoint values and `AppEnvironment.Variables` keys. `PortBinding.Scheme` is authoritative;
 legacy omission retains the exposure, explicit HTTP probe, then transport fallback. Public
 exposures receive host ports and private endpoints remain on the application network.
 
@@ -69,9 +69,9 @@ portable mount relationship, not certificate PEM contents or certificate issuanc
 
 Secret mounts and nonempty bootstrap credentials are sensitive archive entries below container
 tmpfs mounts. `ResourceInputs.TrustBundle` adds sensitive `/var/run/cohesion/trust.pem` and sets
-`ResourceEnvironment.TrustBundlePath`. The explicit internal compiler input
+`AppEnvironment.Variables.TrustBundlePath`. The explicit internal compiler input
 `ReadOnlyMemory<byte> telemetryHeaders = default` adds sensitive
-`/var/run/cohesion/telemetry.headers` and `ResourceEnvironment.TelemetryHeadersPath`. Their shared
+`/var/run/cohesion/telemetry.headers` and `AppEnvironment.Variables.TelemetryHeadersPath`. Their shared
 parent `/var/run/cohesion` is mounted once with restrictive tmpfs options. Empty inputs add no file,
 mount, or environment entry. Public application trust keys remain public environment data.
 

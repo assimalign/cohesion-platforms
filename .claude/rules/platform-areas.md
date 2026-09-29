@@ -42,12 +42,25 @@ derives from the public guided base `ApplicationGateway` (package
    only on `Running`; Jobs complete on `{Stopped, Failed}` and satisfy only on `Stopped`.
    `Degraded` is non-gating.
 3. **Layering.** A platform gateway may reference the `Assimalign.Cohesion.ApplicationModel`
-   contract package, the `Assimalign.Cohesion.ApplicationModel.Gateway` base package, shared
-   `platforms/Containers` libraries, and thin `<Area>.Client` packages only. It must never
-   reference an `<Area>.ApplicationModel`, any `<Area>.Hosting` runtime module, any `<Area>.Application`
-   runtime, or any `Microsoft.Extensions.*` assembly. The Core-only `Assimalign.Cohesion.Hosting` and
-   `Hosting.Health` and the opt-in `Hosting.Resources` are not area runtime modules: the Gateway base package
-   depends on them (shared command/mount types since cohesion item 23b), so they may appear in a platform
+   contract package, the `Assimalign.Cohesion.ApplicationModel.Gateway` base package, and shared
+   `platforms/Containers` libraries only. It references no resource-area package: never an
+   `<Area>.Client`, an `<Area>.ApplicationModel`, an `<Area>.ApplicationModel.Orchestration`, any
+   `<Area>.Hosting` runtime module, or any `<Area>.Application` runtime — and never any
+   `Microsoft.Extensions.*` assembly. Area behavior reaches a platform gateway only through the
+   base, and the base references no `resources/**` package either (cohesion BYO providers,
+   owner-approved 2026-09-25): it delivers declarative commands through its generic
+   control-plane command client and resolves mount sources, certificates, trust, command inputs,
+   telemetry, credentials, and control-plane callers from the model's `ApplicationProviders`. The
+   application fills those in its own gateway `Program.cs` (for an application-set member, in that
+   member's `AddApplication(..., configure)` callback) — an explicit reference to an
+   `<Area>.ApplicationModel.Orchestration` package plus an explicit verb such as
+   `builder.UseSecretStore(store).AsCertificateAuthority().AsTrustStore()`, or an assignment such as
+   `builder.Providers.Telemetry = ResourceTelemetrySink.FromResource(logs)`. Nothing is injected by
+   convention, so a platform gateway never needs area knowledge to realize a model, and a platform
+   type that wraps an `IApplicationModel` must forward its `Providers`. The Core-only
+   `Assimalign.Cohesion.Hosting` and `Hosting.Health` and the opt-in `Hosting.Resources` are not area
+   runtime modules: the Gateway base package references `Hosting.Resources` (shared command/mount
+   types since cohesion item 23b), which brings the other two, so they may appear in a platform
    gateway's closure; a platform gateway still never references them directly.
 4. **Digest-pinned images.** Deployments always reference images as
    `{repository}@sha256:{digest}`. Tags are human-readable metadata only — never a pull reference.
@@ -57,8 +70,10 @@ derives from the public guided base `ApplicationGateway` (package
    from the dependency snapshots supplied on `ResourceControlContext`, never an independent state
    lookup. Kubernetes publishes stable Service DNS (the governing Service for a StatefulSet),
    never a NodePort or Ingress allocation for in-cluster dependency injection.
-6. **One frozen runtime contract.** Platform injection uses the `COHESION_*` constants and helpers
-   on `Assimalign.Cohesion.Core.ResourceEnvironment`; `docs/RUNTIME_CONTRACT.md` in the cohesion
+6. **One frozen runtime contract.** Platform injection uses the `COHESION_*` constants and name
+   builders on `AppEnvironment.Variables` (namespace `Assimalign.Cohesion`, in Core), the contract's
+   only .NET home; resources read them through the `AppEnvironment` readers (`TryGetEndpoint`,
+   `TryGetDependency`, `TryGetMount`). `docs/RUNTIME_CONTRACT.md` in the cohesion
    repository is the wire contract for non-.NET workloads, including the reserved bootstrap and
    telemetry keys. The gateway is the authoritative writer of frozen identity and endpoint-binding
    keys; manifest environment values are preserved except where the planning context must overwrite
@@ -87,6 +102,15 @@ under `platforms/**`. Tests, samples, and examples are excluded by path. The tar
 the project-reference graph and the resolved compile/runtime assembly closure after
 `ResolveAssemblyReferences`, so direct, transitive, hint-path, and package-delivered forbidden
 assemblies all fail with every offending assembly named in the diagnostic.
+
+The guard rejects the `<Area>.ApplicationModel`, `<Area>.Hosting[.*]`, `<Area>.Application`, and
+`Microsoft.Extensions.*` families. It does not yet reject `<Area>.Client` or
+`<Area>.ApplicationModel.Orchestration` assemblies, which rule 3 also excludes: Gateway base
+packages built before the BYO-provider change still carry five area clients transitively, so the
+guard can widen only once the consumed Cohesion floor carries a Gateway base without them. Until
+then that part of rule 3 is enforced in review. When it widens, match resource-area client names
+(the `resources/**` projects), not every `*.Client`: libraries such as `Assimalign.Cohesion.Dns.Client`
+are not resource-area packages.
 
 ## Area layout
 

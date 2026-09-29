@@ -10,7 +10,6 @@ using k8s;
 using k8s.Models;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
@@ -101,21 +100,21 @@ internal sealed class KubernetesPlanCompiler
         if (!inputs.BootstrapCredential.IsEmpty)
         {
             secretData["bootstrap-token"] = inputs.BootstrapCredential.ToArray();
-            environment[ResourceEnvironment.BootstrapTokenPath] = BootstrapPath;
+            environment[AppEnvironment.Variables.BootstrapTokenPath] = BootstrapPath;
             bootstrapItems.Add(new V1KeyToPath { Key = "bootstrap-token", Path = "bootstrap.token" });
         }
 
         if (!inputs.TrustBundle.IsEmpty)
         {
             secretData["trust-bundle"] = inputs.TrustBundle.ToArray();
-            environment[ResourceEnvironment.TrustBundlePath] = TrustBundlePath;
+            environment[AppEnvironment.Variables.TrustBundlePath] = TrustBundlePath;
             bootstrapItems.Add(new V1KeyToPath { Key = "trust-bundle", Path = "trust.pem" });
         }
 
         if (!telemetryHeaders.IsEmpty)
         {
             secretData["telemetry-headers"] = telemetryHeaders.ToArray();
-            environment[ResourceEnvironment.TelemetryHeadersPath] = TelemetryHeadersPath;
+            environment[AppEnvironment.Variables.TelemetryHeadersPath] = TelemetryHeadersPath;
             bootstrapItems.Add(new V1KeyToPath { Key = "telemetry-headers", Path = "telemetry.headers" });
         }
 
@@ -618,35 +617,35 @@ internal sealed class KubernetesPlanCompiler
     {
         var environment = new Dictionary<string, string>(plan.Container.Environment, StringComparer.Ordinal)
         {
-            [ResourceEnvironment.Gateway] = "kubernetes",
-            [ResourceEnvironment.ContentRoot] = ContentRoot,
+            [AppEnvironment.Variables.Gateway] = "kubernetes",
+            [AppEnvironment.Variables.ContentRoot] = ContentRoot,
         };
-        environment.Remove(ResourceEnvironment.BootstrapTokenPath);
-        environment.Remove(ResourceEnvironment.TrustBundlePath);
-        environment.Remove(ResourceEnvironment.TelemetryHeadersPath);
+        environment.Remove(AppEnvironment.Variables.BootstrapTokenPath);
+        environment.Remove(AppEnvironment.Variables.TrustBundlePath);
+        environment.Remove(AppEnvironment.Variables.TelemetryHeadersPath);
 
         if (!inputs.ApplicationTrustKey.IsEmpty)
         {
-            environment[ResourceEnvironment.ApplicationTrustKey] =
+            environment[AppEnvironment.Variables.ApplicationTrustKey] =
                 Encoding.UTF8.GetString(inputs.ApplicationTrustKey.Span);
         }
 
         for (int index = 0; index < plan.Container.Mounts.Count; index++)
         {
             MountBinding mount = plan.Container.Mounts[index];
-            environment[ResourceEnvironment.Mount(mount.Mount)] = mount.ContainerPath;
+            environment[AppEnvironment.Variables.Mount(mount.Mount)] = mount.ContainerPath;
         }
 
         for (int index = 0; index < plan.Container.Ports.Count; index++)
         {
             PortBinding binding = plan.Container.Ports[index];
             ServiceSpec service = FindService(plan.Services, binding.Endpoint);
-            environment[ResourceEnvironment.Endpoint(binding.Endpoint, "HOST")] = "0.0.0.0";
-            environment[ResourceEnvironment.Endpoint(binding.Endpoint, "PORT")] =
+            environment[AppEnvironment.Variables.Endpoint(binding.Endpoint, "HOST")] = "0.0.0.0";
+            environment[AppEnvironment.Variables.Endpoint(binding.Endpoint, "PORT")] =
                 binding.ContainerPort.ToString(CultureInfo.InvariantCulture);
-            environment[ResourceEnvironment.Endpoint(binding.Endpoint, "SCHEME")] =
+            environment[AppEnvironment.Variables.Endpoint(binding.Endpoint, "SCHEME")] =
                 FindScheme(plan, binding.Endpoint);
-            environment.Remove(ResourceEnvironment.Endpoint(binding.Endpoint, "PUBLIC_URL"));
+            environment.Remove(AppEnvironment.Variables.Endpoint(binding.Endpoint, "PUBLIC_URL"));
         }
 
         IReadOnlyDictionary<string, string> publicEndpoints =
@@ -706,7 +705,7 @@ internal sealed class KubernetesPlanCompiler
             }
 
             Uri address = Uri.CreateEndpoint(observed.Scheme, observed.Host, observed.Port);
-            environment[ResourceEnvironment.Endpoint(exposure.Endpoint, "PUBLIC_URL")] =
+            environment[AppEnvironment.Variables.Endpoint(exposure.Endpoint, "PUBLIC_URL")] =
                 address.ToEndpointString();
         }
 
@@ -730,7 +729,7 @@ internal sealed class KubernetesPlanCompiler
                         ? null
                         : FindObservedDependencyEndpoint(dependency, endpointName);
                 string dependencyName = dependency.Resource.ToString();
-                string urlVariable = ResourceEnvironment.Dependency(dependencyName, endpointName, "URL");
+                string urlVariable = AppEnvironment.Variables.Dependency(dependencyName, endpointName, "URL");
                 var projection = new DependencyProjection(
                     dependency.Application,
                     dependency.Resource,
@@ -803,10 +802,10 @@ internal sealed class KubernetesPlanCompiler
         string dependency,
         string endpoint)
     {
-        environment.Remove(ResourceEnvironment.Dependency(dependency, endpoint, "URL"));
-        environment.Remove(ResourceEnvironment.Dependency(dependency, endpoint, "HOST"));
-        environment.Remove(ResourceEnvironment.Dependency(dependency, endpoint, "PORT"));
-        environment.Remove(ResourceEnvironment.Dependency(dependency, endpoint, "SCHEME"));
+        environment.Remove(AppEnvironment.Variables.Dependency(dependency, endpoint, "URL"));
+        environment.Remove(AppEnvironment.Variables.Dependency(dependency, endpoint, "HOST"));
+        environment.Remove(AppEnvironment.Variables.Dependency(dependency, endpoint, "PORT"));
+        environment.Remove(AppEnvironment.Variables.Dependency(dependency, endpoint, "SCHEME"));
     }
 
     private static void ApplyDependencyEndpoint(
@@ -824,12 +823,12 @@ internal sealed class KubernetesPlanCompiler
         }
 
         Uri address = Uri.CreateEndpoint(endpoint.Scheme, endpoint.Host, endpoint.Port);
-        environment[ResourceEnvironment.Dependency(dependency, endpoint.Name, "URL")] =
+        environment[AppEnvironment.Variables.Dependency(dependency, endpoint.Name, "URL")] =
             address.ToEndpointString();
-        environment[ResourceEnvironment.Dependency(dependency, endpoint.Name, "HOST")] = address.IdnHost;
-        environment[ResourceEnvironment.Dependency(dependency, endpoint.Name, "PORT")] =
+        environment[AppEnvironment.Variables.Dependency(dependency, endpoint.Name, "HOST")] = address.IdnHost;
+        environment[AppEnvironment.Variables.Dependency(dependency, endpoint.Name, "PORT")] =
             address.Port.ToString(CultureInfo.InvariantCulture);
-        environment[ResourceEnvironment.Dependency(dependency, endpoint.Name, "SCHEME")] = address.Scheme;
+        environment[AppEnvironment.Variables.Dependency(dependency, endpoint.Name, "SCHEME")] = address.Scheme;
     }
 
     private static Dictionary<string, byte[]> CreateMountData(

@@ -60,8 +60,8 @@ a second lifecycle controller.
 
 Configuration is staged while stopped. Secret mounts and bootstrap credentials use sensitive archives
 and tmpfs. A nonempty `ResourceInputs.TrustBundle` adds `/var/run/cohesion/trust.pem` and
-`ResourceEnvironment.TrustBundlePath`. Explicit internal `telemetryHeaders` adds
-`/var/run/cohesion/telemetry.headers` and `ResourceEnvironment.TelemetryHeadersPath` on the same tmpfs.
+`AppEnvironment.Variables.TrustBundlePath`. Explicit internal `telemetryHeaders` adds
+`/var/run/cohesion/telemetry.headers` and `AppEnvironment.Variables.TelemetryHeadersPath` on the same tmpfs.
 Empty trust/header inputs add nothing. Normal reconciliation cannot access upstream's private telemetry
 carrier yet; no telemetry endpoint or protocol is synthesized. Public trust keys remain public data.
 

@@ -32,8 +32,9 @@ node routing belong to the Kubernetes area; this area owns the shared push proto
 - This repo realizes Cohesion's L2 application model onto deployment targets; Containers is the
   shared substrate of that realization.
 - Depends on the generic `Assimalign.Cohesion.ApplicationModel` contract and `.Gateway` base
-  (NuGet, from the cohesion repo). It never references an `<Area>.ApplicationModel`, `*.Hosting`,
-  an `<Area>.Application` runtime, or `Microsoft.Extensions.*`.
+  (NuGet, from the cohesion repo). It never references a resource-area package (an `<Area>.Client`,
+  `<Area>.ApplicationModel`, `<Area>.ApplicationModel.Orchestration`, `*.Hosting`, or
+  `<Area>.Application` runtime) or `Microsoft.Extensions.*`.
 - Platform gateways (`platforms/Kubernetes`, `platforms/Docker`) depend on this area — never the
   reverse, and the two platform areas never reference each other.
 

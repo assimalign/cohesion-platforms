@@ -240,8 +240,10 @@ It loads or creates P-256 PKCS#8 keys in the owned Opaque system Secret, under d
 load the winner; resource-version-conditional, non-forced updates preserve other identities.
 Foreign owners, corrupt/trailing data, and non-P256 keys fail closed, including on rotation.
 Temporary key buffers are cleared. A caller's custom repository is preserved. Render/bootstrap
-never mint a key, token, or certificate. The base still issues ES256 developer tokens with audience
-`cohesion-export`, and the real upstream control-plane implementation verifies them. Only public
+never mint a key, token, or certificate. The base issues developer tokens with audience
+`cohesion-export` through the model's registered credential issuer, falling back to its default
+ES256 application-key issuer; the upstream control plane verifies them with its built-in
+trusted-issuer authenticator, then the model's registered caller authenticators. Only public
 trust keys appear in discovery ConfigMaps. PVC state remains writable for upstream exports and
 other gateway metadata; the projected Secret never occupies that writable directory.
 

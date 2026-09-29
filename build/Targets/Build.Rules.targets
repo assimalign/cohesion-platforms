@@ -8,13 +8,21 @@
 	    COHPLT001 enforces platform-area layering rule 3 for every shipped project
 	    below platforms/**. Tests, samples, and examples are excluded by path. A
 	    platform project may consume the generic ApplicationModel contract, the
-	    ApplicationModel.Gateway base, shared Containers projects, and thin
-	    <Area>.Client contracts. It may never consume:
+	    ApplicationModel.Gateway base, and shared Containers projects only; it
+	    references no resource-area package. This target rejects:
 
 	      * an area-owned Assimalign.Cohesion.<Area>.ApplicationModel assembly;
 	      * an Assimalign.Cohesion.*.Hosting* composition/runtime assembly;
 	      * an Assimalign.Cohesion.<Area>.Application runtime assembly; or
 	      * a Microsoft.Extensions.* assembly.
+
+	    Rule 3 also excludes <Area>.Client and <Area>.ApplicationModel.Orchestration
+	    packages, but this target does not reject them yet: Gateway base packages
+	    built before the cohesion BYO-provider change (owner-approved 2026-09-25)
+	    carry five area clients transitively. Add both families to the pattern
+	    below once the consumed Cohesion floor carries a Gateway base without them;
+	    match resource-area client names, not every *.Client (library clients such
+	    as Assimalign.Cohesion.Dns.Client are not resource-area packages).
 
 	    The target runs after ResolveAssemblyReferences and combines two views. The
 	    ProjectReference view catches graph-only references, including references
@@ -38,8 +46,10 @@
 
 	<!-- Deviates from the platform-areas rule 3 wording as first written ("any *.Hosting") per design decision: since cohesion item 23b
 	     the allowed Assimalign.Cohesion.ApplicationModel.Gateway base package itself depends on the opt-in Hosting.Resources library
-	     (shared ResourceCommand/ResourceMount types) and, through Database.Client, on the Core-only Hosting seam, so the guard
-	     forbids AREA runtime modules (Assimalign.Cohesion.<Area>.Hosting[.*]) and leaves the base hosting trio to the Gateway base. -->
+	     (shared ResourceCommand/ResourceMount types), which references the Core-only Hosting and Hosting.Health libraries, so the guard
+	     forbids AREA runtime modules (Assimalign.Cohesion.<Area>.Hosting[.*]) and leaves the base hosting trio to the Gateway base.
+	     The Gateway base references no resources/** package: store, certificate, trust, identity, and telemetry roles are explicit
+	     ApplicationProviders registrations an application makes in its gateway Program.cs, never gateway dependencies. -->
 	<Target Name="ValidateCohesionPlatformLayering"
 	        AfterTargets="ResolveAssemblyReferences"
 	        Condition="'$(_CohesionPlatformRuleApplies)' == 'true'">
@@ -61,7 +71,7 @@
 
 		<Error Condition="'@(_CohesionPlatformForbiddenAssemblyUnique)' != ''"
 		       Code="COHPLT001"
-		       Text="Platform gateway layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. Shipped projects under platforms/** may reference the generic ApplicationModel contract, the Gateway base, shared Containers libraries, and thin &lt;Area&gt;.Client packages only; they may never reference an &lt;Area&gt;.ApplicationModel, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly (the Core-only Assimalign.Cohesion.Hosting, Hosting.Health and the opt-in Hosting.Resources arrive through the Gateway base package and are allowed). See .claude/rules/platform-areas.md." />
+		       Text="Platform gateway layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. Shipped projects under platforms/** may reference the generic ApplicationModel contract, the Gateway base, and shared Containers libraries only; they may never reference an &lt;Area&gt;.ApplicationModel, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly (the Core-only Assimalign.Cohesion.Hosting, Hosting.Health and the opt-in Hosting.Resources arrive through the Gateway base package and are allowed). See .claude/rules/platform-areas.md." />
 	</Target>
 
 </Project>

@@ -19,6 +19,8 @@ public partial class DockerGatewayTests
             new DockerGatewayOptions { ImageRealizer = new UnusedImageRealizer() },
             () => throw new InvalidOperationException("Render must not contact Docker."));
         IApplicationBuilder builder = Application.CreateBuilder(ApplicationName.Parse("appa"), []);
+        var sources = new UnreadSourceProvider();
+        builder.Providers.Sources["secret"] = sources;
         ResourceManifest first = CreateManifest(image) with
         {
             Name = "z-last-alphabetically",
@@ -51,6 +53,7 @@ public partial class DockerGatewayTests
         rendered.ShouldNotContain("trust.pem", Case.Sensitive);
         rendered.ShouldNotContain("telemetry.headers", Case.Sensitive);
         rendered.ShouldNotContain("remote-cache", Case.Sensitive);
+        sources.Reads.ShouldBe(0);
     }
 
     [Fact(DisplayName = "Cohesion Test [Docker] - Render: Should resolve an indexed digest without gathering or reading archives")]

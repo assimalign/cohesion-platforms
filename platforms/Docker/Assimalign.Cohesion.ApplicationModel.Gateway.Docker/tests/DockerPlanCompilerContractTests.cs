@@ -8,7 +8,6 @@ using Shouldly;
 using Xunit;
 
 using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
-using Assimalign.Cohesion.Core;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
@@ -119,8 +118,8 @@ public partial class DockerPlanCompilerTests
         populated.Files.Count.ShouldBe(3);
         populated.Files.Single(file => file.Path == "/var/run/cohesion/bootstrap.token").Content.ToArray().ShouldBe(bootstrap);
         populated.Container.Tmpfs.ShouldHaveSingleItem().ShouldBe("/var/run/cohesion");
-        populated.Container.Environment[ResourceEnvironment.TrustBundlePath].ShouldBe(trustFile.Path);
-        populated.Container.Environment[ResourceEnvironment.TelemetryHeadersPath].ShouldBe(headersFile.Path);
+        populated.Container.Environment[AppEnvironment.Variables.TrustBundlePath].ShouldBe(trustFile.Path);
+        populated.Container.Environment[AppEnvironment.Variables.TelemetryHeadersPath].ShouldBe(headersFile.Path);
         populated.Container.Environment.Values.ShouldNotContain(Encoding.UTF8.GetString(headers));
         populated.Container.Environment.Values.ShouldNotContain(Encoding.UTF8.GetString(trust));
         populated.Container.Environment.ShouldNotContainKey("COHESION_TELEMETRY_ENDPOINT");
@@ -129,8 +128,8 @@ public partial class DockerPlanCompilerTests
         populated.RuntimeHash.ShouldNotBe(empty.RuntimeHash);
         empty.Files.ShouldBeEmpty();
         empty.Container.Tmpfs.ShouldBeEmpty();
-        empty.Container.Environment.ShouldNotContainKey(ResourceEnvironment.TrustBundlePath);
-        empty.Container.Environment.ShouldNotContainKey(ResourceEnvironment.TelemetryHeadersPath);
+        empty.Container.Environment.ShouldNotContainKey(AppEnvironment.Variables.TrustBundlePath);
+        empty.Container.Environment.ShouldNotContainKey(AppEnvironment.Variables.TelemetryHeadersPath);
         DockerPlanRenderer.Render([populated]).ShouldNotContain("private-telemetry-token", Case.Sensitive);
     }
 
@@ -157,11 +156,11 @@ public partial class DockerPlanCompilerTests
         file.Content.ToArray().ShouldBe(content);
         file.Sensitive.ShouldBeTrue();
         result.Container.Tmpfs.ShouldHaveSingleItem().ShouldBe("/var/run/cohesion");
-        result.Container.Environment[telemetry ? ResourceEnvironment.TelemetryHeadersPath : ResourceEnvironment.TrustBundlePath].ShouldBe(file.Path);
-        result.Container.Environment.ShouldNotContainKey(telemetry ? ResourceEnvironment.TrustBundlePath : ResourceEnvironment.TelemetryHeadersPath);
-        result.Container.Environment.ShouldNotContainKey(ResourceEnvironment.BootstrapTokenPath);
-        result.Container.Environment.ShouldNotContainKey(ResourceEnvironment.TelemetryEndpoint);
-        result.Container.Environment.ShouldNotContainKey(ResourceEnvironment.TelemetryProtocol);
+        result.Container.Environment[telemetry ? AppEnvironment.Variables.TelemetryHeadersPath : AppEnvironment.Variables.TrustBundlePath].ShouldBe(file.Path);
+        result.Container.Environment.ShouldNotContainKey(telemetry ? AppEnvironment.Variables.TrustBundlePath : AppEnvironment.Variables.TelemetryHeadersPath);
+        result.Container.Environment.ShouldNotContainKey(AppEnvironment.Variables.BootstrapTokenPath);
+        result.Container.Environment.ShouldNotContainKey(AppEnvironment.Variables.TelemetryEndpoint);
+        result.Container.Environment.ShouldNotContainKey(AppEnvironment.Variables.TelemetryProtocol);
     }
 
     [Fact(DisplayName = "Cohesion Test [Docker] - Inputs: Should reject missing Secret bytes in live compilation")]
@@ -200,7 +199,7 @@ public partial class DockerPlanCompilerTests
         readiness.Scheme.ShouldBe("https");
         readiness.ContainerPort.ShouldBe(8080);
         readiness.Value.ShouldBe("/cohesion/v1");
-        result.Container.Environment[ResourceEnvironment.Endpoint("http", "SCHEME")].ShouldBe("https");
+        result.Container.Environment[AppEnvironment.Variables.Endpoint("http", "SCHEME")].ShouldBe("https");
         result.Container.PortBindings.ShouldContain(port => port.Endpoint == "http" && port.ProbeOnly);
     }
 
