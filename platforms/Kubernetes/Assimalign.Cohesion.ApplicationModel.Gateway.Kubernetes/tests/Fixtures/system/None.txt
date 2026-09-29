@@ -1,0 +1,10 @@
+Namespace/cohesion-system
+ServiceAccount/cohesion-gateway
+Role/cohesion-gateway
+RoleBinding/cohesion-gateway
+ClusterRole/cohesion-gateway
+ClusterRoleBinding/cohesion-gateway
+PersistentVolumeClaim/cohesion-gateway-state
+Secret/cohesion-gateway-trust
+Deployment/cohesion-gateway
+Service/cohesion-control-plane

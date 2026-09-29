@@ -68,6 +68,12 @@ param(
     [Parameter(ParameterSetName = 'Create')]
     [string] $Parent,
 
+    # Explicit WBS code for the new item (e.g. L04.01.03.09) when a design document pre-assigns codes.
+    # Must be a direct child of the resolved parent and must not already exist; omitted -> next free child code.
+    [Parameter(ParameterSetName = 'Create')]
+    [ValidatePattern('^L\d{2}(?:\.\d{2})+$')]
+    [string] $Wbs,
+
     # How the item was born. Inferred when omitted; pass to override.
     [Parameter(ParameterSetName = 'Create')]
     [ValidateSet('Planned', 'DiscoveredTask', 'DiscoveredFeature')]
@@ -451,7 +457,17 @@ if (-not $Origin) {
 Write-Host "Parent: #$($parentIssue.number) $($parentIssue.title)" -ForegroundColor Green
 
 # 2. Next child WBS code + derived Kind/Area
-$newWbs = Get-NextChildWbs -ParentWbs $parentWbs
+if ($Wbs) {
+    if ($Wbs -notmatch ('^' + [regex]::Escape($parentWbs) + '\.\d{2}$')) {
+        throw "-Wbs [$Wbs] is not a direct child of the resolved parent [$parentWbs]."
+    }
+    $existingWbs = Get-IssueByWbs -Wbs $Wbs
+    if ($existingWbs) { throw "-Wbs [$Wbs] is already used by #$($existingWbs.number) '$($existingWbs.title)'." }
+    $newWbs = $Wbs
+}
+else {
+    $newWbs = Get-NextChildWbs -ParentWbs $parentWbs
+}
 $fullTitle = "[$newWbs] $Title"
 $kindOpt = if ($level -eq 'feature') { 'Feature' } else { 'Task' }
 # Area epic code = the first 3 segments of the (already 3-or-4-segment-validated) parent WBS.

@@ -31,3 +31,4 @@ jobs:
           area: platforms
           category: Kubernetes
           project: ${{ matrix.projects }}
+          cohesion-ref: ${{ vars.COHESION_SIBLING_REF }}

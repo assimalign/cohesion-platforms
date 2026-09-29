@@ -40,6 +40,7 @@
 	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/">
 		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/OVERVIEW.md" />
 		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/DESIGN.md" />
+		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/IMAGE_INDEX.md" />
 	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/">
 		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.csproj" />

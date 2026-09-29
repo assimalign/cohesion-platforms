@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<IsAotCompatible>true</IsAotCompatible>
+	</PropertyGroup>
 	<ItemGroup>
 		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel" />
 		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
@@ -8,5 +11,11 @@
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<None
+			Include="..\buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Docker.props"
+			Pack="true"
+			PackagePath="buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Docker.props" />
 	</ItemGroup>
 </Project>

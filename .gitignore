@@ -398,3 +398,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# local package feed produced for sibling consumers (cohesion-examples)
+_out/
