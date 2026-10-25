@@ -81,6 +81,12 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 case V1Job job:
                     await _client.BatchV1.CreateNamespacedJobAsync(job, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
                     break;
+                case V2HorizontalPodAutoscaler autoscaler:
+                    await _client.AutoscalingV2.CreateNamespacedHorizontalPodAutoscalerAsync(autoscaler, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1PodDisruptionBudget budget:
+                    await _client.PolicyV1.CreateNamespacedPodDisruptionBudgetAsync(budget, namespaceName, fieldManager: _fieldManager, fieldValidation: "Strict", cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
                 default:
                     throw Unsupported(resource);
             }
@@ -148,6 +154,12 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 break;
             case V1Job:
                 await _client.BatchV1.PatchNamespacedJobAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V2HorizontalPodAutoscaler:
+                await _client.AutoscalingV2.PatchNamespacedHorizontalPodAutoscalerAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
+                break;
+            case V1PodDisruptionBudget:
+                await _client.PolicyV1.PatchNamespacedPodDisruptionBudgetAsync(patch, name, RequireNamespace(resource), fieldManager: _fieldManager, fieldValidation: "Strict", force: force, cancellationToken: cancellationToken).ConfigureAwait(false);
                 break;
             default:
                 throw Unsupported(resource);
@@ -243,6 +255,8 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 V1StatefulSet => await _client.AppsV1.ReadNamespacedStatefulSetAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 V1DaemonSet => await _client.AppsV1.ReadNamespacedDaemonSetAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 V1Job => await _client.BatchV1.ReadNamespacedJobAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V2HorizontalPodAutoscaler => await _client.AutoscalingV2.ReadNamespacedHorizontalPodAutoscalerAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
+                V1PodDisruptionBudget => await _client.PolicyV1.ReadNamespacedPodDisruptionBudgetAsync(name, namespaceName, cancellationToken: cancellationToken).ConfigureAwait(false),
                 _ => throw Unsupported(resource),
             };
         }
@@ -313,6 +327,12 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                         namespaceName,
                         body: options,
                         cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V2HorizontalPodAutoscaler:
+                    await _client.AutoscalingV2.DeleteNamespacedHorizontalPodAutoscalerAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    break;
+                case V1PodDisruptionBudget:
+                    await _client.PolicyV1.DeleteNamespacedPodDisruptionBudgetAsync(name, namespaceName, body: options, cancellationToken: cancellationToken).ConfigureAwait(false);
                     break;
                 default:
                     throw Unsupported(resource);
@@ -420,6 +440,22 @@ internal sealed class KubernetesResourceApi : IKubernetesResourceApi
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         AddItems(objects, jobs.Items, jobs.ApiVersion, jobs.Kind);
+
+        V2HorizontalPodAutoscalerList autoscalers = await _client.AutoscalingV2
+            .ListNamespacedHorizontalPodAutoscalerAsync(
+                namespaceName,
+                labelSelector: labelSelector,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        AddItems(objects, autoscalers.Items, autoscalers.ApiVersion, autoscalers.Kind);
+
+        V1PodDisruptionBudgetList budgets = await _client.PolicyV1
+            .ListNamespacedPodDisruptionBudgetAsync(
+                namespaceName,
+                labelSelector: labelSelector,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        AddItems(objects, budgets.Items, budgets.ApiVersion, budgets.Kind);
 
         return objects;
     }

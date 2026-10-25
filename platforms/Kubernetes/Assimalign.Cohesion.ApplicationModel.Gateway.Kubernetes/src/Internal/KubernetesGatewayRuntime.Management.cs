@@ -12,13 +12,13 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
 internal sealed partial class KubernetesGatewayObservationRegistry
 {
+    // Every pod's own control plane, addressed by pod IP, so the management API reads each instance's configuration
+    // status and runs an every-instance action on each; the Service's host name verifies the pod's certificate.
     private static ResourceInstanceInventory? CreateManagementInventory(Entry entry, IKubernetesObject<V1ObjectMeta> workload, IList<V1Pod> pods)
     {
-        ResourceManifest? manifest = entry.Context.Model.Manifests.FirstOrDefault(candidate => candidate.Name == entry.Context.Resource.Name);
-        if (manifest?.Runtime is not JsonElement runtime) { return null; }
-        JsonElement management = runtime.GetProperty("management");
-        string endpointName = management.GetProperty("endpoint").GetString()!;
-        string path = management.GetProperty("path").GetString()!;
+        if (entry.Context.Plan?.ControlPlane is not ControlPlaneSpec controlPlane || string.IsNullOrEmpty(controlPlane.Endpoint)) { return null; }
+        string endpointName = controlPlane.Endpoint;
+        string path = controlPlane.Path;
         PortBinding? port = entry.Context.Plan.Container.Ports.FirstOrDefault(candidate => candidate.Endpoint == endpointName);
         ResourceEndpoint server = entry.Compilation.Endpoints.FirstOrDefault(candidate => candidate.Name == endpointName);
         string? expectedOwner = ReadMetadata(entry.Workload.Metadata.Annotations, KubernetesMetadata.OwnerAnnotation);

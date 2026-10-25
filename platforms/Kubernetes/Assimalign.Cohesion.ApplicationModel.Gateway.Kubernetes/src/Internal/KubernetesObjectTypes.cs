@@ -19,6 +19,8 @@ internal static class KubernetesObjectTypes
             V1StatefulSet => ("apps/v1", "StatefulSet"),
             V1DaemonSet => ("apps/v1", "DaemonSet"),
             V1Job => ("batch/v1", "Job"),
+            V2HorizontalPodAutoscaler => ("autoscaling/v2", "HorizontalPodAutoscaler"),
+            V1PodDisruptionBudget => ("policy/v1", "PodDisruptionBudget"),
             _ => throw new NotSupportedException($"Unsupported Kubernetes object type '{resource.GetType().Name}'."),
         };
         if (string.IsNullOrWhiteSpace(resource.ApiVersion))

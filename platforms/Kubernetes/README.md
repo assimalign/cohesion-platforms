@@ -258,22 +258,44 @@ Application teardown still refuses to delete SystemNamespace; keep the default c
 if the application's own namespace should disappear on teardown. Read-side typed list metadata is
 restored before stale-object identity comparisons, allowing repeated apply over existing objects.
 
-## Resource runtime state management
+## Deployment records and platform surfaces
 
-The gateway consumes opaque `runtime` metadata from the consolidated resource plan. It supplies
-trusted live inventory from workload UID, pod UID, container ID, pod address, termination status and
-current replica target, including HPA changes. Management connects directly to each pod while TLS
-verifies the logical Service name; the resource handshake verifies its injected pod identity and
-process-start UUID. Ordinary resource references continue to resolve through Services.
+Each resource's deployment record lives in two ConfigMaps in the application namespace:
+`<resource>-record-<key>` (`deployment.json` and `override.json`, named for the pod template that
+reads them) and `<resource>-claims` (one `claims.<owner>.json` per claiming application). Pods read
+them from a read-only projection at `/var/run/cohesion-config` (`COHESION_CONFIG_DIRECTORY`), so an
+override or claim reaches running pods within about a minute without a restart. A change to a
+section the resource applies only at startup rolls the workload through the
+`cohesion.io/restart-digest` pod template annotation. A plan change the pods read moves the record
+to a new ConfigMap, keeping the previous one for the rollout and deleting the one before it;
+teardown deletes them all.
 
-Desired state and private coordination receipts share one owned Secret and one resourceVersion CAS.
-A dedicated `cohesion-resource-management` field manager preserves that data across plan reapply.
-Pods mount only `runtime-state.json`, with read-only mode 0440 and no subPath; gateway receipts are
-excluded. Mandatory management inputs and the selected projection are restored after native patches.
-Resources bootstrap the latest every-instance projection before readiness and traffic admission.
-The running gateway reconciles current and future processes and dates convergence against inventory.
-Shared-state handlers must enforce backend fencing/idempotency; the Web adapters use every-instance.
+Two Kubernetes extensions declare cluster objects in code, and the management API exposes both as
+platform surfaces an operator can override until the next deployment:
 
-Applying a plan preserves an HPA-owned scale by relinquishing the replicas field. Hermetic tests cover
-Secret ownership/CAS, private projection selection, patch protection and scale preservation. They do
-not establish live-cluster delivery to ten replicas; that remains a separate integration validation.
+```csharp
+builder.AddWeb(Manifests.AppAApi)
+    .ConfigureHpa(hpa =>
+    {
+        hpa.MinReplicas = 2;
+        hpa.MaxReplicas = 10;
+        hpa.TargetCpuUtilizationPercentage = 70;
+    })
+    .ConfigurePodDisruptionBudget(budget => budget.MinAvailable = 1);
+```
+
+An operator raises the ceiling for the current generation with a merge patch (the token needs the
+`platform:write` grant):
+
+```bash
+curl -X PATCH "https://<gateway>/cohesion/v2/resources/appa-api/platform/kubernetes/hpa" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/merge-patch+json" -d '{"maxReplicas":20}'
+```
+
+`ConfigureHpa` declares its replica bounds as the resource's platform-neutral scale bounds and its
+targets as `kubernetes/hpa` data; the compiler emits an `autoscaling/v2` HorizontalPodAutoscaler
+(80 % CPU when no target is set) and leaves the workload's replicas to it. Changing either object,
+in code or through the API, never restarts pods; a change in code is still a new deployment
+generation, so it discards the resource's management overrides. Hermetic tests cover the record
+objects, the projection and its patch protection, the restart annotation, both surfaces and their
+compiled objects; live delivery on a cluster is not yet verified. See
+[DESIGN.md](Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/DESIGN.md#deployment-records-phase-p3).

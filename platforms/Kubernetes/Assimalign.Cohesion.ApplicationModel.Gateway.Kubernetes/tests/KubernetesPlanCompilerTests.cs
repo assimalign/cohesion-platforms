@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
+using k8s;
 using k8s.Models;
 using Shouldly;
 using Xunit;
@@ -15,28 +16,169 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
 public partial class KubernetesPlanCompilerTests
 {
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Management: patches cannot expose the private receipt store or remove bootstrap bindings")]
-    public void Compile_WithManagedRuntimeAndRemovingPatch_ShouldRestoreProjectionIsolation()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: the pod projects the record named for its template and the claims, and names the directory")]
+    public void Compile_WithDeploymentRecord_ShouldProjectRecordAndClaims()
     {
-        PlanCase original = CreateCase("web");
-        using JsonDocument runtime = JsonDocument.Parse("""{"management":{"endpoint":"http","path":"/cohesion/v1"},"states":[]}""");
-        PlanCase managed = original with { Plan = original.Plan with { Runtime = runtime.RootElement.Clone() } };
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+        ResourceInputs inputs = CreateFixtureInputs(planCase.Plan).WithDeploymentRecord(KubernetesResourceRecordStore.InstanceDirectory, "0123456789abcdef");
+
+        // Act
+        KubernetesPlanCompilation result = Compile(planCase, inputs);
+
+        // Assert
+        V1PodTemplateSpec template = result.Objects.OfType<V1Deployment>().Single().Spec.Template;
+        V1PodSpec pod = template.Spec;
+        V1ProjectedVolumeSource record = pod.Volumes.Single(volume => volume.Name == "cohesion-record").Projected;
+        record.Sources[0].ConfigMap.Name.ShouldBe("appa-api-record-" + result.PlanHash[..16]);
+        record.Sources[0].ConfigMap.Optional.ShouldBe(true);
+        record.Sources[0].ConfigMap.Items.Select(item => item.Key).ShouldBe(["deployment.json", "override.json"]);
+        record.Sources[1].ConfigMap.Name.ShouldBe("appa-api-claims");
+        record.Sources[1].ConfigMap.Items.ShouldBeNull();
+        V1VolumeMount mount = pod.Containers[0].VolumeMounts.Single(candidate => candidate.Name == "cohesion-record");
+        mount.MountPath.ShouldBe("/var/run/cohesion-config");
+        mount.ReadOnlyProperty.ShouldBe(true);
+        mount.SubPath.ShouldBeNull();
+        template.Metadata.Annotations[KubernetesResourceRecordStore.RestartDigestAnnotation].ShouldBe("none");
+        result.Objects.OfType<V1ConfigMap>().Single().Data[AppEnvironment.Variables.ConfigDirectory].ShouldBe("/var/run/cohesion-config");
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: a new generation that changes nothing the pods read leaves the pod template as it was")]
+    public void Compile_WithNewGenerationOfTheSamePlan_ShouldKeepThePodTemplate()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
+
+        // Act
+        KubernetesPlanCompilation first = Compile(planCase, CreateFixtureInputs(planCase.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1"));
+        KubernetesPlanCompilation second = Compile(planCase, CreateFixtureInputs(planCase.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g2"));
+
+        // Assert
+        Template(second).ShouldBe(Template(first));
+        second.PlanHash.ShouldBe(first.PlanHash);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: changing the autoscaler or the budget in code leaves the pod template as it was")]
+    public void Compile_WithChangedPlatformObjects_ShouldKeepThePodTemplate()
+    {
+        // Arrange
+        PlanCase source = CreateCase("web");
+        PlanCase changed = source with
+        {
+            Plan = source.Plan with
+            {
+                Workload = source.Plan.Workload with { Scale = new ScaleBounds(2, 6) },
+                Extensions = new Dictionary<string, JsonElement>
+                {
+                    ["kubernetes/hpa"] = ParseJson("""{"targetCpuUtilizationPercentage":60}"""),
+                    ["kubernetes/pod-disruption-budget"] = ParseJson("""{"maxUnavailable":1}"""),
+                },
+            },
+        };
+
+        // Act: in a cluster these are two generations, and the second discarded the first one's overrides.
+        KubernetesPlanCompilation before = Compile(source, CreateFixtureInputs(source.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1"));
+        KubernetesPlanCompilation after = Compile(changed, CreateFixtureInputs(changed.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g2"));
+
+        // Assert
+        Template(after).ShouldBe(Template(before));
+        after.Objects.OfType<V2HorizontalPodAutoscaler>().ShouldHaveSingleItem();
+        after.Objects.OfType<V1PodDisruptionBudget>().ShouldHaveSingleItem();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: a changed deployment layer is a new record ConfigMap, so it rolls the pods")]
+    public void Compile_WithChangedDeploymentLayer_ShouldProjectAnotherRecord()
+    {
+        // Arrange
+        PlanCase source = CreateCase("web");
+        PlanCase configured = source with
+        {
+            Plan = source.Plan with
+            {
+                Configuration = new Dictionary<string, JsonElement> { ["Web:Cors"] = ParseJson("""{"origin":"https://portal.example.com"}""") },
+            },
+        };
+
+        // Act
+        KubernetesPlanCompilation before = Compile(source, CreateFixtureInputs(source.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1"));
+        KubernetesPlanCompilation after = Compile(configured, CreateFixtureInputs(configured.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g2"));
+
+        // Assert
+        RecordName(after).ShouldNotBe(RecordName(before));
+        RecordName(after).ShouldBe("appa-api-record-" + after.PlanHash[..16]);
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: the pod template carries the record's restart digest, except a Job's")]
+    public void Compile_WithRestartDigest_ShouldStampThePodTemplate()
+    {
+        // Arrange
+        PlanCase web = CreateCase("web");
+        PlanCase job = CreateCase("job");
+
+        // Act
+        KubernetesPlanCompilation stamped = Compile(
+            web, CreateFixtureInputs(web.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1", restartDigest: "sha256:0a1b"));
+        KubernetesPlanCompilation once = Compile(
+            job, CreateFixtureInputs(job.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1", restartDigest: "sha256:0a1b"));
+
+        // Assert
+        stamped.Objects.OfType<V1Deployment>().Single().Spec.Template.Metadata.Annotations[KubernetesResourceRecordStore.RestartDigestAnnotation]
+            .ShouldBe("sha256:0a1b");
+        (once.Objects.OfType<V1Job>().Single().Spec.Template.Metadata.Annotations ?? new Dictionary<string, string>())
+            .ContainsKey(KubernetesResourceRecordStore.RestartDigestAnnotation).ShouldBeFalse();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: a workload patch cannot remove the record projection, its restart digest or the instance identity")]
+    public void Compile_WithRemovingPatch_ShouldRestoreRecordBinding()
+    {
+        // Arrange
+        PlanCase planCase = CreateCase("web");
         var options = new KubernetesGatewayOptions();
-        options.Patch<V1Deployment>(managed.Plan.Resource, deployment =>
+        options.Patch<V1Deployment>(planCase.Plan.Resource, deployment =>
         {
             deployment.Spec.Template.Spec.Volumes = [];
             deployment.Spec.Template.Spec.Containers[0].VolumeMounts = [];
             deployment.Spec.Template.Spec.Containers[0].Env = [];
+            deployment.Spec.Template.Metadata.Annotations[KubernetesResourceRecordStore.RestartDigestAnnotation] = "patched";
         });
-        KubernetesPlanCompilation result = Compile(managed, options: options);
+
+        // Act
+        KubernetesPlanCompilation result = Compile(
+            planCase, CreateFixtureInputs(planCase.Plan).WithDeploymentRecord("/var/run/cohesion-config", "g1", restartDigest: "sha256:0a1b"), options);
+
+        // Assert
+        V1PodTemplateSpec template = result.Objects.OfType<V1Deployment>().Single().Spec.Template;
+        V1PodSpec pod = template.Spec;
+        pod.Volumes.ShouldContain(volume => volume.Name == "cohesion-record");
+        pod.Containers[0].VolumeMounts.ShouldContain(mount => mount.Name == "cohesion-record");
+        pod.Containers[0].Env.Single(variable => variable.Name == AppEnvironment.Variables.ResourceInstance)
+            .ValueFrom.FieldRef.FieldPath.ShouldBe("metadata.uid");
+        template.Metadata.Annotations[KubernetesResourceRecordStore.RestartDigestAnnotation].ShouldBe("sha256:0a1b");
+    }
+
+    private static string Template(KubernetesPlanCompilation compilation) =>
+        KubernetesJson.Serialize(compilation.Objects.OfType<V1Deployment>().Single().Spec.Template);
+
+    private static string RecordName(KubernetesPlanCompilation compilation) => compilation.Objects.OfType<V1Deployment>().Single()
+        .Spec.Template.Spec.Volumes.Single(volume => volume.Name == "cohesion-record").Projected.Sources[0].ConfigMap.Name;
+
+    private static JsonElement ParseJson(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Records: without a record, a pod still names itself but projects nothing")]
+    public void Compile_WithoutDeploymentRecord_ShouldProjectNoRecord()
+    {
+        // Act
+        KubernetesPlanCompilation result = Compile(CreateCase("web"));
+
+        // Assert
         V1PodSpec pod = result.Objects.OfType<V1Deployment>().Single().Spec.Template.Spec;
-        V1SecretVolumeSource projection = pod.Volumes.Single(volume => volume.Name == "cohesion-state").Secret;
-        projection.Items.ShouldHaveSingleItem().Key.ShouldBe(KubernetesResourceManagementStore.ProjectionKey);
-        projection.DefaultMode.ShouldBe(288);
-        pod.Containers[0].VolumeMounts.Single(mount => mount.Name == "cohesion-state").ReadOnlyProperty.ShouldBe(true);
-        pod.Containers[0].Env.Single(variable => variable.Name == AppEnvironment.Variables.ResourceInstance).ValueFrom.FieldRef.FieldPath.ShouldBe("metadata.uid");
-        pod.Containers[0].Env.Single(variable => variable.Name == AppEnvironment.Variables.ResourceStatePath).Value.ShouldBe("/var/run/cohesion-state/runtime-state.json");
-        result.Objects.OfType<V1Secret>().Single(secret => secret.Metadata.Name.EndsWith("-management", StringComparison.Ordinal)).Data.ShouldBeNull();
+        pod.Volumes.ShouldNotContain(volume => volume.Name == "cohesion-record");
+        pod.Containers[0].Env.ShouldContain(variable => variable.Name == AppEnvironment.Variables.ResourceInstance);
+        result.Objects.OfType<V1ConfigMap>().Single().Data.ContainsKey(AppEnvironment.Variables.ConfigDirectory).ShouldBeFalse();
     }
 
     private static readonly string Image = $"registry.example/test@sha256:{new string('a', 64)}";

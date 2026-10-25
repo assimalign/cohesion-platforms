@@ -14,13 +14,18 @@ internal sealed class DockerPlanController : IApplicationResourceController
     private readonly DockerPlanCompiler _compiler;
     private readonly Func<IDockerEngineClient> _getEngine;
     private readonly DockerContainerObserver _observer;
+    private readonly Func<IResourceControlContext, CancellationToken, ValueTask<ResourceRecord?>>? _readRecord;
     private readonly HashSet<string> _reportedWarnings = new(StringComparer.Ordinal);
+    // The record each container last received, keyed by container name, so a later copy knows which layers to
+    // withdraw. Lost on a gateway restart, after which only layers the next record still has are rewritten.
+    private readonly Dictionary<string, ResourceRecord> _delivered = new(StringComparer.Ordinal);
 
     public DockerPlanController(
         DockerGatewayOptions options,
         DockerPlanCompiler compiler,
         Func<IDockerEngineClient> getEngine,
-        DockerContainerObserver observer)
+        DockerContainerObserver observer,
+        Func<IResourceControlContext, CancellationToken, ValueTask<ResourceRecord?>>? readRecord = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(compiler);
@@ -30,6 +35,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
         _compiler = compiler;
         _getEngine = getEngine;
         _observer = observer;
+        _readRecord = readRecord;
     }
 
     public bool CanRealize(ResourcePlan plan, out string? reason)
@@ -71,6 +77,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
             context.Model.Owner,
             _options.PublicHost);
         ReportWarnings(compilation.Warnings);
+        ResourceRecord? record = await ReadRecordAsync(context, cancellationToken).ConfigureAwait(false);
 
         string containerId;
         using (await _observer.EnterMutationAsync(context, cancellationToken).ConfigureAwait(false))
@@ -94,7 +101,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
                     _observer.Unregister(context);
                     await ReplaceContainerAsync(engine, existing, compilation, cancellationToken)
                         .ConfigureAwait(false);
-                    containerId = await CreateAndStartAsync(engine, compilation, cancellationToken)
+                    containerId = await CreateAndStartAsync(engine, compilation, RecordFiles(compilation, record, fresh: true), cancellationToken)
                         .ConfigureAwait(false);
                 }
                 else
@@ -109,6 +116,8 @@ internal sealed class DockerPlanController : IApplicationResourceController
                             compilation,
                             sensitive: false,
                             cancellationToken).ConfigureAwait(false);
+                        await StageFilesAsync(engine, containerId, RecordFiles(compilation, record, fresh: false), cancellationToken)
+                            .ConfigureAwait(false);
                         await engine.StartContainerAsync(containerId, cancellationToken)
                             .ConfigureAwait(false);
                         await StageInputsAsync(
@@ -118,14 +127,22 @@ internal sealed class DockerPlanController : IApplicationResourceController
                             sensitive: true,
                             cancellationToken).ConfigureAwait(false);
                     }
+                    else if (existing.State?.Running is true)
+                    {
+                        // A change the gateway could not copy while it was made reaches the container now.
+                        await StageFilesAsync(engine, containerId, RecordFiles(compilation, record, fresh: false), cancellationToken)
+                            .ConfigureAwait(false);
+                    }
                 }
             }
             else
             {
                 _observer.Unregister(context);
-                containerId = await CreateAndStartAsync(engine, compilation, cancellationToken)
+                containerId = await CreateAndStartAsync(engine, compilation, RecordFiles(compilation, record, fresh: true), cancellationToken)
                     .ConfigureAwait(false);
             }
+
+            Remember(compilation, record);
         }
 
         RestartPolicy restartPolicy = ReadRestartPolicy(context.Plan, context.Resource);
@@ -269,6 +286,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
         CancellationToken cancellationToken)
     {
         IDockerEngineClient engine = _getEngine();
+        ResourceRecord? record = await ReadRecordAsync(context, cancellationToken).ConfigureAwait(false);
         DockerContainerInspectResponse? existing = await engine
             .InspectContainerAsync(compilation.Container.Name, cancellationToken)
             .ConfigureAwait(false);
@@ -279,7 +297,96 @@ internal sealed class DockerPlanController : IApplicationResourceController
                 .ConfigureAwait(false);
         }
 
-        return await CreateAndStartAsync(engine, compilation, cancellationToken)
+        string id = await CreateAndStartAsync(engine, compilation, RecordFiles(compilation, record, fresh: true), cancellationToken)
+            .ConfigureAwait(false);
+        Remember(compilation, record);
+        return id;
+    }
+
+    // Copies a management change into the resource's running container, which polls its record directory. A stopped
+    // or missing container needs nothing: the record is staged whenever a container starts.
+    internal async Task DeliverRecordAsync(
+        ApplicationName application,
+        ResourceName resource,
+        ResourceRecord previous,
+        ResourceRecord current,
+        CancellationToken cancellationToken)
+    {
+        string name = DockerMetadata.ContainerName(application, resource);
+        IDockerEngineClient engine = _getEngine();
+        DockerContainerInspectResponse? container = await engine.InspectContainerAsync(name, cancellationToken).ConfigureAwait(false);
+        if (container?.State?.Running is not true || string.IsNullOrWhiteSpace(container.Id))
+        {
+            return;
+        }
+
+        ResourceRecord? delivered;
+        lock (_delivered)
+        {
+            delivered = _delivered.TryGetValue(name, out ResourceRecord? known) ? known : previous;
+        }
+
+        await StageFilesAsync(engine, container.Id, DockerResourceRecordStore.CreateFiles(current, delivered), cancellationToken)
+            .ConfigureAwait(false);
+        lock (_delivered)
+        {
+            _delivered[name] = current;
+        }
+    }
+
+    private async ValueTask<ResourceRecord?> ReadRecordAsync(IResourceControlContext context, CancellationToken cancellationToken) =>
+        _readRecord is not null && context.Inputs.ConfigurationDirectory is not null
+            ? await _readRecord(context, cancellationToken).ConfigureAwait(false)
+            : null;
+
+    // A fresh container holds nothing, so only the record's layers are written; an existing one also receives an
+    // empty object for each layer the record it last received had and this one does not.
+    private IReadOnlyList<DockerFilePlan> RecordFiles(DockerPlanCompilation compilation, ResourceRecord? record, bool fresh)
+    {
+        if (record is null)
+        {
+            return Array.Empty<DockerFilePlan>();
+        }
+
+        ResourceRecord? delivered = null;
+        if (!fresh)
+        {
+            lock (_delivered)
+            {
+                _delivered.TryGetValue(compilation.Container.Name, out delivered);
+            }
+        }
+
+        return DockerResourceRecordStore.CreateFiles(record, delivered);
+    }
+
+    private void Remember(DockerPlanCompilation compilation, ResourceRecord? record)
+    {
+        if (record is null)
+        {
+            return;
+        }
+
+        lock (_delivered)
+        {
+            _delivered[compilation.Container.Name] = record;
+        }
+    }
+
+    private static async Task StageFilesAsync(
+        IDockerEngineClient engine,
+        string containerId,
+        IReadOnlyList<DockerFilePlan> files,
+        CancellationToken cancellationToken)
+    {
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        using MemoryStream archive = DockerInputArchive.Create(files);
+        await engine
+            .PutArchiveAsync(containerId, "/", archive, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -368,6 +475,7 @@ internal sealed class DockerPlanController : IApplicationResourceController
     private static async Task<string> CreateAndStartAsync(
         IDockerEngineClient engine,
         DockerPlanCompilation compilation,
+        IReadOnlyList<DockerFilePlan> recordFiles,
         CancellationToken cancellationToken)
     {
         DockerContainerCreateResponse created = await engine
@@ -388,6 +496,8 @@ internal sealed class DockerPlanController : IApplicationResourceController
             compilation,
             sensitive: false,
             cancellationToken).ConfigureAwait(false);
+        // The record is in place before the process starts, so its startup phase applies it.
+        await StageFilesAsync(engine, created.Id, recordFiles, cancellationToken).ConfigureAwait(false);
         await engine.StartContainerAsync(created.Id, cancellationToken).ConfigureAwait(false);
         await StageInputsAsync(
             engine,

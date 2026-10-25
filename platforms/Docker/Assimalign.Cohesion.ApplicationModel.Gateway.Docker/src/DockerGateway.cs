@@ -30,6 +30,7 @@ public sealed class DockerGateway :
     private readonly DockerContainerObserver _observer;
     private readonly DockerPlanController _planController;
     private readonly IReadOnlyList<IApplicationResourceController> _controllers;
+    private readonly DockerResourceRecordStore _records;
 
     private readonly Dictionary<IApplicationResource, IApplicationModel> _imageModels = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<IApplicationModel, string?> _publishedIndexes = new(ReferenceEqualityComparer.Instance);
@@ -61,6 +62,8 @@ public sealed class DockerGateway :
         options.ValidateDocker();
         _options = options;
         _engineFactory = engineFactory;
+        _records = new DockerResourceRecordStore(
+            options.StateDirectory ?? Path.Combine(Environment.CurrentDirectory, ".cohesion", "docker"));
         DockerPlanController? controller = null;
         _observer = new DockerContainerObserver(
             options,
@@ -69,7 +72,12 @@ public sealed class DockerGateway :
                 (controller ?? throw new InvalidOperationException(
                     "The Docker plan controller has not been initialized."))
                 .RestartAsync(context, compilation, cancellationToken));
-        controller = new DockerPlanController(options, _compiler, GetEngine, _observer);
+        controller = new DockerPlanController(
+            options,
+            _compiler,
+            GetEngine,
+            _observer,
+            (context, cancellationToken) => _records.ReadAsync(context.Model.Name, context.Resource.Name, cancellationToken));
         _planController = controller;
         _controllers = [_planController];
     }
@@ -86,6 +94,31 @@ public sealed class DockerGateway :
 
     /// <inheritdoc/>
     protected override TimeSpan ReadinessBudget => _options.ReadinessBudget;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Records are files under <see cref="DockerGatewayOptions.StateDirectory"/>, copied into each container's
+    /// <c>/var/run/cohesion-config</c> before it starts and after each management change.
+    /// </remarks>
+    protected override IResourceRecordStore? RecordStore => _records;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The change is copied into the running container, which applies live sections from its poll. Docker restarts
+    /// nothing for a section applied only at startup: the instance reports it as waiting for a restart until the
+    /// container next starts.
+    /// </remarks>
+    protected override ValueTask OnRecordChangedAsync(
+        IApplicationModel model,
+        IApplicationResourceDescriptor descriptor,
+        ResourceRecord previous,
+        ResourceRecord current,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return new ValueTask(_planController.DeliverRecordAsync(model.Name, descriptor.Resource.Name, previous, current, cancellationToken));
+    }
 
     /// <inheritdoc />
     protected override ValueTask<ResourceInstanceInventory> ObserveResourceInstancesAsync(IApplicationModel model,

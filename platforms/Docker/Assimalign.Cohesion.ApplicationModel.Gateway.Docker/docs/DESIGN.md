@@ -168,25 +168,37 @@ Port-forward and cross-gateway topology integration remain open. Full real Docke
 population, private registry authentication, OCI archive engine compatibility, and custom-controller
 shared-network teardown outcomes remain explicit boundaries.
 
-## Resource runtime state management
+## Deployment records (phase P3)
 
-The gateway reads the producer's opaque runtime catalog through generic Gateway contracts. It
-inspects the current container even before readiness, using container ID and StartedAt as its
-generation. Management uses an individually published loopback binding and the logical resource TLS
-name; it does not send desired state through an ordinary consumer endpoint. The compiler creates
-this private management binding even when no HTTP readiness probe is declared.
+The gateway keeps each resource's [deployment record](https://github.com/assimalign/cohesion/blob/main/docs/RUNTIME_CONTRACT.md#deployment-record)
+as files on the gateway machine (`DockerResourceRecordStore`, over the Gateway base's
+`FileResourceRecordStore`), under `DockerGatewayOptions.StateDirectory`, by default
+`.cohesion/docker` in the working directory. A container cannot read that file system, so:
 
-The Gateway base persists conditional desired state and retry receipts, then reconciles the current
-process and admits it after bootstrap. Restarts invalidate the former process acknowledgement.
-Docker's single-instance limit remains enforced. The daemon-free suite verifies compilation and
-observation; tests requiring a compatible Docker/Podman daemon remain separate integration coverage.
-## Startup discovery and logical resource groups
+- **Delivery.** The controller copies the record's layers into `/var/run/cohesion-config` with the
+  engine's archive API after it creates a container and before it starts it, and again before a
+  restart. The container's `COHESION_CONFIG_DIRECTORY` names that directory. Nothing is
+  bind-mounted, so the delivery works the same on a remote engine as on a local one.
+- **Management changes.** `OnRecordChangedAsync` copies an override or claims change into the
+  running container, which applies live sections from its poll; a stopped or missing container
+  receives the record when it next starts.
+- **Withdrawn layers.** The archive API writes files and never deletes them, so a layer the
+  container last received and the record no longer has is written as `{}`, which the runtime
+  contract counts as absent. The controller remembers in memory what each container last received; a
+  restarted gateway does not, so until the container is recreated a withdrawn layer can stay in it.
+- **Restart-class sections.** Docker restarts nothing for them: the instance's configuration status
+  reports the section as waiting for a restart until the container next starts.
+- **Identity.** The record is an input like the resolved mounts, kept out of the runtime-input hash:
+  a management change never replaces the container. The plan hash leaves out the scale bounds and
+  every plan extension, because Docker runs one container and reads no extension, so declaring
+  `ScaleBetween` or another platform's extension never replaces it either.
 
-The portable producer runtime metadata declares only its management binding. Capabilities and
-reproducible initial-state baselines are discovered from registered resource handlers after effective
-code-first and application configuration is applied at resource startup. Binding-only metadata with
-no `states` or `initialState` fields still installs the private management port; it creates no
-readiness probe when neither an explicit probe nor a default control-plane mapping requested one.
+The control-plane binding, which the management API uses to read each instance's configuration
+status and to send it actions, is always published on loopback, including when the resource
+declares no HTTP readiness probe. Docker's single-instance limit still holds, so an every-instance
+action reaches one container.
+
+## Logical resource groups
 
 `ResourcePlan.ResourceGroup` is application-owned management metadata. Group membership does not
 change container or volume identity, ownership labels, network names or aliases, or network scope.

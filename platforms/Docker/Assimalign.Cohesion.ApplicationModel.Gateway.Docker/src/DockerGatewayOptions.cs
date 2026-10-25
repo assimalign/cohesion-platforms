@@ -38,6 +38,17 @@ public sealed class DockerGatewayOptions : ApplicationGatewayOptions
     public IImageRealizer? ImageRealizer { get; set; }
 
     /// <summary>
+    /// Gets or sets the directory that holds the gateway's deployment records. When omitted, the gateway uses
+    /// <c>.cohesion/docker</c> under the current directory.
+    /// </summary>
+    /// <remarks>
+    /// The engine keeps containers, networks and volumes; the record, claims included, lives here on the gateway's
+    /// machine and is copied into each container, so it works with a remote or a Podman engine that cannot bind-mount
+    /// the gateway's file system. Keep the directory with the deployment, as the Local gateway keeps <c>.cohesion</c>.
+    /// </remarks>
+    public string? StateDirectory { get; set; }
+
+    /// <summary>
     /// Gets or sets the path to the application's <c>application.images.json</c> document. When
     /// specified, the gateway resolves each resource's own index entry before custom or default
     /// image realization.

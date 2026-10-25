@@ -99,15 +99,13 @@ See the [project overview](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/d
 [design](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md), and
 [assembly reference](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/Assembly/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/OVERVIEW.md).
 
-## Resource runtime state management
+## Deployment records
 
-The gateway reads the producer's opaque runtime catalog through generic Gateway contracts. It
-inspects the current container even before readiness, using container ID and StartedAt as its
-generation. Management uses an individually published loopback binding and the logical resource TLS
-name; it does not send desired state through an ordinary consumer endpoint. The compiler creates
-this private management binding even when no HTTP readiness probe is declared.
-
-The Gateway base persists conditional desired state and retry receipts, then reconciles the current
-process and admits it after bootstrap. Restarts invalidate the former process acknowledgement.
-Docker's single-instance limit remains enforced. The daemon-free suite verifies compilation and
-observation; tests requiring a compatible Docker/Podman daemon remain separate integration coverage.
+Each resource's deployment record is a set of files under `DockerGatewayOptions.StateDirectory`
+(default `.cohesion/docker`) on the gateway machine. The gateway copies them into the container at
+`/var/run/cohesion-config` before it starts, and copies each management change into the running
+container, which applies live sections without a restart. A section the resource applies only at
+startup waits for the container's next start; Docker restarts nothing for it. The control-plane
+binding the management API uses is always published on loopback. Daemon-free tests cover staging,
+live delivery and withdrawn layers; delivery against a real Docker or Podman daemon is not yet
+verified. See [DESIGN.md](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md#deployment-records-phase-p3).

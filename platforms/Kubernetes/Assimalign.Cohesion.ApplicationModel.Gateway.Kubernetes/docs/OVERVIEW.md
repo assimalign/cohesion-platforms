@@ -114,4 +114,13 @@ Only public trust material belongs in ConfigMaps. Native P-256 key persistence u
 
 See [the area README](../../README.md) for switches and Kind provisioning and verification.
 
-Runtime state management uses the producer manifest, trusted platform instance inventory and the generic gateway coordinator. See [DESIGN.md](DESIGN.md#resource-runtime-state-management) for delivery, bootstrap and validation boundaries.
+## Deployment records and platform surfaces
+
+The gateway stores each resource's deployment record in ConfigMaps (`<resource>-record-<key>`, named
+for the pod template that reads it, and `<resource>-claims`) and projects it into every pod at
+`/var/run/cohesion-config`; a change to a restart-class section rolls the workload through the
+`cohesion.io/restart-digest` annotation.
+`ConfigureHpa` and `ConfigurePodDisruptionBudget` declare an `autoscaling/v2`
+HorizontalPodAutoscaler and a `policy/v1` PodDisruptionBudget in code, and the management API serves
+both as the `kubernetes/hpa` and `kubernetes/pod-disruption-budget` platform surfaces. See
+[DESIGN.md](DESIGN.md#deployment-records-phase-p3) for delivery, concurrency and retention.

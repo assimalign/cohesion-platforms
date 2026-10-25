@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -30,6 +31,11 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
     private readonly KubernetesPlanController _planController;
     private readonly IReadOnlyList<IApplicationResourceController> _controllers;
     private readonly KubernetesGatewayObservationRegistry _observations;
+    private readonly IKubernetesResourceApi _resources;
+    private readonly IKubernetesResourceApi _restarts;
+    private readonly KubernetesResourceRecordStore _records;
+    // The record ConfigMap each validated resource's pod template projects, so a new generation's record goes to it.
+    private readonly ConcurrentDictionary<(ApplicationName Application, ResourceName Resource), string> _recordKeys = new();
     private readonly Dictionary<ApplicationName, NamespaceRegistration> _namespaces = new();
     private readonly List<ApplicationName> _namespaceOrder = [];
     private readonly Dictionary<ApplicationName, ExportRegistration> _exports = new();
@@ -64,11 +70,16 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         _options = options;
         _imageGatherer = new KubernetesImageGatherer(options);
         var resources = new KubernetesGatewayResourceApi(GetRequiredClient);
-        options.ManagementStore ??= new KubernetesResourceManagementStore(new KubernetesGatewayResourceApi(GetRequiredClient, "cohesion-resource-management"), application =>
-        {
-            NamespaceRegistration registration = FindNamespaceRegistration(application.Value);
-            return (registration.NamespaceName, registration.Owner);
-        });
+        _resources = resources;
+        _restarts = new KubernetesGatewayResourceApi(GetRequiredClient, RestartFieldManager);
+        _records = new KubernetesResourceRecordStore(
+            resources,
+            application =>
+            {
+                NamespaceRegistration registration = FindNamespaceRegistration(application.Value);
+                return (registration.NamespaceName, registration.Owner);
+            },
+            (application, resource) => _recordKeys.TryGetValue((application, resource), out string? key) ? key : null);
         KubernetesPlanController? planController = null;
         _observations = new KubernetesGatewayObservationRegistry(
             resources,
@@ -134,6 +145,16 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         {
             _ = ContainerImageArtifacts.Create(descriptor.Resource.Id, image);
         }
+
+        // Platform surfaces fail at Build() rather than at reconcile: malformed extension data, or a budget on a
+        // workload that is not replicated.
+        _ = KubernetesHpaSurface.Create(plan, manifestResource.Manifest.Lifecycle.MaxReplicas);
+        _ = KubernetesPodDisruptionBudgetSurface.Create(plan);
+
+        // Validation precedes every deployment, so the store knows which record ConfigMap the plan's pods will read
+        // before the deployment writes the new generation's record.
+        _recordKeys[(model.Name, descriptor.Resource.Name)] =
+            KubernetesResourceRecordStore.RecordKey(KubernetesPlanCompiler.ComputePlanHash(plan));
 
         _imageContexts[descriptor.Resource] = new ImageGatherContext(
             model,

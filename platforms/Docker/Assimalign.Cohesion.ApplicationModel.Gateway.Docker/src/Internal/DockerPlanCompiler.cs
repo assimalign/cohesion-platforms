@@ -17,6 +17,9 @@ internal sealed class DockerPlanCompiler
     private const string TrustBundlePath = "/var/run/cohesion/trust.pem";
     private const string TelemetryHeadersPath = "/var/run/cohesion/telemetry.headers";
 
+    private static readonly IReadOnlyDictionary<string, JsonElement> _noExtensions =
+        new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
     public void Validate(ResourcePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -130,6 +133,14 @@ internal sealed class DockerPlanCompiler
             environment[AppEnvironment.Variables.TelemetryHeadersPath] = TelemetryHeadersPath;
         }
 
+        // The record's files are staged by the controller, outside this compilation and its runtime hash, so a
+        // management change reaches a running container without replacing it. Only the directory is compiled: it is
+        // the same for every generation.
+        if (inputs.ConfigurationDirectory is string recordDirectory)
+        {
+            environment[AppEnvironment.Variables.ConfigDirectory] = recordDirectory;
+        }
+
         var portBindings = CreatePortBindings(plan);
         var aliases = CreateAliases(plan);
         string runtimeHash = ComputeRuntimeHash(
@@ -208,8 +219,14 @@ internal sealed class DockerPlanCompiler
     {
         ArgumentNullException.ThrowIfNull(plan);
         JsonElement document = JsonSerializer.SerializeToElement(
-            // Logical groups organize management APIs and never change deployment identity.
-            plan with { ResourceGroup = null },
+            // Logical groups organize management APIs and never change deployment identity. Docker runs one container
+            // and supports no extension, so scale bounds and other platforms' extensions never replace it either.
+            plan with
+            {
+                ResourceGroup = null,
+                Workload = plan.Workload with { Scale = null },
+                Extensions = _noExtensions,
+            },
             ResourcePlanJsonContext.Default.ResourcePlan);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -652,23 +669,14 @@ internal sealed class DockerPlanCompiler
                 ProbeOnly: true));
         }
 
-        if (NeedsControlPlaneReadiness(plan) && probeEndpoints.Add(plan.ControlPlane.Endpoint))
+        // The gateway reaches the control plane on loopback: for readiness when the plan maps no readiness probe, and for
+        // the management API's configuration status and actions whenever the plan declares one.
+        if (!string.IsNullOrEmpty(plan.ControlPlane.Endpoint) && probeEndpoints.Add(plan.ControlPlane.Endpoint))
         {
             PortBinding port = FindPort(plan.Container.Ports, plan.ControlPlane.Endpoint);
             result.Add(new DockerPortPublishPlan(
                 port.Endpoint, port.ContainerPort, port.Protocol.ToLowerInvariant(),
                 "127.0.0.1", HostPort: null, ProbeOnly: true));
-        }
-
-        if (plan.Runtime is JsonElement runtime)
-        {
-            string endpoint = runtime.GetProperty("management").GetProperty("endpoint").GetString()!;
-            if (probeEndpoints.Add(endpoint))
-            {
-                PortBinding port = FindPort(plan.Container.Ports, endpoint);
-                result.Add(new DockerPortPublishPlan(port.Endpoint, port.ContainerPort, port.Protocol.ToLowerInvariant(),
-                    "127.0.0.1", HostPort: null, ProbeOnly: true));
-            }
         }
 
         return result;

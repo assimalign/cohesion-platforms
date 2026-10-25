@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests;
 
-public class DockerPlanControllerTests
+public partial class DockerPlanControllerTests
 {
     [Fact(DisplayName = "Cohesion Test [Docker] - Controller: Should create network, volume, container, start, and input archive through Engine API")]
     public async Task ReconcileAsync_OnPlanWithRuntimeInputs_ShouldSendCompleteEngineRequestsInOrder()

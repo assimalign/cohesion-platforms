@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -23,6 +24,7 @@ internal sealed partial class KubernetesPlanCompiler
     private const string BootstrapVolumeName = "cohesion-bootstrap";
     private const string ConfigurationVolumeName = "cohesion-configuration";
     private const string SecretVolumeName = "cohesion-secret";
+    private const string RecordVolumeName = "cohesion-record";
 
     public void Validate(ResourcePlan plan)
     {
@@ -85,7 +87,23 @@ internal sealed partial class KubernetesPlanCompiler
             inputs,
             dependencies,
             ownEndpoints ?? Array.Empty<ResourceEndpoint>());
-        if (plan.Runtime.HasValue) { environment[AppEnvironment.Variables.ResourceStatePath] = "/var/run/cohesion-state/runtime-state.json"; }
+        // The deployment record is projected from the record ConfigMap named for this pod template and the claims
+        // ConfigMap. A generation that changes nothing the pods read, such as an autoscaler bound, keeps both names and
+        // so the pods; a plan change they do read is a new name, so each ReplicaSet reads its own record.
+        RecordProjection? record = inputs.ConfigurationDirectory is string recordDirectory && inputs.DeploymentGeneration is not null
+            ? new RecordProjection(
+                KubernetesResourceRecordStore.RecordName(resource, KubernetesResourceRecordStore.RecordKey(planHash)),
+                KubernetesResourceRecordStore.ClaimsName(resource),
+                recordDirectory,
+                inputs.RestartDigest ?? KubernetesResourceRecordStore.NoRestartDigest)
+            : null;
+        if (record is not null)
+        {
+            environment[AppEnvironment.Variables.ConfigDirectory] = record.MountPath;
+        }
+
+        KubernetesHpaSurface.Settings? autoscaler = KubernetesHpaSurface.Resolve(plan, inputs, ceiling: null);
+        KubernetesPodDisruptionBudgetSurface.Settings? budget = KubernetesPodDisruptionBudgetSurface.Resolve(plan, inputs);
         Dictionary<string, byte[]> configurationData = CreateMountData(
             plan,
             inputs,
@@ -150,22 +168,6 @@ internal sealed partial class KubernetesPlanCompiler
             Data = secretData,
         };
         AddPatched(objects, plan.Resource, secret, secretName, namespaceName, resource, planHash, owner, options);
-
-        if (plan.Runtime.HasValue)
-        {
-            string managementName = KubernetesMetadata.ChildName(resource, "management");
-            var managementSecret = new V1Secret
-            {
-                ApiVersion = V1Secret.KubeApiVersion, Kind = V1Secret.KubeKind, Type = "Opaque",
-                Metadata = KubernetesMetadata.CreateObjectMeta(managementName, namespaceName, resource, planHash, owner)
-            };
-            AddPatched(objects, plan.Resource, managementSecret, managementName, namespaceName, resource, planHash, owner, options);
-            // The plan controller must never own private coordination/projection data.
-            managementSecret.Type = "Opaque";
-            managementSecret.Data = null;
-            managementSecret.StringData = null;
-            managementSecret.Immutable = false;
-        }
 
         for (int index = 0; index < plan.Services.Count; index++)
         {
@@ -245,7 +247,9 @@ internal sealed partial class KubernetesPlanCompiler
             secretName,
             claims,
             bootstrapItems,
-            restartPolicy);
+            restartPolicy,
+            record,
+            autoscaled: autoscaler is not null);
         AddPatched(
             objects,
             plan.Resource,
@@ -264,23 +268,130 @@ internal sealed partial class KubernetesPlanCompiler
             planHash,
             owner);
         RestorePodMetadata(workload, resource, planHash, owner);
-        if (plan.Runtime.HasValue) { RestoreManagementBindings(workload, plan); }
+        RestoreRecordBinding(workload, plan, record);
 
+        if (autoscaler is not null)
+        {
+            V2HorizontalPodAutoscaler compiled = KubernetesHpaSurface.Compile(plan, autoscaler, namespaceName, resource, planHash, owner);
+            AddPatched(objects, plan.Resource, compiled, resource, namespaceName, resource, planHash, owner, options);
+        }
+
+        if (budget is not null)
+        {
+            V1PodDisruptionBudget compiled = KubernetesPodDisruptionBudgetSurface.Compile(budget, namespaceName, resource, planHash, owner);
+            AddPatched(objects, plan.Resource, compiled, resource, namespaceName, resource, planHash, owner, options);
+        }
+
+        // An autoscaled workload is ready once the autoscaler's minimum is; the replica count is the autoscaler's.
         return new KubernetesPlanCompilation(
             namespaceName,
             planHash,
             objects,
-            new KubernetesReadinessRule(plan.Workload.Kind, plan.Workload.Replicas),
+            new KubernetesReadinessRule(plan.Workload.Kind, autoscaler?.MinReplicas ?? plan.Workload.Replicas),
             CreateObservedEndpoints(plan, namespaceName),
             warnings);
     }
 
+    /// <summary>
+    /// The ConfigMaps a pod template projects as the deployment record, where, and the record's restart digest.
+    /// </summary>
+    private sealed record RecordProjection(string RecordConfigMap, string ClaimsConfigMap, string MountPath, string RestartDigest);
+
+    // A Patch<T> customization cannot remove the record's projection, its restart digest or the instance identity:
+    // without them the resource would silently stop receiving its deployment record, keep a discarded restart-class
+    // override, or report itself as an unnamed instance.
+    private static void RestoreRecordBinding(IKubernetesObject<V1ObjectMeta> workload, ResourcePlan plan, RecordProjection? record)
+    {
+        V1PodTemplateSpec? template = workload switch
+        {
+            V1Deployment deployment => deployment.Spec?.Template,
+            V1StatefulSet stateful => stateful.Spec?.Template,
+            V1DaemonSet daemon => daemon.Spec?.Template,
+            V1Job job => job.Spec?.Template,
+            _ => null,
+        };
+        V1Container container = template?.Spec?.Containers?.FirstOrDefault(candidate => candidate.Name == plan.Container.Name)
+            ?? throw new InvalidDataException(
+                $"A Kubernetes workload patch for resource '{plan.Resource}' must keep the resource container '{plan.Container.Name}'.");
+        container.Env = [.. (container.Env ?? []).Where(variable => variable.Name != AppEnvironment.Variables.ResourceInstance), CreateInstanceVariable()];
+        if (record is null)
+        {
+            return;
+        }
+
+        template!.Spec.Volumes = [.. (template.Spec.Volumes ?? []).Where(volume => volume.Name != RecordVolumeName), CreateRecordVolume(record)];
+        container.VolumeMounts =
+        [
+            .. (container.VolumeMounts ?? []).Where(mount => mount.Name != RecordVolumeName && mount.MountPath != record.MountPath),
+            CreateRecordMount(record),
+        ];
+
+        // A deployment that discards a restart-class override changes the digest and so rolls the pods, even when nothing
+        // else about them changed. A Job's template is immutable and its pods run once, so it carries none.
+        if (plan.Workload.Kind is not WorkloadKind.Job)
+        {
+            template.Metadata ??= new V1ObjectMeta();
+            template.Metadata.Annotations ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            template.Metadata.Annotations[KubernetesResourceRecordStore.RestartDigestAnnotation] = record.RestartDigest;
+        }
+    }
+
+    // Never subPath or envFrom: the kubelet refreshes only a whole projected volume. Both sources are optional, because a
+    // record may have no override yet and no claims at all.
+    private static V1Volume CreateRecordVolume(RecordProjection record) => new()
+    {
+        Name = RecordVolumeName,
+        Projected = new V1ProjectedVolumeSource
+        {
+            DefaultMode = 292,
+            Sources =
+            [
+                new V1VolumeProjection
+                {
+                    ConfigMap = new V1ConfigMapProjection
+                    {
+                        Name = record.RecordConfigMap,
+                        Optional = true,
+                        Items =
+                        [
+                            new V1KeyToPath { Key = KubernetesResourceRecordStore.DeploymentKey, Path = KubernetesResourceRecordStore.DeploymentKey },
+                            new V1KeyToPath { Key = KubernetesResourceRecordStore.OverrideKey, Path = KubernetesResourceRecordStore.OverrideKey },
+                        ],
+                    },
+                },
+                new V1VolumeProjection
+                {
+                    ConfigMap = new V1ConfigMapProjection { Name = record.ClaimsConfigMap, Optional = true },
+                },
+            ],
+        },
+    };
+
+    private static V1VolumeMount CreateRecordMount(RecordProjection record) =>
+        new() { Name = RecordVolumeName, MountPath = record.MountPath, ReadOnlyProperty = true };
+
+    private static V1EnvVar CreateInstanceVariable() => new()
+    {
+        Name = AppEnvironment.Variables.ResourceInstance,
+        ValueFrom = new V1EnvVarSource { FieldRef = new V1ObjectFieldSelector { FieldPath = "metadata.uid" } },
+    };
+
     public static string ComputePlanHash(ResourcePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        // Logical groups organize management APIs and never change deployment identity. The autoscaler and the
+        // disruption budget are objects of their own, so changing them updates those objects without stamping a new
+        // hash on the pod template, which would restart every pod.
+        var extensions = new Dictionary<string, JsonElement>(plan.Extensions, StringComparer.Ordinal);
+        extensions.Remove(KubernetesHpaSurface.Key.Value);
+        extensions.Remove(KubernetesPodDisruptionBudgetSurface.Key.Value);
         JsonElement document = JsonSerializer.SerializeToElement(
-            // Logical groups organize management APIs and never change deployment identity.
-            plan with { ResourceGroup = null },
+            plan with
+            {
+                ResourceGroup = null,
+                Workload = plan.Workload with { Scale = null },
+                Extensions = extensions,
+            },
             ResourcePlanJsonContext.Default.ResourcePlan);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -997,7 +1108,9 @@ internal sealed partial class KubernetesPlanCompiler
         string secretName,
         IReadOnlyList<V1PersistentVolumeClaim> claims,
         IReadOnlyList<V1KeyToPath> bootstrapItems,
-        string restartPolicy)
+        string restartPolicy,
+        RecordProjection? record,
+        bool autoscaled)
     {
         var selector = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1012,7 +1125,10 @@ internal sealed partial class KubernetesPlanCompiler
             configMapName,
             secretName,
             bootstrapItems,
-            restartPolicy);
+            restartPolicy,
+            record);
+        // An autoscaler owns the replica count of the workload it scales.
+        int? replicas = autoscaled ? null : plan.Workload.Replicas;
         V1ObjectMeta metadata = KubernetesMetadata.CreateObjectMeta(
             resource,
             namespaceName,
@@ -1030,7 +1146,7 @@ internal sealed partial class KubernetesPlanCompiler
                 Metadata = metadata,
                 Spec = new V1DeploymentSpec
                 {
-                    Replicas = plan.Workload.Replicas,
+                    Replicas = replicas,
                     Selector = labelSelector,
                     Template = template,
                 },
@@ -1042,7 +1158,7 @@ internal sealed partial class KubernetesPlanCompiler
                 Metadata = metadata,
                 Spec = new V1StatefulSetSpec
                 {
-                    Replicas = plan.Workload.Replicas,
+                    Replicas = replicas,
                     Selector = labelSelector,
                     ServiceName = FindGoverningService(plan.Services).Name,
                     Template = template,
@@ -1086,7 +1202,8 @@ internal sealed partial class KubernetesPlanCompiler
         string configMapName,
         string secretName,
         IReadOnlyList<V1KeyToPath> bootstrapItems,
-        string restartPolicy)
+        string restartPolicy,
+        RecordProjection? record)
     {
         var ports = new List<V1ContainerPort>();
         for (int index = 0; index < plan.Container.Ports.Count; index++)
@@ -1114,20 +1231,12 @@ internal sealed partial class KubernetesPlanCompiler
             },
         };
         var volumeMounts = new List<V1VolumeMount>();
-        if (plan.Runtime.HasValue)
+        if (record is not null)
         {
-            volumes.Add(new V1Volume
-            {
-                Name = "cohesion-state",
-                Secret = new V1SecretVolumeSource
-                {
-                    SecretName = KubernetesMetadata.ChildName(KubernetesMetadata.ResourceName(plan.Resource), "management"),
-                    DefaultMode = 288,
-                    Items = [new V1KeyToPath { Key = KubernetesResourceManagementStore.ProjectionKey, Path = "runtime-state.json" }]
-                }
-            });
-            volumeMounts.Add(new V1VolumeMount { Name = "cohesion-state", MountPath = "/var/run/cohesion-state", ReadOnlyProperty = true });
+            volumes.Add(CreateRecordVolume(record));
+            volumeMounts.Add(CreateRecordMount(record));
         }
+
         for (int index = 0; index < plan.Container.Mounts.Count; index++)
         {
             MountBinding mount = plan.Container.Mounts[index];
@@ -1198,11 +1307,8 @@ internal sealed partial class KubernetesPlanCompiler
             Name = plan.Container.Name,
             Image = $"{artifact.Repository}@{artifact.Digest}",
             ImagePullPolicy = "IfNotPresent",
-            Env = plan.Runtime.HasValue ? [new V1EnvVar
-            {
-                Name = AppEnvironment.Variables.ResourceInstance,
-                ValueFrom = new V1EnvVarSource { FieldRef = new V1ObjectFieldSelector { FieldPath = "metadata.uid" } }
-            }] : null,
+            // Each pod names itself in its configuration status, so the management API tells instances apart.
+            Env = [CreateInstanceVariable()],
             EnvFrom =
             [
                 new V1EnvFromSource

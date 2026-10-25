@@ -336,32 +336,120 @@ specification. Full offline render emits only application objects when both syst
 are absent. Supplying either requests system rendering and requires both; bootstrap always requires
 both. Neither render path publishes images or contacts a cluster.
 
-## Resource runtime state management
+## Deployment records (phase P3)
 
-The gateway consumes opaque `runtime` metadata from the consolidated resource plan. It supplies
-trusted live inventory from workload UID, pod UID, container ID, pod address, termination status and
-current replica target, including HPA changes. Management connects directly to each pod while TLS
-verifies the logical Service name; the resource handshake verifies its injected pod identity and
-process-start UUID. Ordinary resource references continue to resolve through Services.
+The gateway keeps each resource's [deployment record](https://github.com/assimalign/cohesion/blob/main/docs/RUNTIME_CONTRACT.md#deployment-record)
+in ConfigMaps in the application's namespace (`KubernetesResourceRecordStore`), the gateway base's
+`RecordStore`:
 
-Desired state and private coordination receipts share one owned Secret and one resourceVersion CAS.
-A dedicated `cohesion-resource-management` field manager preserves that data across plan reapply.
-Pods mount only `runtime-state.json`, with read-only mode 0440 and no subPath; gateway receipts are
-excluded. Mandatory management inputs and the selected projection are restored after native patches.
-Resources bootstrap the latest every-instance projection before readiness and traffic admission.
-The running gateway reconciles current and future processes and dates convergence against inventory.
-Shared-state handlers must enforce backend fencing/idempotency; the Web adapters use every-instance.
+| Object | Holds |
+| --- | --- |
+| `<resource>-record-<key>` | `deployment.json`, `override.json`, and the platform surface overrides (`platform.<platform>.<name>.json`), which pods never see. The key is the first 16 hex digits of the plan hash the pod template carries |
+| `<resource>-claims` | One `claims.<owner>.json` per claiming application. Annotations name the current generation (`cohesion.io/generation`), the record ConfigMap in use (`cohesion.io/record-key`) and the one before it (`cohesion.io/previous-record-key`) |
 
-Applying a plan preserves an HPA-owned scale by relinquishing the replicas field. Hermetic tests cover
-Secret ownership/CAS, private projection selection, patch protection and scale preservation. They do
-not establish live-cluster delivery to ten replicas; that remains a separate integration validation.
-## Startup discovery and logical resource groups
+- **Delivery.** The pod template projects the record's two layer keys and every claims key into one
+  directory, `/var/run/cohesion-config`, read-only and never through `subPath` or `envFrom`, and sets
+  `COHESION_CONFIG_DIRECTORY` to it. Both sources are optional, because a record may have no
+  override yet and no claims at all. The kubelet refreshes the projection within about a minute,
+  which delivers overrides and claims without a restart. A `Patch<T>` customization cannot remove
+  the projection: the compiler restores it after patches, as it does the pod metadata.
+- **The ConfigMap is named for the pod template, not the generation.** The generation hashes the
+  whole plan and the build, so it also moves when only the autoscaler, the budget, the scale bounds
+  or the image changed. Such a generation keeps the record ConfigMap's name: the base rewrites the
+  record without the overrides the new generation discards, and the running pods see that through
+  the kubelet's refresh; an image change rolls the pods anyway. A change to what the pods run,
+  including the deployment layer, is a new name in the pod template, so it is a rolling update in
+  which each ReplicaSet's pods keep reading their own record. The gateway learns each plan's key when
+  it validates the plan (`ValidateResource`), before any deployment writes a record.
+- **Concurrency.** Writes are server-side applies by the gateway's field manager at the
+  `resourceVersion` the store read, so a write that raced another process is refused and the base
+  reads the record again; one gateway's writes for a resource are also serialized in process.
+  Applying, never creating, keeps every key owned by apply, so a layer the record no longer has is
+  removed rather than left behind.
+- **Garbage.** When the key moves, the previous record ConfigMap is kept for the pods of a rollout
+  still in progress and the one before it is deleted, unless the plan returned to it. Teardown
+  deletes the record objects (the base calls `RecordStore.DeleteAsync`), and namespace teardown
+  removes anything left.
+- **Pruning.** The record objects carry `cohesion.io/record=<resource>`, not the plan's
+  `cohesion.io/resource` label, so the controller's stale-object pruning never sees them.
+- **Restart-class changes.** A section an instance applies only at startup needs new pods. The
+  compiled pod template carries what the record sets for such sections, as a digest
+  (`ResourceInputs.RestartDigest`, `none` when nothing sets one), in the `cohesion.io/restart-digest`
+  annotation, so a deployment that discards a restart-class override rolls the pods even when
+  nothing else about them changed. Between deployments, when an override or claims write changes the
+  digest (`ResourceRecord.GetRestartDigest`), `OnRecordChangedAsync` JSON-patches the same annotation
+  under its own field manager, `cohesion-restart`, which rolls the workload; the next reconcile
+  states the same value from the record in force. A Job carries no digest: its template is immutable
+  and its pods run once.
+- **Instance identity.** Every pod receives `COHESION_RESOURCE_INSTANCE` from the downward API
+  (`metadata.uid`), so each instance's configuration status names it.
 
-The portable producer runtime metadata declares only its management binding. Capabilities and
-reproducible initial-state baselines are discovered from registered resource handlers after effective
-code-first and application configuration is applied at resource startup. The Kubernetes compiler
-installs the protected management projection and pod-identity binding whenever runtime metadata is
-present, including binding-only metadata with no `states` or `initialState` fields.
+The sequence shows an operator override reaching running pods, and a restart-class change rolling them:
+
+```mermaid
+sequenceDiagram
+    participant Operator
+    participant Gateway as Kubernetes gateway
+    participant Record as Record ConfigMaps
+    participant Workload as Deployment or StatefulSet
+    participant Pod as Resource pod
+    Operator->>Gateway: PATCH configuration/{section}
+    Gateway->>Record: apply override.json at the read resourceVersion
+    Record-->>Pod: kubelet refreshes /var/run/cohesion-config
+    Pod->>Pod: the 2-second poll applies a live section
+    Gateway->>Workload: patch cohesion.io/restart-digest when a restart section changed
+    Workload-->>Pod: rolling update starts pods that apply it at startup
+```
+
+## Platform surfaces: autoscaler and disruption budget (phase P3)
+
+`ConfigureHpa` and `ConfigurePodDisruptionBudget` (`KubernetesResourceExtensions`) are generic
+extension members over any descriptor, so area verbs still chain after them. They store data, never
+callbacks:
+
+- **`ConfigureHpa`** writes its replica bounds as the resource's platform-neutral
+  `ScaleBounds` (`ScaleBetween`), so they survive a change of platform, and its CPU and memory
+  utilization targets and scale-down stabilization window as `kubernetes/hpa` extension data. Calls
+  compose: each starts from what the resource already declares. The compiler emits an
+  `autoscaling/v2` HorizontalPodAutoscaler for any resource with scale bounds (80 % CPU when no
+  target is set), leaves the workload's `replicas` to it, and makes the readiness rule wait for the
+  autoscaler's minimum.
+- **`ConfigurePodDisruptionBudget`** writes exactly one of `minAvailable` and `maxUnavailable` as
+  `kubernetes/pod-disruption-budget` data, compiled to a `policy/v1` PodDisruptionBudget over the
+  resource's pods. A budget on a workload that is not replicated fails `Build()`.
+
+Both objects are their own resources, so the plan hash excludes the scale bounds and the two
+extensions: changing them in code updates the autoscaler or the budget and leaves the pod template,
+record ConfigMap name included, as it was, so no pod restarts. It is still a new generation, which
+discards the resource's management overrides, as any change to its deployment does (D3). The
+gateway's `SupportedExtensions` names the two keys, so any other `kubernetes/*` key fails `Build()`,
+and a malformed or misspelt extension fails there too, through the surfaces' closed schemas.
+
+The gateway publishes both as platform surfaces (`GetPlatformSurfaces`): `kubernetes/hpa`, whose value
+joins the bounds and the targets and whose rules keep the minimum at least 1, the maximum at least the
+minimum and within the manifest's `maxReplicas`; and `kubernetes/pod-disruption-budget`. The gateway
+base stores an operator's override with the record for the current generation. The gateway applies
+the value in force to the object at once (`ApplyPlatformSurfaceAsync`), with the plan's field manager,
+and the compiler applies the same override from `ResourceInputs.PlatformOverrides` on every reconcile in
+the generation. `ObservePlatformSurfaceAsync` reports the autoscaler's current and desired replicas
+or the budget's healthy pods and allowed disruptions. A management write that lands while a
+reconcile of the same resource is applying its objects can be overwritten by that reconcile's older
+value until the next reconcile; the window is one reconcile.
+
+An autoscaler the cluster runs outside the plan keeps owning the scale subresource: a re-apply
+relinquishes `replicas` when the existing object's managed fields show the `horizontal-pod-autoscaler`
+manager.
+
+## Instance inventory
+
+`ObserveResourceInstancesAsync` reports each pod's own control plane, addressed by pod IP with the
+plan's control-plane port and path, and verified against the resource Service's host name, so the
+management API reads every instance's configuration status and fans an every-instance action out to
+each pod. The inventory reports the workload's desired replicas, which the autoscaler moves, and is
+complete once every non-terminating pod has an address. Reaching pod IPs needs the in-cluster gateway
+(the system installation); a gateway run from outside the cluster reports its instances unreachable.
+
+## Logical resource groups
 
 `ResourcePlan.ResourceGroup` is application-owned management metadata. Group membership does not
 change the namespace, object or pod identity, selectors, ownership, native labels or annotations.

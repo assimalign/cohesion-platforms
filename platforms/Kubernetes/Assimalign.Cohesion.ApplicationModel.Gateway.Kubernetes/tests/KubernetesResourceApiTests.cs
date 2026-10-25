@@ -21,7 +21,7 @@ public class KubernetesResourceApiTests
         using var client = new k8s.Kubernetes(new KubernetesClientConfiguration { Host = "https://kubernetes.test" }, [handler]);
         var items = await new KubernetesResourceApi(client, "appa@kubernetes")
             .ListSupportedObjectsAsync("appa", "worker", CancellationToken.None);
-        items.Count.ShouldBe(8);
+        items.Count.ShouldBe(10);
         foreach (var item in items)
         {
             item.Kind.ShouldNotBeNullOrWhiteSpace();
@@ -29,6 +29,8 @@ public class KubernetesResourceApiTests
             {
                 "Deployment" or "StatefulSet" or "DaemonSet" => "apps/v1",
                 "Job" => "batch/v1",
+                "HorizontalPodAutoscaler" => "autoscaling/v2",
+                "PodDisruptionBudget" => "policy/v1",
                 _ => "v1",
             });
         }
@@ -44,12 +46,16 @@ public class KubernetesResourceApiTests
                 "configmaps" => "ConfigMap", "secrets" => "Secret", "services" => "Service",
                 "persistentvolumeclaims" => "PersistentVolumeClaim", "deployments" => "Deployment",
                 "statefulsets" => "StatefulSet", "daemonsets" => "DaemonSet", "jobs" => "Job",
+                "horizontalpodautoscalers" => "HorizontalPodAutoscaler", "poddisruptionbudgets" => "PodDisruptionBudget",
                 _ => throw new InvalidOperationException(collection),
             };
             string api = kind switch
             {
                 "Deployment" or "StatefulSet" or "DaemonSet" => "apps/v1",
-                "Job" => "batch/v1", _ => "v1",
+                "Job" => "batch/v1",
+                "HorizontalPodAutoscaler" => "autoscaling/v2",
+                "PodDisruptionBudget" => "policy/v1",
+                _ => "v1",
             };
             string json = $$$"""
                 {"apiVersion":"{{{api}}}","kind":"{{{kind}}}List","items":[{"metadata":{"name":"worker","namespace":"appa"}}]}

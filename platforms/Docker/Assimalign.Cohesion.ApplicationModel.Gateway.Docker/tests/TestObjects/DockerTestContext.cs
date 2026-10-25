@@ -143,6 +143,14 @@ internal sealed class DockerTestContext : IResourceControlContext
             new ResourceInputs(inputs, bootstrap),
             "appa@docker");
     }
+
+    // The same resource, delivered a deployment record the way the guided gateway base delivers one.
+    public DockerTestContext WithDeploymentRecord(string generation) => new(
+        (DockerTestResource)Resource,
+        Plan,
+        _artifact,
+        Inputs.WithDeploymentRecord("/var/run/cohesion-config", generation),
+        Model.Owner);
 }
 
 internal sealed class DockerTestResource : IManifestResource

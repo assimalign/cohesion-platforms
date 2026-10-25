@@ -798,6 +798,8 @@ internal sealed class KubernetesPlanController : IApplicationResourceController
             V1Service => 2,
             V1PersistentVolumeClaim => 3,
             V1Deployment or V1StatefulSet or V1DaemonSet or V1Job => 4,
+            // They reference the workload, so they are removed before it.
+            V2HorizontalPodAutoscaler or V1PodDisruptionBudget => 5,
             _ => throw new InvalidOperationException(
                 $"Unsupported Kubernetes object kind '{resource.Kind}'."),
         };
