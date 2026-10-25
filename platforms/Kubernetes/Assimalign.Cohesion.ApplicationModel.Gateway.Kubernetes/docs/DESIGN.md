@@ -335,3 +335,35 @@ The resource compiler sets runAsNonRoot and user/group/fsGroup 1654 on every pod
 specification. Full offline render emits only application objects when both system image/storage
 are absent. Supplying either requests system rendering and requires both; bootstrap always requires
 both. Neither render path publishes images or contacts a cluster.
+
+## Resource runtime state management
+
+The gateway consumes opaque `runtime` metadata from the consolidated resource plan. It supplies
+trusted live inventory from workload UID, pod UID, container ID, pod address, termination status and
+current replica target, including HPA changes. Management connects directly to each pod while TLS
+verifies the logical Service name; the resource handshake verifies its injected pod identity and
+process-start UUID. Ordinary resource references continue to resolve through Services.
+
+Desired state and private coordination receipts share one owned Secret and one resourceVersion CAS.
+A dedicated `cohesion-resource-management` field manager preserves that data across plan reapply.
+Pods mount only `runtime-state.json`, with read-only mode 0440 and no subPath; gateway receipts are
+excluded. Mandatory management inputs and the selected projection are restored after native patches.
+Resources bootstrap the latest every-instance projection before readiness and traffic admission.
+The running gateway reconciles current and future processes and dates convergence against inventory.
+Shared-state handlers must enforce backend fencing/idempotency; the Web adapters use every-instance.
+
+Applying a plan preserves an HPA-owned scale by relinquishing the replicas field. Hermetic tests cover
+Secret ownership/CAS, private projection selection, patch protection and scale preservation. They do
+not establish live-cluster delivery to ten replicas; that remains a separate integration validation.
+## Startup discovery and logical resource groups
+
+The portable producer runtime metadata declares only its management binding. Capabilities and
+reproducible initial-state baselines are discovered from registered resource handlers after effective
+code-first and application configuration is applied at resource startup. The Kubernetes compiler
+installs the protected management projection and pod-identity binding whenever runtime metadata is
+present, including binding-only metadata with no `states` or `initialState` fields.
+
+`ResourcePlan.ResourceGroup` is application-owned management metadata. Group membership does not
+change the namespace, object or pod identity, selectors, ownership, native labels or annotations.
+The compiler excludes it from the deployment plan hash, so moving an existing resource between
+logical groups does not roll its pods or replace its infrastructure.

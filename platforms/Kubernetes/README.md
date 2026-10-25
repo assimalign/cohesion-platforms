@@ -257,3 +257,23 @@ cluster. Shared system namespaces retain their owner checks and are never adopte
 Application teardown still refuses to delete SystemNamespace; keep the default cohesion-system
 if the application's own namespace should disappear on teardown. Read-side typed list metadata is
 restored before stale-object identity comparisons, allowing repeated apply over existing objects.
+
+## Resource runtime state management
+
+The gateway consumes opaque `runtime` metadata from the consolidated resource plan. It supplies
+trusted live inventory from workload UID, pod UID, container ID, pod address, termination status and
+current replica target, including HPA changes. Management connects directly to each pod while TLS
+verifies the logical Service name; the resource handshake verifies its injected pod identity and
+process-start UUID. Ordinary resource references continue to resolve through Services.
+
+Desired state and private coordination receipts share one owned Secret and one resourceVersion CAS.
+A dedicated `cohesion-resource-management` field manager preserves that data across plan reapply.
+Pods mount only `runtime-state.json`, with read-only mode 0440 and no subPath; gateway receipts are
+excluded. Mandatory management inputs and the selected projection are restored after native patches.
+Resources bootstrap the latest every-instance projection before readiness and traffic admission.
+The running gateway reconciles current and future processes and dates convergence against inventory.
+Shared-state handlers must enforce backend fencing/idempotency; the Web adapters use every-instance.
+
+Applying a plan preserves an HPA-owned scale by relinquishing the replicas field. Hermetic tests cover
+Secret ownership/CAS, private projection selection, patch protection and scale preservation. They do
+not establish live-cluster delivery to ten replicas; that remains a separate integration validation.

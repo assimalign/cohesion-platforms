@@ -58,9 +58,9 @@ derives from the public guided base `ApplicationGateway` (package
    `builder.Providers.Telemetry = ResourceTelemetrySink.FromResource(logs)`. Nothing is injected by
    convention, so a platform gateway never needs area knowledge to realize a model, and a platform
    type that wraps an `IApplicationModel` must forward its `Providers`. The Core-only
-   `Assimalign.Cohesion.Hosting` and `Hosting.Health` and the opt-in `Hosting.Resources` are not area
-   runtime modules: the Gateway base package references `Hosting.Resources` (shared command/mount
-   types since cohesion item 23b), which brings the other two, so they may appear in a platform
+   `Assimalign.Cohesion.Hosting` and opt-in `Hosting.Resources` are not area runtime modules.
+   Health contracts are consolidated into `Hosting.Resources`; the former `Hosting.Health` package
+   is retired. The Gateway base package references `Hosting.Resources`, so these may appear in a platform
    gateway's closure; a platform gateway still never references them directly.
 4. **Digest-pinned images.** Deployments always reference images as
    `{repository}@sha256:{digest}`. Tags are human-readable metadata only — never a pull reference.

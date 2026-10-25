@@ -442,18 +442,10 @@ public class KubernetesGatewayTests
         exception.Message.ShouldContain("both normalize to Kubernetes resource name 'worker'");
     }
 
-    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Session: Should reject application names that collide after Kubernetes normalization")]
-    public void ValidateNormalizedNames_OnCaseDistinctApplications_ShouldRejectBeforeMutation()
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Session: Should reject uppercase application names before model construction")]
+    public void ApplicationName_WithUppercaseLabel_ShouldRejectBeforeMutation()
     {
-        IApplicationModel upper = new RenamedModel(
-            CreateModel("appa", "web"),
-            ApplicationName.Parse("AppA"));
-        IApplicationModel lower = CreateModel("appa", "web");
-
-        InvalidOperationException exception = Should.Throw<InvalidOperationException>(
-            () => KubernetesGateway.ValidateNormalizedNames([upper, lower]));
-
-        exception.Message.ShouldContain("both normalize to Kubernetes namespace 'appa'");
+        Should.Throw<ArgumentException>(() => ApplicationName.Parse("AppA"));
     }
 
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Session: Should reject Service names shared by two plans")]

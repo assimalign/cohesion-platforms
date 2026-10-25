@@ -13,8 +13,32 @@ using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
-public class KubernetesPlanCompilerTests
+public partial class KubernetesPlanCompilerTests
 {
+    [Fact(DisplayName = "Cohesion Test [Kubernetes] - Management: patches cannot expose the private receipt store or remove bootstrap bindings")]
+    public void Compile_WithManagedRuntimeAndRemovingPatch_ShouldRestoreProjectionIsolation()
+    {
+        PlanCase original = CreateCase("web");
+        using JsonDocument runtime = JsonDocument.Parse("""{"management":{"endpoint":"http","path":"/cohesion/v1"},"states":[]}""");
+        PlanCase managed = original with { Plan = original.Plan with { Runtime = runtime.RootElement.Clone() } };
+        var options = new KubernetesGatewayOptions();
+        options.Patch<V1Deployment>(managed.Plan.Resource, deployment =>
+        {
+            deployment.Spec.Template.Spec.Volumes = [];
+            deployment.Spec.Template.Spec.Containers[0].VolumeMounts = [];
+            deployment.Spec.Template.Spec.Containers[0].Env = [];
+        });
+        KubernetesPlanCompilation result = Compile(managed, options: options);
+        V1PodSpec pod = result.Objects.OfType<V1Deployment>().Single().Spec.Template.Spec;
+        V1SecretVolumeSource projection = pod.Volumes.Single(volume => volume.Name == "cohesion-state").Secret;
+        projection.Items.ShouldHaveSingleItem().Key.ShouldBe(KubernetesResourceManagementStore.ProjectionKey);
+        projection.DefaultMode.ShouldBe(288);
+        pod.Containers[0].VolumeMounts.Single(mount => mount.Name == "cohesion-state").ReadOnlyProperty.ShouldBe(true);
+        pod.Containers[0].Env.Single(variable => variable.Name == AppEnvironment.Variables.ResourceInstance).ValueFrom.FieldRef.FieldPath.ShouldBe("metadata.uid");
+        pod.Containers[0].Env.Single(variable => variable.Name == AppEnvironment.Variables.ResourceStatePath).Value.ShouldBe("/var/run/cohesion-state/runtime-state.json");
+        result.Objects.OfType<V1Secret>().Single(secret => secret.Metadata.Name.EndsWith("-management", StringComparison.Ordinal)).Data.ShouldBeNull();
+    }
+
     private static readonly string Image = $"registry.example/test@sha256:{new string('a', 64)}";
     private static readonly byte[] CertificateBundle = Encoding.UTF8.GetBytes(
         "-----BEGIN CERTIFICATE-----\ncohesion-test\n-----END CERTIFICATE-----\n");

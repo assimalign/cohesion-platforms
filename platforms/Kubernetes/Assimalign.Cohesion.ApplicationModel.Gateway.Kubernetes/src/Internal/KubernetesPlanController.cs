@@ -981,6 +981,18 @@ internal sealed class KubernetesPlanController : IApplicationResourceController
     {
         if (existing is not null)
         {
+            // The scale subresource belongs to HPA or another explicit scale
+            // controller. Relinquish this SSA field before applying a plan again.
+            if (existing.Metadata.ManagedFields is { } fields)
+            {
+                foreach (V1ManagedFieldsEntry field in fields)
+                {
+                    if (field.Subresource != "scale" && field.Manager != "horizontal-pod-autoscaler") { continue; }
+                    if (desired is V1Deployment deployment) { deployment.Spec.Replicas = null; }
+                    if (desired is V1StatefulSet stateful) { stateful.Spec.Replicas = null; }
+                    break;
+                }
+            }
             await _resources.ApplyAsync(desired, force: true, cancellationToken)
                 .ConfigureAwait(false);
             return;

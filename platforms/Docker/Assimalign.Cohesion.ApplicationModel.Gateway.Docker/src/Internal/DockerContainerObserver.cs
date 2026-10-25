@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -28,6 +30,39 @@ internal sealed class DockerContainerObserver
     private Task _observation = Task.CompletedTask;
     private Task _events = Task.CompletedTask;
     private DockerProbeRunner? _probes;
+
+    public async ValueTask<ResourceInstanceInventory> ObserveManagementAsync(ApplicationName application,
+        IApplicationResource resource, PortBinding binding, string path, CancellationToken cancellationToken)
+    {
+        Entry? entry;
+        string? container;
+        lock (_gate)
+        {
+            _entries.TryGetValue(new DockerResourceKey(application, resource.Id), out entry);
+            container = entry?.ContainerId;
+        }
+        var targets = new List<ResourceManagementTarget>();
+        if (entry is not null && container is not null)
+        {
+            DockerContainerInspectResponse? inspection = await _getEngine().InspectContainerAsync(container, cancellationToken).ConfigureAwait(false);
+            if (inspection?.State?.Running is true && IsCurrent(entry) && !entry.StopRequested && entry.ContainerId == container &&
+                inspection.NetworkSettings?.Ports?.TryGetValue(FormattableString.Invariant($"{binding.ContainerPort}/{binding.Protocol.ToLowerInvariant()}"), out DockerPortBinding[]? ports) is true && ports is not null)
+            {
+                foreach (DockerPortBinding port in ports)
+                {
+                    if (port.HostIp is not ("127.0.0.1" or "::1") || !int.TryParse(port.HostPort, NumberStyles.None, CultureInfo.InvariantCulture, out int hostPort)) { continue; }
+                    if (Uri.TryCreateEndpoint(binding.Scheme, port.HostIp, hostPort, path, out Uri? address))
+                    {
+                        string serverName = FindServiceHost(entry.Context.Plan.Services, binding.Endpoint, entry.Compilation.Container.Name);
+                        targets.Add(new ResourceManagementTarget(container, container + "/" + inspection.State.StartedAt, address, ServerName: serverName));
+                        break;
+                    }
+                }
+            }
+        }
+        byte[] identity = SHA256.HashData(Encoding.UTF8.GetBytes(application.Value + "\0" + resource.Name.Value));
+        return new ResourceInstanceInventory(new Guid(identity.AsSpan(0, 16)), targets.Count == 0 ? "pending" : targets[0].Generation, 1, targets.Count == 1, targets);
+    }
 
     public DockerContainerObserver(
         DockerGatewayOptions options,

@@ -13,7 +13,7 @@ using Assimalign.Cohesion.ApplicationModel.Gateway.Containers;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 
-internal sealed class KubernetesPlanCompiler
+internal sealed partial class KubernetesPlanCompiler
 {
     private const string ContentRoot = "/app";
     private const string BootstrapDirectory = "/var/run/cohesion";
@@ -85,6 +85,7 @@ internal sealed class KubernetesPlanCompiler
             inputs,
             dependencies,
             ownEndpoints ?? Array.Empty<ResourceEndpoint>());
+        if (plan.Runtime.HasValue) { environment[AppEnvironment.Variables.ResourceStatePath] = "/var/run/cohesion-state/runtime-state.json"; }
         Dictionary<string, byte[]> configurationData = CreateMountData(
             plan,
             inputs,
@@ -149,6 +150,22 @@ internal sealed class KubernetesPlanCompiler
             Data = secretData,
         };
         AddPatched(objects, plan.Resource, secret, secretName, namespaceName, resource, planHash, owner, options);
+
+        if (plan.Runtime.HasValue)
+        {
+            string managementName = KubernetesMetadata.ChildName(resource, "management");
+            var managementSecret = new V1Secret
+            {
+                ApiVersion = V1Secret.KubeApiVersion, Kind = V1Secret.KubeKind, Type = "Opaque",
+                Metadata = KubernetesMetadata.CreateObjectMeta(managementName, namespaceName, resource, planHash, owner)
+            };
+            AddPatched(objects, plan.Resource, managementSecret, managementName, namespaceName, resource, planHash, owner, options);
+            // The plan controller must never own private coordination/projection data.
+            managementSecret.Type = "Opaque";
+            managementSecret.Data = null;
+            managementSecret.StringData = null;
+            managementSecret.Immutable = false;
+        }
 
         for (int index = 0; index < plan.Services.Count; index++)
         {
@@ -247,6 +264,7 @@ internal sealed class KubernetesPlanCompiler
             planHash,
             owner);
         RestorePodMetadata(workload, resource, planHash, owner);
+        if (plan.Runtime.HasValue) { RestoreManagementBindings(workload, plan); }
 
         return new KubernetesPlanCompilation(
             namespaceName,
@@ -261,7 +279,8 @@ internal sealed class KubernetesPlanCompiler
     {
         ArgumentNullException.ThrowIfNull(plan);
         JsonElement document = JsonSerializer.SerializeToElement(
-            plan,
+            // Logical groups organize management APIs and never change deployment identity.
+            plan with { ResourceGroup = null },
             ResourcePlanJsonContext.Default.ResourcePlan);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -1095,6 +1114,20 @@ internal sealed class KubernetesPlanCompiler
             },
         };
         var volumeMounts = new List<V1VolumeMount>();
+        if (plan.Runtime.HasValue)
+        {
+            volumes.Add(new V1Volume
+            {
+                Name = "cohesion-state",
+                Secret = new V1SecretVolumeSource
+                {
+                    SecretName = KubernetesMetadata.ChildName(KubernetesMetadata.ResourceName(plan.Resource), "management"),
+                    DefaultMode = 288,
+                    Items = [new V1KeyToPath { Key = KubernetesResourceManagementStore.ProjectionKey, Path = "runtime-state.json" }]
+                }
+            });
+            volumeMounts.Add(new V1VolumeMount { Name = "cohesion-state", MountPath = "/var/run/cohesion-state", ReadOnlyProperty = true });
+        }
         for (int index = 0; index < plan.Container.Mounts.Count; index++)
         {
             MountBinding mount = plan.Container.Mounts[index];
@@ -1165,6 +1198,11 @@ internal sealed class KubernetesPlanCompiler
             Name = plan.Container.Name,
             Image = $"{artifact.Repository}@{artifact.Digest}",
             ImagePullPolicy = "IfNotPresent",
+            Env = plan.Runtime.HasValue ? [new V1EnvVar
+            {
+                Name = AppEnvironment.Variables.ResourceInstance,
+                ValueFrom = new V1EnvVarSource { FieldRef = new V1ObjectFieldSelector { FieldPath = "metadata.uid" } }
+            }] : null,
             EnvFrom =
             [
                 new V1EnvFromSource

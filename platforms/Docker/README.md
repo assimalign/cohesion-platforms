@@ -98,3 +98,16 @@ mandate; the upstream SDK's early auto-AOT allowlist remains a separate integrat
 See the [project overview](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/OVERVIEW.md),
 [design](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md), and
 [assembly reference](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/Assembly/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/OVERVIEW.md).
+
+## Resource runtime state management
+
+The gateway reads the producer's opaque runtime catalog through generic Gateway contracts. It
+inspects the current container even before readiness, using container ID and StartedAt as its
+generation. Management uses an individually published loopback binding and the logical resource TLS
+name; it does not send desired state through an ordinary consumer endpoint. The compiler creates
+this private management binding even when no HTTP readiness probe is declared.
+
+The Gateway base persists conditional desired state and retry receipts, then reconciles the current
+process and admits it after bootstrap. Restarts invalidate the former process acknowledgement.
+Docker's single-instance limit remains enforced. The daemon-free suite verifies compilation and
+observation; tests requiring a compatible Docker/Podman daemon remain separate integration coverage.

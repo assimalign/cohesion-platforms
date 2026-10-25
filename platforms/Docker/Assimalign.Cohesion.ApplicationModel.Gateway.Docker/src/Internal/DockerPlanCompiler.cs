@@ -208,7 +208,8 @@ internal sealed class DockerPlanCompiler
     {
         ArgumentNullException.ThrowIfNull(plan);
         JsonElement document = JsonSerializer.SerializeToElement(
-            plan,
+            // Logical groups organize management APIs and never change deployment identity.
+            plan with { ResourceGroup = null },
             ResourcePlanJsonContext.Default.ResourcePlan);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -657,6 +658,17 @@ internal sealed class DockerPlanCompiler
             result.Add(new DockerPortPublishPlan(
                 port.Endpoint, port.ContainerPort, port.Protocol.ToLowerInvariant(),
                 "127.0.0.1", HostPort: null, ProbeOnly: true));
+        }
+
+        if (plan.Runtime is JsonElement runtime)
+        {
+            string endpoint = runtime.GetProperty("management").GetProperty("endpoint").GetString()!;
+            if (probeEndpoints.Add(endpoint))
+            {
+                PortBinding port = FindPort(plan.Container.Ports, endpoint);
+                result.Add(new DockerPortPublishPlan(port.Endpoint, port.ContainerPort, port.Protocol.ToLowerInvariant(),
+                    "127.0.0.1", HostPort: null, ProbeOnly: true));
+            }
         }
 
         return result;

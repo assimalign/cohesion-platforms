@@ -113,3 +113,5 @@ Only public trust material belongs in ConfigMaps. Native P-256 key persistence u
 `IGatewayTrustKeyRepository` seam; upstream still issues and verifies developer export tokens.
 
 See [the area README](../../README.md) for switches and Kind provisioning and verification.
+
+Runtime state management uses the producer manifest, trusted platform instance inventory and the generic gateway coordinator. See [DESIGN.md](DESIGN.md#resource-runtime-state-management) for delivery, bootstrap and validation boundaries.

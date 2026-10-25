@@ -74,3 +74,5 @@ auth, OCI archive compatibility, and shared-network teardown outcomes for custom
 The explicit trim/AOT posture is scoped to this library. The upstream SDK early auto-AOT decision
 is separate from provider `RequiresJit=false` metadata. See [DESIGN.md](DESIGN.md) for ownership and
 compatibility reasoning.
+
+Runtime state management uses the producer manifest, trusted platform instance inventory and the generic gateway coordinator. See [DESIGN.md](DESIGN.md#resource-runtime-state-management) for delivery, bootstrap and validation boundaries.

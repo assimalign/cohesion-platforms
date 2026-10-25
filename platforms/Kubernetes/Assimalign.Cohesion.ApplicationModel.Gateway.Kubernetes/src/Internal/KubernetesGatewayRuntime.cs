@@ -12,11 +12,16 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 internal sealed class KubernetesGatewayResourceApi : IKubernetesResourceApi
 {
     private readonly Func<IKubernetes> _client;
+    private readonly string? _fieldManager;
 
-    public KubernetesGatewayResourceApi(Func<IKubernetes> client) => _client = client;
+    public KubernetesGatewayResourceApi(Func<IKubernetes> client, string? fieldManager = null)
+    {
+        _client = client;
+        _fieldManager = fieldManager;
+    }
 
     private KubernetesResourceApi ForApply(IKubernetesObject<V1ObjectMeta> value) =>
-        new(_client(), value.Metadata.Annotations[KubernetesMetadata.OwnerAnnotation]);
+        new(_client(), _fieldManager ?? value.Metadata.Annotations[KubernetesMetadata.OwnerAnnotation]);
 
     private KubernetesResourceApi ForObservation() =>
         new(_client(), "cohesion-observer");
@@ -75,7 +80,7 @@ internal sealed class KubernetesGatewayResourceApi : IKubernetesResourceApi
         ForObservation().WatchPodsAsync(cancellationToken);
 }
 
-internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservationRegistry
+internal sealed partial class KubernetesGatewayObservationRegistry : IKubernetesObservationRegistry
 {
     private static readonly TimeSpan MaximumResyncInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan WatchRetryInterval = TimeSpan.FromSeconds(1);
@@ -270,6 +275,15 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
         }
 
         SignalResync();
+    }
+
+    public ResourceInstanceInventory GetManagementInventory(ApplicationName application, ResourceName resource)
+    {
+        lock (_sync)
+        {
+            return _entries.TryGetValue($"{application}/{resource}", out Entry? entry) && entry.ManagementInventory is not null
+                ? entry.ManagementInventory : new ResourceInstanceInventory(Guid.Empty, string.Empty, 0, false, Array.Empty<ResourceManagementTarget>());
+        }
     }
 
     public async Task<IDisposable> EnterMutationAsync(
@@ -497,6 +511,7 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
             IKubernetesObject<V1ObjectMeta>? workload = await workloadRead.ConfigureAwait(false);
             if (workload is null)
             {
+                lock (_sync) { entry.ManagementInventory = null; }
                 TrySetState(
                     entry,
                     entry.WasReady ? ResourceLifecycle.Degraded : ResourceLifecycle.Starting,
@@ -506,6 +521,8 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
             }
 
             V1PodList pods = await podRead.ConfigureAwait(false);
+            ResourceInstanceInventory? managementInventory = CreateManagementInventory(entry, workload, pods.Items);
+            lock (_sync) { if (IsCurrent(entry)) { entry.ManagementInventory = managementInventory; } }
             ServiceObservation services = await serviceRead.ConfigureAwait(false);
             IReadOnlyList<V1Pod> currentPods = FilterPods(
                 pods.Items,
@@ -941,6 +958,7 @@ internal sealed class KubernetesGatewayObservationRegistry : IKubernetesObservat
         public volatile bool Active = true;
         public bool WasReady { get; set; }
         public IReadOnlyList<ResourceEndpoint> ObservedEndpoints { get; set; }
+        public ResourceInstanceInventory? ManagementInventory { get; set; }
         public IReadOnlyList<ResourceEndpoint> ExportedEndpoints { get; set; }
 
         public void CopyObservationFrom(Entry previous)

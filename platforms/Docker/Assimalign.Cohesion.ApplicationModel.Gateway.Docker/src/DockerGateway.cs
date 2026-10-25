@@ -87,6 +87,13 @@ public sealed class DockerGateway :
     /// <inheritdoc/>
     protected override TimeSpan ReadinessBudget => _options.ReadinessBudget;
 
+    /// <inheritdoc />
+    protected override ValueTask<ResourceInstanceInventory> ObserveResourceInstancesAsync(IApplicationModel model,
+        IApplicationResourceDescriptor descriptor, CancellationToken cancellationToken = default) =>
+        TryGetResourceManagementBinding(model, descriptor, out PortBinding? binding, out string? path)
+            ? _observer.ObserveManagementAsync(model.Name, descriptor.Resource, binding!, path!, cancellationToken)
+            : base.ObserveResourceInstancesAsync(model, descriptor, cancellationToken);
+
     /// <inheritdoc/>
     protected override ValueTask<Uri> ResolveControlPlaneAddressAsync(
         IApplicationModel model,

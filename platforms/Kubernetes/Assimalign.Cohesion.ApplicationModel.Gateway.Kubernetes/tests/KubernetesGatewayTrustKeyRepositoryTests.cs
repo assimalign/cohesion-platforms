@@ -218,8 +218,14 @@ public class KubernetesGatewayTrustKeyRepositoryTests
         var repository = new KubernetesGatewayTrustKeyRepository(new KubernetesGatewayOptions(), api);
 
         // Act
-        await Should.ThrowAsync<InvalidOperationException>(
-            () => repository.LoadOrCreateAsync(application, gateway, CancellationToken.None));
+        if (!ApplicationName.TryCreate(application, out _))
+        {
+            await Should.ThrowAsync<ArgumentException>(() => repository.LoadOrCreateAsync(application, gateway, CancellationToken.None));
+        }
+        else
+        {
+            await Should.ThrowAsync<InvalidOperationException>(() => repository.LoadOrCreateAsync(application, gateway, CancellationToken.None));
+        }
 
         // Assert
         api.Reads.ShouldBe(0);
@@ -235,7 +241,7 @@ public class KubernetesGatewayTrustKeyRepositoryTests
         var repository = new KubernetesGatewayTrustKeyRepository(new KubernetesGatewayOptions(), api);
 
         // Act
-        using ECDsa first = await repository.LoadOrCreateAsync("AppA", "Root", CancellationToken.None);
+        using ECDsa first = await repository.LoadOrCreateAsync("appa", "Root", CancellationToken.None);
         using ECDsa loaded = await repository.LoadOrCreateAsync("appa", "root", CancellationToken.None);
 
         // Assert

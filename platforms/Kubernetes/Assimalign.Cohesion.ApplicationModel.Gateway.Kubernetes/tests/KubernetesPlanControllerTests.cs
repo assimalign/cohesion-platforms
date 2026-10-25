@@ -17,7 +17,7 @@ using Xunit;
 
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests;
 
-public class KubernetesPlanControllerTests
+public partial class KubernetesPlanControllerTests
 {
     [Fact(DisplayName = "Cohesion Test [Kubernetes] - Reapply: Typed list items without GVK update in place")]
     public async Task ReconcileAsync_OnListItemsWithoutTypeMetadata_ShouldUpdateInPlace()

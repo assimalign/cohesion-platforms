@@ -64,6 +64,11 @@ public sealed partial class KubernetesGateway : ApplicationGateway, IKubernetesM
         _options = options;
         _imageGatherer = new KubernetesImageGatherer(options);
         var resources = new KubernetesGatewayResourceApi(GetRequiredClient);
+        options.ManagementStore ??= new KubernetesResourceManagementStore(new KubernetesGatewayResourceApi(GetRequiredClient, "cohesion-resource-management"), application =>
+        {
+            NamespaceRegistration registration = FindNamespaceRegistration(application.Value);
+            return (registration.NamespaceName, registration.Owner);
+        });
         KubernetesPlanController? planController = null;
         _observations = new KubernetesGatewayObservationRegistry(
             resources,

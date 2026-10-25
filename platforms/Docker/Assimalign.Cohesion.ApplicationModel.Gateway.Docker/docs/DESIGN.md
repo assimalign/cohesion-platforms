@@ -167,3 +167,28 @@ Port-forward and cross-gateway topology integration remain open. Full real Docke
 `.05` / #28, with smoke tests skipped when no compatible daemon exists. Sensitive live namespace
 population, private registry authentication, OCI archive engine compatibility, and custom-controller
 shared-network teardown outcomes remain explicit boundaries.
+
+## Resource runtime state management
+
+The gateway reads the producer's opaque runtime catalog through generic Gateway contracts. It
+inspects the current container even before readiness, using container ID and StartedAt as its
+generation. Management uses an individually published loopback binding and the logical resource TLS
+name; it does not send desired state through an ordinary consumer endpoint. The compiler creates
+this private management binding even when no HTTP readiness probe is declared.
+
+The Gateway base persists conditional desired state and retry receipts, then reconciles the current
+process and admits it after bootstrap. Restarts invalidate the former process acknowledgement.
+Docker's single-instance limit remains enforced. The daemon-free suite verifies compilation and
+observation; tests requiring a compatible Docker/Podman daemon remain separate integration coverage.
+## Startup discovery and logical resource groups
+
+The portable producer runtime metadata declares only its management binding. Capabilities and
+reproducible initial-state baselines are discovered from registered resource handlers after effective
+code-first and application configuration is applied at resource startup. Binding-only metadata with
+no `states` or `initialState` fields still installs the private management port; it creates no
+readiness probe when neither an explicit probe nor a default control-plane mapping requested one.
+
+`ResourcePlan.ResourceGroup` is application-owned management metadata. Group membership does not
+change container or volume identity, ownership labels, network names or aliases, or network scope.
+The compiler excludes it from the deployment plan hash and leaves runtime reconciliation inputs
+unchanged, so moving a resource between logical groups does not replace or restart its container.
