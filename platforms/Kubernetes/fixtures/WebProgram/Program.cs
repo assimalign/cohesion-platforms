@@ -16,7 +16,7 @@ using Assimalign.Cohesion.Web.Hosting.ApplicationModel;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 string resource = AppEnvironment.GetValue(AppEnvironment.Variables.Resource) ?? "orders-api";
 string? orders = builder.Configuration["Orders:Url"];
-builder.AddResource(resource, options => options
+builder.Services.AddResource(resource, options => options
     .UseKubernetes()
     .AddAction(new GreetingAction(), GreetingJsonContext.Default));
 

@@ -6,7 +6,7 @@ platform it may run on:
 
 ```csharp
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-builder.AddResource("orders-api", resource => resource.UseKubernetes());
+builder.Services.AddResource("orders-api", resource => resource.UseKubernetes());
 ```
 
 `UseKubernetes()` is a generic extension of every area's `ApplicationInstanceOptions`, so it keeps

@@ -26,7 +26,7 @@ Each resource's program opts into the platform with the instance half,
 `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes`:
 
 ```csharp
-builder.AddResource("orders-api", resource => resource.UseKubernetes());
+builder.Services.AddResource("orders-api", resource => resource.UseKubernetes());
 ```
 
 ## Surface
