@@ -38,12 +38,21 @@ internal static class KubernetesWorkload
     public const string ReplicasExtension = "replicas";
 
     /// <summary>
-    /// Computes what deploying the resource would run: its image, ports, replica count, and the values
-    /// of its settings. A Deployment that runs another revision is updated.
+    /// The version of the workload this platform builds for a resource. Every revision includes it, so a
+    /// change to what the platform builds, such as the readiness probe version 2 added, updates the
+    /// Deployments an earlier version created.
+    /// </summary>
+    public const int TemplateVersion = 2;
+
+    /// <summary>
+    /// Computes what deploying the resource would run: the platform's template version, its image,
+    /// ports, replica count, and the values of its settings. A Deployment that runs another revision is
+    /// updated.
     /// </summary>
     public static string GetRevision(ApplicationResourceManifest resource, IReadOnlyDictionary<SettingName, string> settings, string image, int endpointPort, int controlPlanePort)
     {
         var text = new StringBuilder()
+            .Append(TemplateVersion.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(image).Append('\n')
             .Append(endpointPort.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(controlPlanePort.ToString(CultureInfo.InvariantCulture)).Append('\n')
@@ -115,6 +124,16 @@ internal static class KubernetesWorkload
                                     new V1ContainerPort { Name = "http", ContainerPort = options.EndpointPort },
                                     new V1ContainerPort { Name = "control-plane", ContainerPort = options.ControlPlanePort },
                                 ],
+                                // The program's server listens only after its instance has published and
+                                // restored the gateway's state, so the Service routes to a pod only once
+                                // the pod accepts connections on its http endpoint.
+                                ReadinessProbe = new V1Probe
+                                {
+                                    TcpSocket = new V1TCPSocketAction { Port = "http" },
+                                    PeriodSeconds = 2,
+                                    TimeoutSeconds = 1,
+                                    FailureThreshold = 3,
+                                },
                                 Env = CreateEnvironment(model, resource, settings, deployment, ns, options),
                             },
                         ],

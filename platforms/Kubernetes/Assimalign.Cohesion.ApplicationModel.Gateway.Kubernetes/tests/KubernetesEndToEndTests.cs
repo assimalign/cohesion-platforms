@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 using k8s;
 using k8s.Autorest;
+using k8s.Models;
 
 using Shouldly;
 using Xunit;
@@ -64,6 +65,10 @@ public class KubernetesEndToEndTests
         answer.ShouldBe("storefront -> orders-api");
         ordersApi.Outputs[OutputName.Endpoint].ShouldBe($"http://orders-api.{cluster.Namespace}.svc.cluster.local");
         write.Status.ShouldBe(ApplicationActionStatus.Succeeded);
+
+        // Every pod becomes ready, as its readiness probe decides: its program accepts connections on its
+        // http endpoint, which it opens only after its instance published.
+        await Eventually.WaitUntilAsync(() => ArePodsReadyAsync(cluster, expected: 3), TimeSpan.FromMinutes(1));
         await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(1));
         IApplicationInstanceClient client = infrastructure;
         ApplicationInstanceManifest[] instances = [.. ordersApi.Instances];
@@ -88,7 +93,16 @@ public class KubernetesEndToEndTests
         return await reader.ReadToEndAsync();
     }
 
-    // Until a pod listens, the proxy answers that the Service has no endpoint, or that the pod refused.
+    // The namespace runs the expected pods, each with a readiness probe and each ready.
+    private static async Task<bool> ArePodsReadyAsync(KindCluster cluster, int expected)
+    {
+        V1PodList pods = await cluster.Client.CoreV1.ListNamespacedPodAsync(cluster.Namespace);
+        return pods.Items.Count == expected && pods.Items.All(static pod =>
+            pod.Spec.Containers.All(static container => container.ReadinessProbe is not null)
+            && pod.Status?.Conditions?.Any(static condition => condition.Type == "Ready" && condition.Status == "True") == true);
+    }
+
+    // Until a pod is ready, the proxy answers that the Service has no endpoint, or that the pod refused.
     private static bool IsUnavailable(Exception exception)
     {
         return exception is HttpRequestException

@@ -90,8 +90,8 @@ The resource's `endpoint` output is the Service's cluster name,
 DNS.
 
 **GK5 — A revision decides an update, and a deployment's pods decide its watch.** The revision is
-the first 16 hex digits of a SHA-256 over the image, both ports, the replica count, and the settings
-in ordinal order. It is stored on the Deployment and its pods; planning compares it to choose
+the first 16 hex digits of a SHA-256 over the platform's template version (GK10), the image, both
+ports, the replica count, and the settings in ordinal order. It is stored on the Deployment and its pods; planning compares it to choose
 create, update, or nothing. Each pod carries its deployment's id as a label. Watching a deployment
 polls its pods every two seconds and fails the step at once with the platform's reason when one is
 waiting on `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName`, `CreateContainerConfigError`,
@@ -116,11 +116,32 @@ instance access stay.
 **GK9 — The cluster is resolved as kubectl resolves it:** the options' kubeconfig path, the first
 file `KUBECONFIG` names that exists, the default kubeconfig, then the pod's service account.
 
+**GK10 — A pod is ready once its program accepts connections (2026-10-31).** The container has a TCP
+readiness probe on its `http` port, every 2 seconds, unready after 3 misses. The program opens its
+server only after its instance has published and restored the gateway's state (Hosting D19). So the
+Service routes to a pod only from then on, and a rollout replaces a pod only once its successor is
+ready.
+
+- **TCP, not HTTP.** The platform does not know the program's routes, and the status an HTTP GET
+  returns would say nothing about readiness.
+- **The gateway's step does not wait for it.** The step completes when an instance publishes
+  (ApplicationModel.Gateway). A dependent deployed right after can find the Service without an
+  endpoint for a moment, and retries.
+- **The probe is part of the workload template.** Every revision carries the template's version
+  (`KubernetesWorkload.TemplateVersion`, 2 since the probe), so a gateway updates the Deployments an
+  earlier version created.
+- *Rejected:* a readiness route on the control plane. It would also cover a resource with no `http`
+  endpoint, but the instance would have to tell its platform's client when its host has started,
+  which needs a new member on the ApplicationModel.Hosting contract (open question 1).
+- *Rejected:* a liveness probe on the endpoint. It would also restart a pod whose program is still
+  waiting for its gateway's answer.
+
 ## Open questions
 
-1. **No readiness probe.** The Service routes to a pod as soon as its container starts, while the
-   program's server starts only after its publication (Hosting D19). The end-to-end test retries
-   the first request. A readiness probe on the endpoint port would close the window.
+1. **Readiness without an `http` endpoint, and liveness.** The readiness probe (GK10) assumes the
+   program listens on its `http` endpoint, as every Web resource does. A worker would never become
+   ready, which stalls its rollouts. A readiness route on the control plane, set once the host has
+   started, would cover every kind of resource; liveness would use the same route.
 2. **The control plane has no authentication of its own** (Hosting.Kubernetes HK4). Calls through
    the pod proxy are the API server's to authorize, but another pod can reach a pod's control-plane
    port directly. A NetworkPolicy or a credential the gateway holds is needed before the platform
@@ -145,7 +166,8 @@ design has not brought back. In its own words, by the files that carried it:
 - other workload kinds: StatefulSet, DaemonSet, and Job, with headless governing Services and claim
   templates (`KubernetesPlanCompiler`, `KubernetesPlanController`);
 - volumes and claims, retained across removals (`KubernetesPlanController`);
-- probes and readiness (`KubernetesReadinessRule`);
+- liveness and startup probes, and workload readiness reported to the gateway (`KubernetesReadinessRule`;
+  the readiness probe itself is GK10);
 - ConfigMap and Secret runtime inputs with a rollout revision (`KubernetesPlanCompiler`);
 - autoscaling (`KubernetesHpaOptions`, `KubernetesHpaSurface`) and disruption budgets
   (`KubernetesPodDisruptionBudgetOptions`, `KubernetesPodDisruptionBudgetSurface`);

@@ -47,6 +47,22 @@ public class KubernetesWorkloadTests
         workload.Spec.Replicas.ShouldBe(1);
     }
 
+    [Fact(DisplayName = DisplayPrefix + "A pod is ready once its program accepts connections on its http endpoint")]
+    public void CreateDeployment_ShouldProbeReadinessOnTheHttpEndpoint()
+    {
+        // Arrange
+        (IApplicationModel model, ApplicationResourceManifest resource) = CreateResource();
+
+        // Act
+        V1Deployment workload = KubernetesWorkload.CreateDeployment(model, resource, Settings(), DeploymentId.New(), "web:1", "rev", "cohesion", _options);
+
+        // Assert
+        V1Probe probe = workload.Spec.Template.Spec.Containers.ShouldHaveSingleItem().ReadinessProbe.ShouldNotBeNull();
+        probe.TcpSocket.ShouldNotBeNull().Port.Value.ShouldBe("http");
+        probe.PeriodSeconds.ShouldBe(2);
+        probe.HttpGet.ShouldBeNull();
+    }
+
     [Fact(DisplayName = DisplayPrefix + "WithReplicas sets how many instances run, on the kubernetes platform only")]
     public void GetReplicas_WithReplicas_ShouldReadIt()
     {

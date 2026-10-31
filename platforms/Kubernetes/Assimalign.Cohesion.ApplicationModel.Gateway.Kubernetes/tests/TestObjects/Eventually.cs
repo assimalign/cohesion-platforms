@@ -13,8 +13,13 @@ internal static class Eventually
 
     public static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
+        await WaitUntilAsync(() => Task.FromResult(condition.Invoke()), timeout);
+    }
+
+    public static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
+    {
         long start = Stopwatch.GetTimestamp();
-        while (!condition.Invoke())
+        while (!await condition.Invoke())
         {
             if (Stopwatch.GetElapsedTime(start) > timeout)
             {
