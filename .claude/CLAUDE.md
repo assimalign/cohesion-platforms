@@ -19,7 +19,6 @@ This repository is the **deployment/hosting plane** for [Cohesion](https://githu
 ## Repository map
 
 - `platforms/` — one folder per deployment target, each an area with `Assimalign.Cohesion.*` projects in `{src,tests,docs}` layout:
-  - `platforms/Containers/` — shared container-gateway infrastructure (image index/artifacts, OCI store, embedded registry, image-gather build seam)
   - `platforms/Kubernetes/` — `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes`
   - `platforms/Docker/` — `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`
 - `sdks/` — MSBuild SDK/targets packages this repo ships (e.g., orchestrator-side container gathering targets)

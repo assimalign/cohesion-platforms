@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - "platforms/Docker/**"
-      - "platforms/Containers/**"
       - "build/**"
       - "global.json"
       - "nuget.config"

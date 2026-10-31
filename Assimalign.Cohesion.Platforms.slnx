@@ -34,20 +34,6 @@
 		<File Path="platforms/Directory.Build.props" />
 		<File Path="platforms/Directory.Build.targets" />
 	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/">
-		<File Path="platforms/Containers/README.md" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/">
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/OVERVIEW.md" />
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/DESIGN.md" />
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/IMAGE_INDEX.md" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/">
-		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.csproj" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/">
-		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.Tests.csproj" />
-	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Docker/">
 		<File Path="platforms/Docker/README.md" />
 	</Folder>

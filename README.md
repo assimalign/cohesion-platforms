@@ -16,7 +16,6 @@ those plans into platform objects; compilers never dispatch on resource kind, ar
 
 | Area | Package | Target |
 | --- | --- | --- |
-| [`platforms/Containers`](platforms/Containers/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Shared container machinery (image index, OCI store, registry, test primitives) |
 | [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` | Kubernetes clusters (Kind on Podman for development) |
 | [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | Docker-compatible engines (Podman locally) |
 
