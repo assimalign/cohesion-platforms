@@ -22,7 +22,7 @@
             build. A pull request's versions are deleted when it closes: move the pin to a main build
             once the pull request merges. Empty uses the release floor.
         -->
-        <CohesionPackageVersion Condition="'$(CohesionPackageVersion)' == ''"></CohesionPackageVersion>
+        <CohesionPackageVersion Condition="'$(CohesionPackageVersion)' == ''">10.0.0-preview.0.pr.1759.168</CohesionPackageVersion>
         <_CohesionPackageVersionFloor>[10.0.0-preview.1, )</_CohesionPackageVersionFloor>
         <_CohesionConsumedPackageVersion>$(_CohesionPackageVersionFloor)</_CohesionConsumedPackageVersion>
         <_CohesionConsumedPackageVersion Condition="'$(CohesionPackageVersion)' != ''">[$(CohesionPackageVersion)]</_CohesionConsumedPackageVersion>
