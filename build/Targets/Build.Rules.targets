@@ -40,8 +40,10 @@
 	<PropertyGroup>
 		<_CohesionPlatformProjectPath>$([MSBuild]::MakeRelative('$(CohesionRepositoryDirectory)', '$(MSBuildProjectFullPath)'))</_CohesionPlatformProjectPath>
 		<_CohesionPlatformRuleApplies>false</_CohesionPlatformRuleApplies>
+		<!-- fixtures/ holds executable acceptance fixtures, resource programs a test deploys, which compose an
+		     area's runtime module on purpose; they are harnesses like tests/. -->
 		<_CohesionPlatformRuleApplies Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)^platforms[\\/]'))
-		                                         AND !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)(^|[\\/])(tests|samples|examples)([\\/]|$)'))">true</_CohesionPlatformRuleApplies>
+		                                         AND !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)(^|[\\/])(tests|samples|examples|fixtures)([\\/]|$)'))">true</_CohesionPlatformRuleApplies>
 	</PropertyGroup>
 
 	<!-- Deviates from the platform-areas rule 3 wording as first written ("any *.Hosting") per design decision: since cohesion item 23b
@@ -61,8 +63,12 @@
 			<_CohesionPlatformRuntimeAssembly Include="@(ReferenceCopyLocalPaths)"
 			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Extension)', '(?i)^\.(dll|exe)$'))" />
 			<_CohesionPlatformCandidateAssembly Include="@(_CohesionPlatformRuntimeAssembly->'%(Filename)')" />
+			<!-- Since the owner moved every transport into platform pairs (2026-10-30), a platform's instance half
+			     references the application model's own hosting abstractions, Assimalign.Cohesion.ApplicationModel.Hosting
+			     and its platform halves (ApplicationModel.Hosting.<Platform>), so those are allowed; an area's runtime
+			     module (Assimalign.Cohesion.<Area>.Hosting[.*]) still is not. -->
 			<_CohesionPlatformForbiddenAssembly Include="@(_CohesionPlatformCandidateAssembly)"
-			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\..+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
+			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\.(?!ApplicationModel\.Hosting(?:\.|$)).+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
 		</ItemGroup>
 
 		<RemoveDuplicates Inputs="@(_CohesionPlatformForbiddenAssembly)">

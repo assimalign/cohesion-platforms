@@ -24,8 +24,14 @@
         <!-- Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). -->
         <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Definition" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <!-- The Kubernetes end-to-end fixture is an ordinary Web resource program. -->
+        <_CohesionPackage Include="Assimalign.Cohesion.Web" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
     </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="Sharprompt" Version="3.1.1" />
