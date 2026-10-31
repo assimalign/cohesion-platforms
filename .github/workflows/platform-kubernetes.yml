@@ -31,4 +31,7 @@ jobs:
           area: platforms
           category: Kubernetes
           project: ${{ matrix.projects }}
-          cohesion-ref: ${{ vars.COHESION_SIBLING_REF }}
+          # The Kubernetes pair builds on the application-model restart, which only the cohesion branch
+          # of the same name carries (assimalign/cohesion#1759). The repository variable
+          # COHESION_SIBLING_REF still names the previous line, which the other platforms build on.
+          cohesion-ref: feature/deployment-record-control-plane
