@@ -14,8 +14,18 @@
         <_CohesionSiblingFeed Condition="!Exists('$(_CohesionSiblingFeed)')">$(CohesionRepositoryDirectory)..\..\..\..\cohesion\_out\packages</_CohesionSiblingFeed>
         <RestoreAdditionalProjectSources Condition="Exists('$(_CohesionSiblingFeed)')">$(RestoreAdditionalProjectSources);$(_CohesionSiblingFeed)</RestoreAdditionalProjectSources>
 
+        <!--
+            The cohesion build this repository builds against: a CI package version from the GitHub
+            Packages feed, as cohesion's ci-packages.yml publishes it (main: 10.0.0-preview.0.ci.<run>,
+            a pull request: 10.0.0-preview.0.pr.<pr>.<run>). Packages built here depend on exactly
+            this version, so a consumer that pins both repositories' CI builds restores one cohesion
+            build. A pull request's versions are deleted when it closes: move the pin to a main build
+            once the pull request merges. Empty uses the release floor.
+        -->
+        <CohesionPackageVersion Condition="'$(CohesionPackageVersion)' == ''"></CohesionPackageVersion>
         <_CohesionPackageVersionFloor>[10.0.0-preview.1, )</_CohesionPackageVersionFloor>
         <_CohesionConsumedPackageVersion>$(_CohesionPackageVersionFloor)</_CohesionConsumedPackageVersion>
+        <_CohesionConsumedPackageVersion Condition="'$(CohesionPackageVersion)' != ''">[$(CohesionPackageVersion)]</_CohesionConsumedPackageVersion>
         <_CohesionConsumedPackageVersion Condition="Exists('$(_CohesionSiblingFeed)') AND '$(CohesionSiblingPackageVersion)' != ''">[$(CohesionSiblingPackageVersion)]</_CohesionConsumedPackageVersion>
     </PropertyGroup>
 

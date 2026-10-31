@@ -31,14 +31,22 @@ the decisions behind it, are in the gateway half's
 
 ## Building
 
-Both halves build against the sibling cohesion checkout's packages. Pack them once, and again after
-a change there:
+CI builds both halves against the cohesion CI build that `CohesionPackageVersion` pins in
+`build/Targets/Build.References.Packages.targets`, restored from the GitHub Packages feed.
+`ci-packages.yml` then publishes them there at a CI version of their own: `10.0.0-preview.0.pr.<pr>.<run>`
+for a pull request, `10.0.0-preview.0.ci.<run>` for `main`. Those packages depend on exactly the
+pinned cohesion build, so a consumer pins one build of each repository.
+
+Locally, build against the sibling cohesion checkout's packages instead. Pack them once, and again
+after a change there:
 
 ```powershell
 pwsh -NoProfile -File .github/scripts/Pack-CohesionSibling.ps1 -Local
 dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local
 dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local
 ```
+
+A consumer of the packages is `cohesion-examples`' `examples/libraries/ApplicationModel/web-on-kubernetes`.
 
 ## The end-to-end test on kind
 
