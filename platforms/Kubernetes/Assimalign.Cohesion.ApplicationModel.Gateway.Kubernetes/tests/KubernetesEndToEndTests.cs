@@ -58,14 +58,22 @@ public class KubernetesEndToEndTests
             "greeting",
             ApplicationActionContext.Create(ApplicationActionKind.Write, json, json.Serialize(new Greeting("hello kubernetes"))));
 
-        // Assert: the write ran on one instance and the gateway restored it on the other.
+        // Assert: the write ran on one instance and reached the other, by the gateway's restore or, when
+        // the restore came before that instance's control plane opened, by its next publication, after
+        // which both are registered again.
         answer.ShouldBe("storefront -> orders-api");
         ordersApi.Outputs[OutputName.Endpoint].ShouldBe($"http://orders-api.{cluster.Namespace}.svc.cluster.local");
         write.Status.ShouldBe(ApplicationActionStatus.Succeeded);
+        await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(1));
         IApplicationInstanceClient client = infrastructure;
-        foreach (ApplicationInstanceManifest instance in ordersApi.Instances)
+        ApplicationInstanceManifest[] instances = [.. ordersApi.Instances];
+        instances.Length.ShouldBe(2);
+        foreach (ApplicationInstanceManifest instance in instances)
         {
-            ApplicationActionResult read = await client.ExecuteAsync(instance, "greeting", ApplicationActionContext.Create(ApplicationActionKind.Read, json));
+            ApplicationActionResult read = await Eventually.GetAsync(
+                () => client.ExecuteAsync(instance, "greeting", ApplicationActionContext.Create(ApplicationActionKind.Read, json)).AsTask(),
+                static exception => exception is HttpRequestException,
+                TimeSpan.FromSeconds(30));
             read.Status.ShouldBe(ApplicationActionStatus.Succeeded);
             json.Deserialize<Greeting>(read.Output).ShouldNotBeNull().Text.ShouldBe("hello kubernetes");
         }
