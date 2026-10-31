@@ -65,7 +65,12 @@ dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Ku
 `New-CohesionKindCluster.ps1` creates the cluster and a registry at `localhost:5001` that its nodes
 pull from. `Publish-CohesionKindFixtures.ps1` pushes the fixture image there, built for the Podman
 machine's architecture: a kind node is its host's architecture, so an arm64 machine needs an arm64
-image.
+image. The test pulls the image on every run, so a republished fixture takes effect at once, and it
+deletes its namespace when it ends; set `COHESION_KIND_KEEP_NAMESPACE=1` to keep the namespace of a
+run to inspect.
+
+First passed on 2026-10-30 on Windows ARM64: kind 0.33.0, Kubernetes 1.37.0, a rootful Podman 5.8
+machine.
 
 ## Original implementation (deleted 2026-10-30)
 

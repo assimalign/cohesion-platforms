@@ -130,7 +130,8 @@ file `KUBECONFIG` names that exists, the default kubeconfig, then the pod's serv
    architecture; a multi-architecture image would remove the choice.
 4. **CI.** `platform-kubernetes.yml` builds and tests both halves. `e2e-kubernetes.yml` still drives
    the original implementation's render conformance and Kind smoke test and needs a rewrite around
-   `KubernetesEndToEndTests`.
+   `KubernetesEndToEndTests`, which passes locally on kind (first on 2026-10-30: kind 0.33.0,
+   Kubernetes 1.37.0, arm64).
 
 ## Diagnostics
 

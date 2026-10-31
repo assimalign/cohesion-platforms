@@ -20,6 +20,9 @@ internal sealed class KindCluster : IAsyncDisposable
     /// <summary>The variable that names the fixture program's image, when it is not the default.</summary>
     public const string ImageVariable = "COHESION_KIND_WEB_IMAGE";
 
+    /// <summary>The variable that keeps the test's namespace when it ends, to inspect a failed run.</summary>
+    public const string KeepNamespaceVariable = "COHESION_KIND_KEEP_NAMESPACE";
+
     private const string defaultImage = "localhost:5001/cohesion-kubernetes-web:e2e";
 
     private KindCluster(string context, string kubeConfigPath)
@@ -53,16 +56,25 @@ internal sealed class KindCluster : IAsyncDisposable
 
     public KubernetesInfrastructure CreateInfrastructure()
     {
+        // The fixture image is republished under the same tag, which a node that cached it would not
+        // pull again.
         return KubernetesInfrastructure.Create(new KubernetesInfrastructureOptions
         {
             KubeConfigPath = KubeConfigPath,
             Context = Context,
             Namespace = Namespace,
+            ImagePullPolicy = "Always",
         });
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (Environment.GetEnvironmentVariable(KeepNamespaceVariable) is "1" or "true")
+        {
+            Client.Dispose();
+            return;
+        }
+
         // The gateway leaves what it deployed running, as a platform's workloads outlive their gateway;
         // the test's namespace goes with everything in it.
         try
