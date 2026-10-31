@@ -127,8 +127,11 @@ jobs:
               dotnet test $tests --configuration Release
               if ($LASTEXITCODE -ne 0) { throw "Testing $name failed." }
             }
+            # platforms/Directory.Build.props sets a Release package's PackageVersion to the canonical
+            # CohesionVersion, so the CI version overrides it too.
             dotnet pack "$project/src/$name.csproj" --configuration Release --output $output `
-              "-p:VersionPrefix=$env:CI_VERSION_PREFIX" "-p:VersionSuffix=$env:CI_VERSION_SUFFIX"
+              "-p:VersionPrefix=$env:CI_VERSION_PREFIX" "-p:VersionSuffix=$env:CI_VERSION_SUFFIX" `
+              "-p:PackageVersion=$env:CI_VERSION_PREFIX-$env:CI_VERSION_SUFFIX"
             if ($LASTEXITCODE -ne 0) { throw "Packing $name failed." }
           }
           Get-ChildItem $output -Filter *.nupkg | ForEach-Object { Write-Host $_.Name }
