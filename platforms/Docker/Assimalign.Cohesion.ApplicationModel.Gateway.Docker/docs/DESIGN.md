@@ -15,7 +15,8 @@ makes.
 | `IApplicationGatewayInfrastructureProvider` | Plans, deploys, watches, reports the outputs of, and tears down each resource as containers on the gateway's network. Its `StartAsync(context)` and `StopAsync` run the inbound channel (GD2): it polls the network's instance containers and hands their publications and renewals to `context.Publisher`. |
 | `IApplicationGatewayInstanceClient` | Calls an instance's control plane on the loopback port the engine published it on. |
 
-`builder.UseDocker(infrastructure)` sets it as both. The instance half,
+`builder.UseDocker(configure)`, which builds it and gives it to the gateway to own, or
+`builder.UseDocker(infrastructure)`, which lends it, sets it as both (GD12). The instance half,
 `Assimalign.Cohesion.ApplicationModel.Hosting.Docker`, is the other end of the channel and the
 client. The two halves never reference each other: the protocol they share, variables, endpoint
 forms, channel routes and documents, is one file, `Hosting.Docker/shared/DockerProtocol.cs`,
@@ -201,6 +202,30 @@ neither a tag nor a digest, as the docker CLI pulls (the Engine API pulls every 
 named without one). An inspection puts the reference in the path as the docker CLI does, with its
 registry colon, slashes, and tag colon literal. The image must be built for the engine's
 architecture: a Podman machine on an arm64 host is linux/arm64.
+
+**GD12 — The gateway owns the infrastructure its verb builds (2026-11-01).** ApplicationModel.Gateway
+lets a platform's verb hand the gateway a factory instead of an object (`UsePlatform`, G42), so the
+platform has two registration verbs:
+
+- `builder.UseDocker(configure)` takes a callback over a `DockerInfrastructureBuilder`, whose
+  `Options` are the `DockerInfrastructureOptions` and whose `AddImage` binds an image as the
+  infrastructure's does. The gateway's `Build()` calls the callback and the builder's `Build()` last,
+  after everything else it checks has passed: a gateway that is never built creates no infrastructure,
+  and an invalid network or a duplicate image fails the gateway's build. The gateway owns the
+  infrastructure and disposes it when it is disposed, after its run has stopped.
+- `builder.UseDocker(infrastructure)` stays for an infrastructure the program creates itself. The
+  gateway borrows it, and the program disposes it after the gateway stops.
+
+The builder checks each image as it is added, with the infrastructure's own rules, so a duplicate
+fails at the call that adds it and binding the images to the new infrastructure cannot fail. Its
+`Build()` creates the infrastructure through `Create`, which copies the options, so each call
+creates an independent infrastructure and later changes to `Options` change nothing.
+
+- *Rejected:* creating the infrastructure in `UseDocker`. A builder that is never built, or whose
+  model breaks a rule, would then leave an open engine client the program has no handle to dispose.
+- *Rejected:* an optional callback. Unlike the in-process platform, nothing runs on Docker
+  without an image bound, so `UseDocker()` with no callback would build a gateway that cannot
+  deploy anything.
 
 ## Open questions
 

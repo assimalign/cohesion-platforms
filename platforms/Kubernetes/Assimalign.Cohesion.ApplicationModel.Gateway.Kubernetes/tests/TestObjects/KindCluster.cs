@@ -54,17 +54,27 @@ internal sealed class KindCluster : IAsyncDisposable
         return new KindCluster(context, ResolveKubeConfig());
     }
 
-    public KubernetesInfrastructure CreateInfrastructure()
+    /// <summary>
+    /// Points the gateway's infrastructure at the cluster and the test's namespace.
+    /// </summary>
+    public KubernetesInfrastructureBuilder Configure(KubernetesInfrastructureBuilder kubernetes)
     {
         // The fixture image is republished under the same tag, which a node that cached it would not
         // pull again.
-        return KubernetesInfrastructure.Create(new KubernetesInfrastructureOptions
-        {
-            KubeConfigPath = KubeConfigPath,
-            Context = Context,
-            Namespace = Namespace,
-            ImagePullPolicy = "Always",
-        });
+        kubernetes.Options.KubeConfigPath = KubeConfigPath;
+        kubernetes.Options.Context = Context;
+        kubernetes.Options.Namespace = Namespace;
+        kubernetes.Options.ImagePullPolicy = "Always";
+        return kubernetes;
+    }
+
+    /// <summary>
+    /// Creates an infrastructure of the test's own over the same namespace, apart from the one the
+    /// gateway owns, such as to call each instance's control plane directly.
+    /// </summary>
+    public KubernetesInfrastructure CreateInfrastructure()
+    {
+        return Configure(new KubernetesInfrastructureBuilder()).Build();
     }
 
     public async ValueTask DisposeAsync()

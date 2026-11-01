@@ -30,8 +30,10 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 /// <c>http</c> and control-plane ports on loopback ports of its host.
 /// </para>
 /// <para>
-/// The infrastructure is also the gateway's inbound channel and its instance client:
-/// <see cref="DockerApplicationGatewayBuilderExtensions.UseDocker"/> sets it as both. The gateway
+/// The infrastructure is also the gateway's inbound channel and its instance client: the gateway
+/// builder's <c>UseDocker</c> sets it as both. <c>UseDocker(configure)</c> builds one with a
+/// <see cref="DockerInfrastructureBuilder"/> when the gateway is built, and the gateway owns it;
+/// <c>UseDocker(infrastructure)</c> borrows one its caller created and disposes. The gateway
 /// pulls: it polls each instance container's published control-plane port for the instance's
 /// publication and renewals, answers there, and calls the instance's control plane over the same
 /// port. An instance opts into the platform with the instance half's <c>UseDocker()</c>.
@@ -128,21 +130,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
     /// <exception cref="ObjectDisposedException">The infrastructure is disposed.</exception>
     public DockerInfrastructure AddImage(ProviderName provider, ResourceName name, string image)
     {
-        if (provider.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
-        }
-
-        if (name.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
-        }
-
-        if (string.IsNullOrWhiteSpace(image))
-        {
-            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
-        }
-
+        CheckImage(provider, name, image);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) != 0, this);
         if (!_images.TryAdd((provider, name), image))
         {
@@ -562,6 +550,25 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
     internal static DockerInfrastructure Create(DockerInfrastructureOptions? options, IDockerEngine engine, string host)
     {
         return new DockerInfrastructure(Validate(options), engine, "test://engine", host);
+    }
+
+    // An image binding as both AddImage and the builder's take it.
+    internal static void CheckImage(ProviderName provider, ResourceName name, string image)
+    {
+        if (provider.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
+        }
+
+        if (name.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
+        }
+
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
+        }
     }
 
     private static string? Label(DockerContainerSummary container, string name)

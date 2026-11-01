@@ -33,14 +33,11 @@ public class DockerEndToEndTests
         // Arrange: one image runs both resources. orders-api runs two instances, and the storefront's
         // setting is orders-api's endpoint, its name on the network.
         await using DockerEngine engine = DockerEngine.Connect();
-        await using DockerInfrastructure infrastructure = engine.CreateInfrastructure();
-        infrastructure
-            .AddImage("Web", "orders-api", engine.Image)
-            .AddImage("Web", "storefront", engine.Image);
-
         ApplicationGatewayBuilder builder = ApplicationGateway.CreateBuilder("local");
         builder.StartupTimeout = _startupTimeout;
-        builder.UseDocker(infrastructure);
+        builder.UseDocker(docker => engine.Configure(docker)
+            .AddImage("Web", "orders-api", engine.Image)
+            .AddImage("Web", "storefront", engine.Image));
         IApplicationResourceDefinition orders = builder.AddResource("Web", "orders-api").WithDockerReplicas(2);
         builder.AddResource("Web", "storefront").WithSetting("Orders:Url", orders.Endpoint);
         JsonApplicationContentSerializer json = JsonApplicationContentSerializer.Create(TestJsonContext.Default);
@@ -74,8 +71,11 @@ public class DockerEndToEndTests
             inspected.State.ShouldNotBeNull().Running.ShouldBeTrue();
         }
 
+        // Each instance holds the write: the test reads it from every one with a client of its own, as
+        // the gateway owns its infrastructure.
         await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(1));
-        IApplicationGatewayInstanceClient client = infrastructure;
+        await using DockerInfrastructure reader = engine.CreateInfrastructure();
+        IApplicationGatewayInstanceClient client = reader;
         ApplicationInstanceManifest[] instances = [.. ordersApi.Instances];
         instances.Length.ShouldBe(2);
         foreach (ApplicationInstanceManifest instance in instances)
@@ -92,20 +92,17 @@ public class DockerEndToEndTests
     [DockerEngineFact(DisplayName = DisplayPrefix + "A gateway that runs again over the network adopts the containers the last run left, and their instances publish to it")]
     public async Task StartAsync_AfterAnEarlierRun_ShouldAdoptTheRunningContainers()
     {
-        // Arrange: a first run deploys orders-api and stops, leaving its container running.
+        // Arrange: a first run deploys orders-api and stops, leaving its container running. Each run's
+        // gateway owns an infrastructure of its own, which goes with the run.
         await using DockerEngine engine = DockerEngine.Connect();
         string first;
-        await using (DockerInfrastructure infrastructure = engine.CreateInfrastructure())
+        await using (GatewayRun run = await GatewayRun.StartAsync(CreateGateway(engine), _startupTimeout + TimeSpan.FromMinutes(1)))
         {
-            infrastructure.AddImage("Web", "orders-api", engine.Image);
-            await using GatewayRun run = await GatewayRun.StartAsync(CreateGateway(infrastructure), _startupTimeout + TimeSpan.FromMinutes(1));
             first = (await engine.Client.ListContainersAsync(DockerWorkload.SelectNetwork(engine.Network), CancellationToken.None)).ShouldHaveSingleItem().Id!;
         }
 
         // Act: a second run, without the first one's record, plans the same workload.
-        await using DockerInfrastructure again = engine.CreateInfrastructure();
-        again.AddImage("Web", "orders-api", engine.Image);
-        await using GatewayRun adopted = await GatewayRun.StartAsync(CreateGateway(again), _startupTimeout + TimeSpan.FromMinutes(1));
+        await using GatewayRun adopted = await GatewayRun.StartAsync(CreateGateway(engine), _startupTimeout + TimeSpan.FromMinutes(1));
         IApplicationGatewayDeployment ordersApi = adopted.Gateway.Resources.ShouldHaveSingleItem();
 
         // Assert: the container is the first run's, and its instance, unknown to the new run, renewed,
@@ -114,12 +111,12 @@ public class DockerEndToEndTests
         (await engine.Client.ListContainersAsync(DockerWorkload.SelectNetwork(engine.Network), CancellationToken.None)).ShouldHaveSingleItem().Id.ShouldBe(first);
         ordersApi.Outputs[OutputName.Endpoint].ShouldBe("http://orders-api:8080");
 
-        static ApplicationGateway CreateGateway(DockerInfrastructure infrastructure)
+        static ApplicationGateway CreateGateway(DockerEngine engine)
         {
             ApplicationGatewayBuilder builder = ApplicationGateway.CreateBuilder("local");
             builder.StartupTimeout = _startupTimeout;
             builder.LeaseDuration = TimeSpan.FromSeconds(6);
-            builder.UseDocker(infrastructure);
+            builder.UseDocker(docker => engine.Configure(docker).AddImage("Web", "orders-api", engine.Image));
             builder.AddResource("Web", "orders-api");
             return builder.Build();
         }
@@ -129,7 +126,8 @@ public class DockerEndToEndTests
     public async Task StartAsync_WithFailingProgram_ShouldFailWithTheContainersExit()
     {
         // Arrange: the fixture throws before it publishes when its Fixture:Failure setting is set, so
-        // its container exits and the engine restarts it.
+        // its container exits and the engine restarts it. The gateway borrows this infrastructure, which
+        // the test disposes after the failed run.
         await using DockerEngine engine = DockerEngine.Connect();
         await using DockerInfrastructure infrastructure = engine.CreateInfrastructure();
         infrastructure.AddImage("Web", "broken", engine.Image);
