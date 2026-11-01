@@ -14,8 +14,8 @@ public class DatabaseConnectionTests { }
 
 **Test method:** `{Method}_{Scenario}_{ExpectedBehavior}`, with the display name set through the `Fact`/`Theory` attribute
 ```csharp
-[Fact(DisplayName = "Cohesion Test [Kubernetes] - Reconcile: Should apply digest-pinned deployment")]
-public async Task Reconcile_OnExecutableEndpointResource_ShouldApplyDigestPinnedDeployment()
+[Fact(DisplayName = "Cohesion Test [Gateway.Kubernetes] - Workload: The workload decides the plan")]
+public void GetChange_WithRunningWorkload_ShouldCompareTheWorkload()
 {
     // Test implementation
 }

@@ -31,38 +31,122 @@ internal static class KubernetesWorkload
     /// <summary>The label that names the resource's provider.</summary>
     public const string ProviderLabel = "cohesion.assimalign.com/provider";
 
-    /// <summary>The annotation that holds the revision a Deployment runs.</summary>
+    /// <summary>The annotation that holds the revision a Deployment and its pods run.</summary>
     public const string RevisionAnnotation = "cohesion.assimalign.com/revision";
+
+    /// <summary>
+    /// The annotation that holds the workload a Deployment runs: its revision, replica count, and
+    /// settings' values. Planning compares it, not the revision.
+    /// </summary>
+    public const string WorkloadAnnotation = "cohesion.assimalign.com/workload";
 
     /// <summary>The extension that sets how many instances the Deployment runs, as a JSON number.</summary>
     public const string ReplicasExtension = "replicas";
 
     /// <summary>
     /// The version of the workload this platform builds for a resource. Every revision includes it, so a
-    /// change to what the platform builds, such as the readiness probe version 2 added, updates the
-    /// Deployments an earlier version created.
+    /// change to what the platform builds updates the Deployments an earlier version created: version 2
+    /// added the readiness probe, and version 3 took the replica count and the settings out of the
+    /// revision into the workload.
     /// </summary>
-    public const int TemplateVersion = 2;
+    public const int TemplateVersion = 3;
 
     /// <summary>
-    /// Computes what deploying the resource would run: the platform's template version, its image,
-    /// ports, replica count, and the values of its settings. A Deployment that runs another revision is
-    /// updated.
+    /// Computes the revision of what deploying a resource would run that the model does not carry: the
+    /// platform's template version, the image, and both ports. It leaves out the settings' values and the
+    /// resource's extensions, as the provider contract requires: the gateway fingerprints the manifest,
+    /// extensions included, itself, and treats a new revision as a new definition, which starts without
+    /// the state recorded for the previous one.
     /// </summary>
-    public static string GetRevision(ApplicationResourceManifest resource, IReadOnlyDictionary<SettingName, string> settings, string image, int endpointPort, int controlPlanePort)
+    public static string GetRevision(string image, int endpointPort, int controlPlanePort)
     {
         var text = new StringBuilder()
             .Append(TemplateVersion.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(image).Append('\n')
             .Append(endpointPort.ToString(CultureInfo.InvariantCulture)).Append('\n')
-            .Append(controlPlanePort.ToString(CultureInfo.InvariantCulture)).Append('\n')
+            .Append(controlPlanePort.ToString(CultureInfo.InvariantCulture)).Append('\n');
+
+        return Hash(text);
+    }
+
+    /// <summary>
+    /// Computes the workload a resource's Deployment would run: the revision, the image pull policy, the
+    /// environment name the pods receive, the replica count, and the settings' values in ordinal order.
+    /// A Deployment that runs another workload is updated.
+    /// </summary>
+    /// <remarks>
+    /// The pull policy and the environment name reach the pods but define nothing, so they are here and
+    /// not in the revision: changing them rolls the pods without costing the resource its recorded state.
+    /// Each value is prefixed with its length, as the gateway's deployment id is, so no two sets of
+    /// values read alike, whatever they contain.
+    /// </remarks>
+    public static string GetWorkload(string revision, ApplicationResourceManifest resource, IReadOnlyDictionary<SettingName, string> settings, string imagePullPolicy, string? environment)
+    {
+        var text = new StringBuilder()
+            .Append(revision).Append('\n')
             .Append(GetReplicas(resource).ToString(CultureInfo.InvariantCulture)).Append('\n');
+        AppendValue(text, "pull", imagePullPolicy);
+        AppendValue(text, "environment", environment ?? string.Empty);
         foreach (KeyValuePair<SettingName, string> setting in settings.OrderBy(static setting => setting.Key.Value, StringComparer.Ordinal))
         {
-            text.Append(setting.Key.Value).Append('=').Append(setting.Value).Append('\n');
+            AppendValue(text, string.Concat("setting:", setting.Key.Value), setting.Value);
         }
 
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
+        return Hash(text);
+    }
+
+    /// <summary>
+    /// Gets the environment name the gateway program runs under, which its resources' pods receive.
+    /// </summary>
+    public static string? GetEnvironmentName()
+    {
+        return AppEnvironment.GetValue(AppEnvironment.Variables.Environment);
+    }
+
+    /// <summary>
+    /// Decides what deploying a resource changes: no Deployment is a create, and one that runs the
+    /// workload and has finished rolling it out is nothing. Anything else is an update: another
+    /// workload, one an earlier version created without a workload, and a rollout that has not
+    /// finished or failed, such as one whose new pods crash. Deploying the same workload again applies
+    /// nothing new, and the gateway's watch then reports why the rollout does not finish.
+    /// </summary>
+    public static ApplicationGatewayDeploymentChange GetChange(V1Deployment? running, string workload)
+    {
+        if (running is null)
+        {
+            return ApplicationGatewayDeploymentChange.Create;
+        }
+
+        return running.Metadata?.Annotations?.TryGetValue(WorkloadAnnotation, out string? current) == true && current == workload && IsRolledOut(running)
+            ? ApplicationGatewayDeploymentChange.None
+            : ApplicationGatewayDeploymentChange.Update;
+    }
+
+    // As kubectl rollout status decides it: the controller has seen the latest spec, every replica runs
+    // it and is available, and no pod of an earlier template remains.
+    private static bool IsRolledOut(V1Deployment deployment)
+    {
+        if (deployment.Status is not { } status)
+        {
+            return false;
+        }
+
+        long generation = deployment.Metadata?.Generation ?? 0;
+        int replicas = deployment.Spec?.Replicas ?? 1;
+        return (status.ObservedGeneration ?? 0) >= generation
+            && (status.UpdatedReplicas ?? 0) == replicas
+            && (status.AvailableReplicas ?? 0) == replicas
+            && (status.Replicas ?? 0) == replicas;
+    }
+
+    private static void AppendValue(StringBuilder text, string name, string value)
+    {
+        text.Append(name)
+            .Append('=')
+            .Append(value.Length.ToString(CultureInfo.InvariantCulture))
+            .Append(':')
+            .Append(value)
+            .Append('\n');
     }
 
     /// <summary>
@@ -75,6 +159,7 @@ internal static class KubernetesWorkload
         DeploymentId deployment,
         string image,
         string revision,
+        string workload,
         string ns,
         KubernetesInfrastructureOptions options)
     {
@@ -91,7 +176,7 @@ internal static class KubernetesWorkload
                 Name = name,
                 NamespaceProperty = ns,
                 Labels = labels,
-                Annotations = new Dictionary<string, string> { [RevisionAnnotation] = revision },
+                Annotations = new Dictionary<string, string> { [RevisionAnnotation] = revision, [WorkloadAnnotation] = workload },
             },
             Spec = new V1DeploymentSpec
             {
@@ -269,7 +354,7 @@ internal static class KubernetesWorkload
         };
 
         // The gateway program's environment name is its resources' too.
-        if (AppEnvironment.GetValue(AppEnvironment.Variables.Environment) is { } name)
+        if (GetEnvironmentName() is { } name)
         {
             environment.Add(new V1EnvVar { Name = AppEnvironment.Variables.Environment, Value = name });
         }
@@ -280,6 +365,11 @@ internal static class KubernetesWorkload
         }
 
         return environment;
+    }
+
+    private static string Hash(StringBuilder text)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
     private static V1EnvVar FromField(string name, string path)

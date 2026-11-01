@@ -11,7 +11,7 @@ of its gateway.
 | Project | Half | Purpose |
 | --- | --- | --- |
 | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` | Gateway | `KubernetesInfrastructure`, the gateway's infrastructure provider (which is also its inbound channel) and instance client in one: each resource is a Deployment and a Service in the gateway's namespace, instances publish and renew through Leases, and the gateway calls their control planes through the pod proxy. `builder.UseKubernetes(infrastructure)`, `resource.WithReplicas(count)`. |
-| `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` | Instance | The gateway client a resource's program adds with `resource.UseKubernetes()`. Its `shared/KubernetesProtocol.cs` is the protocol both halves compile. |
+| `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` | Instance | The gateway client a resource's program adds on its `ApplicationInstanceOptions`: `builder.Services.AddResource(name, options => options.UseKubernetes())`. Its `shared/KubernetesProtocol.cs` is the protocol both halves compile. |
 | `fixtures/WebProgram` | Test input | The end-to-end test's resource program: an ordinary Web application that opts its resource into the platform. Built as a container image, never packed. |
 
 ```mermaid
@@ -21,11 +21,12 @@ flowchart LR
     HK["ApplicationModel.Hosting.Kubernetes<br/>(instance half)"] --> HO["ApplicationModel.Hosting"]
     HK --> KC
     GK -. "links shared/KubernetesProtocol.cs" .-> HK
+    HK -. "links platforms/Shared/InstanceControlPlaneListener.cs" .-> SH["platforms/Shared"]
     WP["fixtures/WebProgram"] --> HK
     WP --> WH["Web.Hosting.ApplicationModel"]
 ```
 
-Arrows are references; the dotted one is linked source, not a reference. How the halves talk, and
+Arrows are references; the dotted ones are linked source, not a reference. How the halves talk, and
 the decisions behind it, are in the gateway half's
 [DESIGN.md](Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/DESIGN.md).
 
@@ -46,7 +47,7 @@ dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Ku
 dotnet test platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local
 ```
 
-A consumer of the packages is `cohesion-examples`' `examples/libraries/ApplicationModel/web-on-kubernetes`.
+A consumer of the packages is planned: `cohesion-examples`' `examples/libraries/ApplicationModel/web-on-kubernetes` will pin a CI version once `ci-packages.yml` has published one.
 
 ## The end-to-end test on kind
 

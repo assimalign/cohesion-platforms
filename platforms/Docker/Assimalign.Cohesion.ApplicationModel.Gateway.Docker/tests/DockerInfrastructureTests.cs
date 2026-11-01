@@ -87,8 +87,42 @@ public class DockerInfrastructureTests
         updated.Revision.ShouldBe(created.Revision);
     }
 
-    [Fact(DisplayName = DisplayPrefix + "Deploying runs one started container per replica on the network, pulls a missing image, and replaces the containers of the previous workload")]
-    public async Task DeployResourceAsync_ShouldReplaceThePreviousContainers()
+    [Fact(DisplayName = DisplayPrefix + "A container of the workload that stopped, or keeps restarting, plans an update, which starts or recreates it under the same deployment")]
+    public async Task PlanResourceAsync_WithStoppedOrRestartingContainer_ShouldUpdate()
+    {
+        // Arrange
+        var engine = new FakeDockerEngine();
+        await using DockerInfrastructure infrastructure = Create(engine);
+        IApplicationGatewayInfrastructureProvider provider = infrastructure;
+        (IApplicationModel model, ApplicationResourceManifest resource) = CreateResource();
+        DeploymentId deployment = DeploymentId.New();
+        await provider.DeployResourceAsync(model, resource, Settings(), deployment);
+        FakeContainer container = engine.Containers.ShouldHaveSingleItem();
+
+        // Act: podman stop, which unless-stopped does not undo.
+        container.State = "exited";
+        ApplicationGatewayDeploymentPlan stopped = await provider.PlanResourceAsync(model, resource, Settings());
+        await provider.DeployResourceAsync(model, resource, Settings(), deployment);
+        string startedState = engine.Containers.ShouldHaveSingleItem().State;
+
+        // A container that runs but whose engine restarted it as a loop.
+        engine.Containers.ShouldHaveSingleItem().RestartCount = DockerWorkload.RestartLoopCount;
+        ApplicationGatewayDeploymentPlan looping = await provider.PlanResourceAsync(model, resource, Settings());
+        await provider.DeployResourceAsync(model, resource, Settings(), deployment);
+        FakeContainer recreated = engine.Containers.ShouldHaveSingleItem();
+        ApplicationGatewayDeploymentPlan healthy = await provider.PlanResourceAsync(model, resource, Settings());
+
+        // Assert
+        stopped.Change.ShouldBe(ApplicationGatewayDeploymentChange.Update);
+        startedState.ShouldBe("running");
+        looping.Change.ShouldBe(ApplicationGatewayDeploymentChange.Update);
+        recreated.RestartCount.ShouldBe(0);
+        recreated.Labels[DockerWorkload.DeploymentLabel].ShouldBe(deployment.ToString());
+        healthy.Change.ShouldBe(ApplicationGatewayDeploymentChange.None);
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "Deploying runs one started container per replica on the network, pulls a missing image, and keeps the previous workload's containers until every new one has published")]
+    public async Task DeployResourceAsync_ShouldReplaceThePreviousContainersOncePublished()
     {
         // Arrange
         var engine = new FakeDockerEngine();
@@ -102,16 +136,50 @@ public class DockerInfrastructureTests
         await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "hello")), first);
         string[] before = [.. engine.Containers.Select(static container => container.Name)];
         await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "welcome")), second);
+        string[] rolling = [.. engine.Containers.Select(static container => container.Name)];
+        string[] added = [.. engine.Containers.Where(container => container.Labels[DockerWorkload.DeploymentLabel] == second.ToString()).Select(static container => container.Name)];
+
+        // An old container's publication, and the first new one's, finish nothing.
+        await infrastructure.OnPublishedAsync(before[0], CancellationToken.None);
+        await infrastructure.OnPublishedAsync(added[0], CancellationToken.None);
+        int afterFirst = engine.Containers.Count;
+        await infrastructure.OnPublishedAsync(added[1], CancellationToken.None);
 
         // Assert
         engine.Networks.ShouldContain("cohesion");
         engine.Pulled.ShouldBe([image]);
         before.Length.ShouldBe(2);
+        rolling.Length.ShouldBe(4);
+        afterFirst.ShouldBe(4);
         FakeContainer[] after = [.. engine.Containers];
         after.Length.ShouldBe(2);
         after.ShouldAllBe(container => container.State == "running" && container.Labels[DockerWorkload.DeploymentLabel] == second.ToString());
         after.Select(static container => container.Name).ShouldNotContain(before[0]);
         after.Select(static container => container.Labels[DockerWorkload.ReplicaLabel]).ShouldBe(["0", "1"], ignoreOrder: true);
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "An update whose containers never publish leaves the previous workload's containers running, and the next plan updates again")]
+    public async Task DeployResourceAsync_WithFailedUpdate_ShouldKeepThePreviousContainers()
+    {
+        // Arrange
+        var engine = new FakeDockerEngine();
+        await using DockerInfrastructure infrastructure = Create(engine);
+        IApplicationGatewayInfrastructureProvider provider = infrastructure;
+        (IApplicationModel model, ApplicationResourceManifest resource) = CreateResource();
+        DeploymentId first = DeploymentId.New();
+        DeploymentId second = DeploymentId.New();
+        await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "hello")), first);
+        string healthy = engine.Containers.ShouldHaveSingleItem().Name;
+
+        // Act: the update's container crashes before it publishes.
+        await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "broken")), second);
+        engine.Containers.Single(container => container.Name != healthy).State = "exited";
+        ApplicationGatewayDeploymentPlan again = await provider.PlanResourceAsync(model, resource, Settings(("Greeting", "broken")));
+
+        // Assert
+        engine[healthy].State.ShouldBe("running");
+        engine.Containers.Count.ShouldBe(2);
+        again.Change.ShouldBe(ApplicationGatewayDeploymentChange.Update);
     }
 
     [Fact(DisplayName = DisplayPrefix + "Deploying again over a deployment that did not finish keeps its containers and creates the missing ones")]

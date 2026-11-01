@@ -27,7 +27,7 @@ sequenceDiagram
     participant A as API server
     participant P as Pod (Hosting.Kubernetes)
     G->>A: apply Namespace, instance ServiceAccount, Role, RoleBinding
-    G->>A: apply Deployment and Service (revision annotation)
+    G->>A: apply Deployment and Service (revision and workload annotations)
     A->>P: start pod (runtime contract, downward API)
     P->>A: create Lease {pod} (manifest, instance-key)
     A-->>G: watch: Lease ADDED
@@ -88,14 +88,50 @@ The resource's `endpoint` output is the Service's cluster name,
 `http://{name}.{namespace}.svc.cluster.local`, so a dependent's setting reaches it through cluster
 DNS.
 
-**GK5 — A revision decides an update, and a deployment's pods decide its watch.** The revision is
-the first 16 hex digits of a SHA-256 over the platform's template version (GK10), the image, both
-ports, the replica count, and the settings in ordinal order. It is stored on the Deployment and its pods; planning compares it to choose
-create, update, or nothing. Each pod carries its deployment's id as a label. Watching a deployment
-polls its pods every two seconds and fails the step at once with the platform's reason when one is
-waiting on `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName`, `CreateContainerConfigError`,
-or `CreateContainerError`. The watch ends when the Deployment is gone or a later deployment replaced
-it.
+**GK5 — A workload decides an update; the revision is what the model does not carry
+(2026-10-31, superseding the one-hash revision of 2026-10-30).** The provider contract
+(`IApplicationGatewayInfrastructureProvider.PlanResourceAsync`) says the revision fingerprints what the
+provider deploys that the model does not carry, and leaves out the settings' values and the
+extensions: the gateway fingerprints the manifest as declared for this platform, extensions included,
+itself, and treats a new revision as a new definition, which starts without the state recorded for
+the previous one (ApplicationModel.Gateway G12). So two hashes, each the first 16 hex digits of a
+SHA-256, as Docker's (Gateway.Docker GD5):
+
+- the **revision**: the platform's template version (`KubernetesWorkload.TemplateVersion`, GK10), the
+  image, and both ports. `PlanResourceAsync` returns it, and it is the
+  `cohesion.assimalign.com/revision` annotation on the Deployment and its pod template.
+- the **workload**: the revision, the replica count (GK7), the image pull policy, the environment
+  name the pods receive (`COHESION_ENVIRONMENT`, copied from the gateway's own), and the settings'
+  values in ordinal order, each value prefixed with its length as the gateway's deployment id is, so
+  no two sets of values hash alike whatever they contain (a PEM or JSON value included). The pull
+  policy and the environment name reach the pods but define nothing, so they are here and not in the
+  revision: changing them rolls the pods and keeps the recorded state. The workload is the
+  `cohesion.assimalign.com/workload` annotation on the Deployment only, and it decides the plan with
+  the Deployment's rollout status: no Deployment is a create; one that carries the workload and has
+  rolled it out (`observedGeneration` ≥ `generation`, and `updatedReplicas`, `availableReplicas` and
+  `replicas` all equal to the spec's replicas, as `kubectl rollout status` decides) is nothing; any
+  other is an update. A Deployment an earlier template version created carries no workload, so it is
+  updated. A rollout that has not finished, or failed (a new pod in `CrashLoopBackOff`), is an update
+  too, of the same deployment id: the apply changes nothing, and the watch reports why the rollout
+  does not finish, instead of the plan marking the resource ready with nothing watched.
+
+A dependency's redeploy that moves a filled-in setting therefore updates this resource and keeps its
+recorded action state. A new image, port, or template version starts it over, as a change to the
+resource's declaration does, its `replicas` extension included, because the gateway fingerprints that
+itself.
+
+A deployment's pods decide its watch. Each pod carries its deployment's id as a label.
+Watching a deployment polls its pods every two seconds and fails the step at once with the platform's
+reason when one is waiting on `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName`,
+`CreateContainerConfigError`, or `CreateContainerError`. The watch ends when the Deployment is gone or
+a later deployment replaced it.
+
+*Superseded:* one revision over the template version, image, ports, replica count, and settings. It
+told the gateway that a moved setting was a new definition, so a dependency's redeploy discarded the
+resource's recorded action state (open question 5 until it closed on 2026-10-31). Moving to the split changed every running
+Deployment's revision once (template version 3), so the first gateway run after it clears every
+resource's recorded action state once. Accepted before the first release: no deployment outside test clusters carries
+recorded state yet.
 
 **GK6 — The program is never PID 1.** Pods share their process namespace, so the pause container is
 PID 1. A program that is PID 1 cannot end itself with a default-action signal: a .NET program whose
@@ -127,8 +163,8 @@ ready.
   (ApplicationModel.Gateway). A dependent deployed right after can find the Service without an
   endpoint for a moment, and retries.
 - **The probe is part of the workload template.** Every revision carries the template's version
-  (`KubernetesWorkload.TemplateVersion`, 2 since the probe), so a gateway updates the Deployments an
-  earlier version created.
+  (`KubernetesWorkload.TemplateVersion`: 2 since the probe, 3 since the revision split of GK5), so a
+  gateway updates the Deployments an earlier version created.
 - *Rejected:* a readiness route on the control plane. It would also cover a resource with no `http`
   endpoint, but the instance would have to tell its platform's client when its host has started,
   which needs a new member on the ApplicationModel.Hosting contract (open question 1).
@@ -167,15 +203,6 @@ without a run ending. The Lease protocol (GK2) is unchanged.
    smoke test before). It has not run on GitHub yet: once a dispatched run passes, it can gate pushes
    to `platforms/Kubernetes`. Locally it passes on kind over Podman (first on 2026-10-30: kind
    0.33.0, Kubernetes 1.37.0, arm64).
-5. **The revision carries settings and the replica count (2026-10-31).** GK5's revision hashes the
-   settings' values and `replicas`, which `IApplicationGatewayInfrastructureProvider.PlanResourceAsync`
-   says a revision leaves out: the gateway fingerprints the manifest, extensions included, itself, and
-   treats a new revision as a new definition, which starts without the state recorded for the previous
-   one. So a dependency's redeploy that changes a filled-in setting here discards the resource's
-   recorded action state. The Docker pair keeps the two apart (Gateway.Docker GD5): the revision
-   covers what the model does not carry, and a separate workload hash, which includes the settings and
-   the replica count, decides create, update, or nothing. Moving Kubernetes to the same split changes
-   every running Deployment's revision once, so it waits for the owner.
 
 ## Diagnostics
 
@@ -201,5 +228,5 @@ design has not brought back. In its own words, by the files that carried it:
 - image publication and the Kind registry route (`KubernetesImageGatherer`,
   `KubernetesImageRegistryRoute`, `KubernetesKindCluster`).
 
-The export document and import, application sets, and trusted-issuer keys
-(`KubernetesGatewayTrustKeyRepository`) belonged to concepts the restart retired.
+What the original implementation had for concepts the restart retired, such as its trusted-issuer
+keys (`KubernetesGatewayTrustKeyRepository`), does not come back.

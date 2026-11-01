@@ -210,15 +210,10 @@ public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructure
         IReadOnlyDictionary<SettingName, string> settings,
         CancellationToken cancellationToken)
     {
-        string revision = KubernetesWorkload.GetRevision(resource, settings, GetImage(resource), _options.EndpointPort, _options.ControlPlanePort);
+        string revision = KubernetesWorkload.GetRevision(GetImage(resource), _options.EndpointPort, _options.ControlPlanePort);
+        string workload = KubernetesWorkload.GetWorkload(revision, resource, settings, _options.ImagePullPolicy, KubernetesWorkload.GetEnvironmentName());
         V1Deployment? running = await ReadAsync(() => _client.AppsV1.ReadNamespacedDeploymentAsync(resource.Name.Value, Namespace, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        ApplicationGatewayDeploymentChange change = running is null
-            ? ApplicationGatewayDeploymentChange.Create
-            : running.Metadata?.Annotations?.TryGetValue(KubernetesWorkload.RevisionAnnotation, out string? current) == true && current == revision
-                ? ApplicationGatewayDeploymentChange.None
-                : ApplicationGatewayDeploymentChange.Update;
-
-        return new ApplicationGatewayDeploymentPlan(change, revision);
+        return new ApplicationGatewayDeploymentPlan(KubernetesWorkload.GetChange(running, workload), revision);
     }
 
     async ValueTask IApplicationGatewayInfrastructureProvider.DeployResourceAsync(
@@ -231,7 +226,8 @@ public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructure
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) != 0, this);
 
         string image = GetImage(resource);
-        string revision = KubernetesWorkload.GetRevision(resource, settings, image, _options.EndpointPort, _options.ControlPlanePort);
+        string revision = KubernetesWorkload.GetRevision(image, _options.EndpointPort, _options.ControlPlanePort);
+        string workload = KubernetesWorkload.GetWorkload(revision, resource, settings, _options.ImagePullPolicy, KubernetesWorkload.GetEnvironmentName());
         await EnsureNamespaceAsync(cancellationToken).ConfigureAwait(false);
 
         (V1ServiceAccount account, V1Role role, V1RoleBinding binding) = KubernetesWorkload.CreateInstanceAccess(Namespace);
@@ -239,8 +235,8 @@ public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructure
         await _client.RbacAuthorizationV1.PatchNamespacedRoleAsync(Apply(role), role.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
         await _client.RbacAuthorizationV1.PatchNamespacedRoleBindingAsync(Apply(binding), binding.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        V1Deployment workload = KubernetesWorkload.CreateDeployment(model, resource, settings, deployment, image, revision, Namespace, _options);
-        await _client.AppsV1.PatchNamespacedDeploymentAsync(Apply(workload), workload.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        V1Deployment applied = KubernetesWorkload.CreateDeployment(model, resource, settings, deployment, image, revision, workload, Namespace, _options);
+        await _client.AppsV1.PatchNamespacedDeploymentAsync(Apply(applied), applied.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         V1Service service = KubernetesWorkload.CreateService(resource, Namespace, _options);
         await _client.CoreV1.PatchNamespacedServiceAsync(Apply(service), service.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);

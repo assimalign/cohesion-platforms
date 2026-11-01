@@ -80,20 +80,74 @@ internal static class DockerWorkload
     }
 
     /// <summary>
-    /// Computes the workload a resource's containers would run: the revision, the replica count, and
-    /// the settings' values in ordinal order. Containers that run another workload are replaced.
+    /// Computes the workload a resource's containers would run: the revision, the environment name the
+    /// containers receive, the replica count, and the settings' values in ordinal order. Containers that
+    /// run another workload are replaced.
     /// </summary>
-    public static string GetWorkload(string revision, ApplicationResourceManifest resource, IReadOnlyDictionary<SettingName, string> settings)
+    /// <remarks>
+    /// Each value is prefixed with its length, as the gateway's deployment id is, so no two sets of
+    /// values read alike, whatever they contain.
+    /// </remarks>
+    public static string GetWorkload(string revision, ApplicationResourceManifest resource, IReadOnlyDictionary<SettingName, string> settings, string? environment)
     {
         var text = new StringBuilder()
             .Append(revision).Append('\n')
             .Append(GetReplicas(resource).ToString(CultureInfo.InvariantCulture)).Append('\n');
+        AppendValue(text, "environment", environment ?? string.Empty);
         foreach (KeyValuePair<SettingName, string> setting in settings.OrderBy(static setting => setting.Key.Value, StringComparer.Ordinal))
         {
-            text.Append(setting.Key.Value).Append('=').Append(setting.Value).Append('\n');
+            AppendValue(text, string.Concat("setting:", setting.Key.Value), setting.Value);
         }
 
         return Hash(text);
+    }
+
+    /// <summary>
+    /// Gets the environment name the gateway program runs under, which its resources' containers receive.
+    /// </summary>
+    public static string? GetEnvironmentName()
+    {
+        return AppEnvironment.GetValue(AppEnvironment.Variables.Environment);
+    }
+
+    /// <summary>
+    /// Reads whether an inspected container runs as its workload should: running, and not in a restart
+    /// loop (<see cref="GetFailure"/> reports none).
+    /// </summary>
+    public static bool IsHealthy(DockerContainerInspectResponse container)
+    {
+        return container.State is { Running: true, Restarting: false } && container.RestartCount < RestartLoopCount && GetFailure(container) is null;
+    }
+
+    /// <summary>
+    /// Normalizes an image reference to the one tag the engine pulls: a reference with neither a tag nor
+    /// a digest is <c>:latest</c>, as the docker CLI makes it, since the Engine API pulls every tag of a
+    /// repository named without one.
+    /// </summary>
+    public static (string Image, string Tag) SplitPullReference(string image)
+    {
+        if (image.Contains('@', StringComparison.Ordinal))
+        {
+            // A digest pulls exactly that manifest.
+            return (image, string.Empty);
+        }
+
+        // A colon after the last slash is a tag; one before it is a registry's port.
+        int slash = image.LastIndexOf('/');
+        int colon = image.LastIndexOf(':');
+        return colon > slash
+            ? (image[..colon], image[(colon + 1)..])
+            : (image, "latest");
+    }
+
+    private static void AppendValue(StringBuilder text, string name, string value)
+    {
+        text.Append(name)
+            .Append('=')
+            .Append(value.Length.ToString(CultureInfo.InvariantCulture))
+            .Append(':')
+            .Append(value)
+            .Append('\n');
     }
 
     /// <summary>
@@ -349,7 +403,7 @@ internal static class DockerWorkload
         };
 
         // The gateway program's environment name is its resources' too.
-        if (AppEnvironment.GetValue(AppEnvironment.Variables.Environment) is { } name)
+        if (GetEnvironmentName() is { } name)
         {
             environment.Add(Variable(AppEnvironment.Variables.Environment, name));
         }

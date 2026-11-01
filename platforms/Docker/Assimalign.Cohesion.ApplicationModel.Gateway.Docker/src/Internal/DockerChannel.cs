@@ -51,17 +51,29 @@ internal sealed class DockerChannel
     private readonly HttpClient _http;
     private readonly JsonApplicationContentSerializer _json = JsonApplicationContentSerializer.Create();
     private readonly ConcurrentDictionary<string, (string Key, long Renewal)> _renewals = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Task> _handling = new(StringComparer.Ordinal);
+    private readonly Func<string, CancellationToken, Task>? _published;
     private readonly Lock _lock = new();
     private CancellationTokenSource? _running;
     private Task _loop = Task.CompletedTask;
 
-    public DockerChannel(IDockerEngine engine, string network, int controlPlanePort, string host, HttpClient http)
+    /// <param name="engine">The engine that lists the network's containers.</param>
+    /// <param name="network">The gateway's network.</param>
+    /// <param name="controlPlanePort">The control-plane port inside each container.</param>
+    /// <param name="host">Where the engine publishes container ports.</param>
+    /// <param name="http">The client that reaches the published ports.</param>
+    /// <param name="published">
+    /// Called with a container's name once the gateway accepted its publication and the instance has
+    /// the answer, such as to finish a rollout; a failure there is ignored.
+    /// </param>
+    public DockerChannel(IDockerEngine engine, string network, int controlPlanePort, string host, HttpClient http, Func<string, CancellationToken, Task>? published = null)
     {
         _engine = engine;
         _network = network;
         _controlPlanePort = controlPlanePort;
         _host = host;
         _http = http;
+        _published = published;
     }
 
     public void Start(IApplicationInstancePublisher gateway)
@@ -100,6 +112,10 @@ internal sealed class DockerChannel
 
         await running.CancelAsync().ConfigureAwait(false);
         await loop.ConfigureAwait(false);
+
+        // The handlers still running were cancelled with the loop; none faults.
+        await Task.WhenAll(_handling.Values).ConfigureAwait(false);
+        _handling.Clear();
         running.Dispose();
     }
 
@@ -109,7 +125,7 @@ internal sealed class DockerChannel
         {
             try
             {
-                await PollAsync(gateway, cancellationToken).ConfigureAwait(false);
+                await PollAsync(gateway, cancellationToken, wait: false).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -135,7 +151,13 @@ internal sealed class DockerChannel
     /// <summary>
     /// Polls every running instance container on the network once.
     /// </summary>
-    internal async Task PollAsync(IApplicationInstancePublisher gateway, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Each container is handled on its own, and one still handled from an earlier poll, such as one
+    /// whose publication the gateway is still saving, is skipped, so a slow container never holds the
+    /// others' renewals. The loop does not wait for the handlers (<paramref name="wait"/> is
+    /// <see langword="false"/>); a test does.
+    /// </remarks>
+    internal async Task PollAsync(IApplicationInstancePublisher gateway, CancellationToken cancellationToken, bool wait = true)
     {
         IReadOnlyList<DockerContainerSummary> containers = await _engine.ListContainersAsync(DockerWorkload.SelectNetwork(_network), cancellationToken).ConfigureAwait(false);
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -148,10 +170,28 @@ internal sealed class DockerChannel
             }
 
             seen.Add(name);
-            polls.Add(HandleAsync(gateway, name, port, cancellationToken));
+            if (_handling.TryGetValue(name, out Task? handling) && !handling.IsCompleted)
+            {
+                continue;
+            }
+
+            Task poll = HandleSafelyAsync(gateway, name, port, cancellationToken);
+            _handling[name] = poll;
+            polls.Add(poll);
         }
 
-        await Task.WhenAll(polls).ConfigureAwait(false);
+        if (wait)
+        {
+            await Task.WhenAll(polls).ConfigureAwait(false);
+        }
+
+        foreach (KeyValuePair<string, Task> handling in _handling)
+        {
+            if (handling.Value.IsCompleted && !seen.Contains(handling.Key))
+            {
+                _handling.TryRemove(handling);
+            }
+        }
 
         // A container that is gone takes its renewal count with it.
         foreach (string name in _renewals.Keys)
@@ -160,6 +200,24 @@ internal sealed class DockerChannel
             {
                 _renewals.TryRemove(name, out _);
             }
+        }
+    }
+
+    // A handler never faults: whatever one container's exchange throws is that container's alone, and
+    // it is read again on the next poll.
+    private async Task HandleSafelyAsync(IApplicationInstancePublisher gateway, string container, int port, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await HandleAsync(gateway, container, port, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception)
+        {
+            // Deliberately broad, as the loop's own catch: the next poll reads the container again.
+            _renewals.TryRemove(container, out _);
         }
     }
 
@@ -207,9 +265,14 @@ internal sealed class DockerChannel
         {
             known = await gateway.RenewAsync(manifest, cancellationToken).ConfigureAwait(false);
         }
-        catch (ApplicationGatewayException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // The gateway is not receiving; the instance renews again, and the next poll sees it.
+            throw;
+        }
+        catch (Exception)
+        {
+            // Deliberately broad: the gateway is not receiving, or refused the manifest. The renewal is
+            // not recorded as handled, so the next poll hands it to the gateway again.
             _renewals.TryRemove(container, out _);
             return;
         }
@@ -243,6 +306,22 @@ internal sealed class DockerChannel
         {
             // The channel's own answer moves no renewal count, so it is not taken for a renewal.
             _renewals[container] = (state.InstanceKey, state.Renewal);
+            if (_published is { } published)
+            {
+                try
+                {
+                    await published.Invoke(container, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // Deliberately broad: what follows a publication is best effort, and never the
+                    // instance's concern.
+                }
+            }
         }
     }
 

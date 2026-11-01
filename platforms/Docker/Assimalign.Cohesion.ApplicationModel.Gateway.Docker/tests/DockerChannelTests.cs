@@ -82,6 +82,54 @@ public class DockerChannelTests
         gateway.Renewals.ShouldBe(1);
     }
 
+    [Fact(DisplayName = DisplayPrefix + "A renewal the gateway fails with any exception is handed to it again on the next poll")]
+    public async Task PollAsync_WithFailingRenewal_ShouldRetryIt()
+    {
+        // Arrange
+        await using var instance = new Instance();
+        var gateway = new RecordingPublisher();
+        await instance.PublishAsync(gateway);
+        await instance.Channel.PollAsync(gateway, CancellationToken.None);
+        gateway.RenewalFailure = new ArgumentException("the manifest names no key");
+
+        // Act
+        (await instance.Client.RenewAsync(instance.ControlPlane.Manifest)).ShouldBeTrue();
+        await instance.Channel.PollAsync(gateway, CancellationToken.None);
+        gateway.RenewalFailure = null;
+        await instance.Channel.PollAsync(gateway, CancellationToken.None);
+        await instance.Channel.PollAsync(gateway, CancellationToken.None);
+
+        // Assert: the failed renewal, its retry, and nothing after.
+        gateway.Renewals.ShouldBe(2);
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "A publication the gateway accepted is reported once the instance has its answer")]
+    public async Task PollAsync_WithPublication_ShouldReportThePublishedContainer()
+    {
+        // Arrange
+        await using var instance = new Instance();
+        var gateway = new RecordingPublisher();
+        var published = new ConcurrentQueue<string>();
+        var channel = new DockerChannel(instance.Engine, "cohesion", instance.Port, "localhost", instance.Http, (container, _) =>
+        {
+            published.Enqueue(container);
+            return Task.CompletedTask;
+        });
+
+        // Act
+        Task<ApplicationInstancePublication> publishing = instance.Client.PublishAsync(instance.ControlPlane.Manifest).AsTask();
+        for (int attempt = 0; !publishing.IsCompleted; attempt++)
+        {
+            attempt.ShouldBeLessThan(100);
+            await channel.PollAsync(gateway, CancellationToken.None);
+            await Task.Delay(50);
+        }
+
+        // Assert
+        await publishing;
+        published.ShouldBe([Instance.Container]);
+    }
+
     [Fact(DisplayName = DisplayPrefix + "A renewal the gateway does not know clears the answer, so the instance finds itself unknown and publishes again")]
     public async Task PollAsync_WithUnknownRenewal_ShouldSendTheInstanceToPublishAgain()
     {
@@ -163,6 +211,8 @@ public class DockerChannelTests
 
         public bool Known { get; set; } = true;
 
+        public Exception? RenewalFailure { get; set; }
+
         public ValueTask<ApplicationInstancePublication> PublishAsync(ApplicationInstanceManifest manifest, CancellationToken cancellationToken = default)
         {
             if (Refusal is { } refusal)
@@ -177,7 +227,7 @@ public class DockerChannelTests
         public ValueTask<bool> RenewAsync(ApplicationInstanceManifest manifest, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _renewals);
-            return ValueTask.FromResult(Known);
+            return RenewalFailure is { } failure ? ValueTask.FromException<bool>(failure) : ValueTask.FromResult(Known);
         }
     }
 

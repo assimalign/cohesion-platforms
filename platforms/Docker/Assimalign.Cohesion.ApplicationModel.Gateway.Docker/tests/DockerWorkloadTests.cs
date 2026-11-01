@@ -80,11 +80,11 @@ public class DockerWorkloadTests
         string revision = DockerWorkload.GetRevision("web:1", 8080, 9090);
 
         // Act
-        string first = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "1"), ("B", "2")));
-        string reordered = DockerWorkload.GetWorkload(revision, resource, Settings(("B", "2"), ("A", "1")));
-        string changedSetting = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "1"), ("B", "3")));
-        string changedReplicas = DockerWorkload.GetWorkload(revision, replicated, Settings(("A", "1"), ("B", "2")));
-        string changedImage = DockerWorkload.GetWorkload(DockerWorkload.GetRevision("web:2", 8080, 9090), resource, Settings(("A", "1"), ("B", "2")));
+        string first = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "1"), ("B", "2")), null);
+        string reordered = DockerWorkload.GetWorkload(revision, resource, Settings(("B", "2"), ("A", "1")), null);
+        string changedSetting = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "1"), ("B", "3")), null);
+        string changedReplicas = DockerWorkload.GetWorkload(revision, replicated, Settings(("A", "1"), ("B", "2")), null);
+        string changedImage = DockerWorkload.GetWorkload(DockerWorkload.GetRevision("web:2", 8080, 9090), resource, Settings(("A", "1"), ("B", "2")), null);
 
         // Assert
         DockerWorkload.GetRevision("web:1", 8080, 9090).ShouldBe(revision);
@@ -93,6 +93,45 @@ public class DockerWorkloadTests
         changedSetting.ShouldNotBe(first);
         changedReplicas.ShouldNotBe(first);
         changedImage.ShouldNotBe(first);
+        DockerWorkload.GetWorkload(revision, resource, Settings(("A", "1"), ("B", "2")), "Staging").ShouldNotBe(first);
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "Settings whose values contain the separators never hash like another set of settings")]
+    public void GetWorkload_WithSeparatorsInValues_ShouldNotCollide()
+    {
+        // Arrange
+        (_, ApplicationResourceManifest resource) = CreateResource();
+        string revision = DockerWorkload.GetRevision("web:1", 8080, 9090);
+
+        // Act: without length prefixes, both read "A=x\nB=y\n".
+        string one = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "x\nB=y")), null);
+        string two = DockerWorkload.GetWorkload(revision, resource, Settings(("A", "x"), ("B", "y")), null);
+
+        // Assert
+        one.ShouldNotBe(two);
+    }
+
+    [Theory(DisplayName = DisplayPrefix + "A pull names one tag: the reference's own, or latest for one with neither tag nor digest")]
+    [InlineData("orders-api", "/images/create?fromImage=orders-api&tag=latest")]
+    [InlineData("cohesion-docker-web:e2e", "/images/create?fromImage=cohesion-docker-web&tag=e2e")]
+    [InlineData("localhost:5001/web", "/images/create?fromImage=localhost%3A5001%2Fweb&tag=latest")]
+    [InlineData("localhost:5001/shop/web:1.2", "/images/create?fromImage=localhost%3A5001%2Fshop%2Fweb&tag=1.2")]
+    [InlineData("web@sha256:abc", "/images/create?fromImage=web%40sha256%3Aabc")]
+    public void GetPullPath_ShouldNameOneTag(string image, string expected)
+    {
+        // Act & Assert
+        DockerEngineClient.GetPullPath(image).ShouldBe(expected);
+    }
+
+    [Theory(DisplayName = DisplayPrefix + "An image is inspected by its reference as the docker CLI puts it in the path")]
+    [InlineData("cohesion-docker-web:e2e", "/images/cohesion-docker-web:e2e/json")]
+    [InlineData("localhost:5001/shop/web:1.2", "/images/localhost:5001/shop/web:1.2/json")]
+    [InlineData("web@sha256:abc", "/images/web@sha256:abc/json")]
+    [InlineData("we b", "/images/we%20b/json")]
+    public void GetImageInspectPath_ShouldKeepTheReference(string image, string expected)
+    {
+        // Act & Assert
+        DockerEngineClient.GetImageInspectPath(image).ShouldBe(expected);
     }
 
     [Fact(DisplayName = DisplayPrefix + "WithDockerReplicas sets how many containers run, on the docker platform only")]

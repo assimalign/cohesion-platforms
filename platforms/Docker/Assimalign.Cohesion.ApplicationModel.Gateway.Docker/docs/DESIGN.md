@@ -2,9 +2,9 @@
 
 The gateway half of the Docker platform pair, rebuilt on 2026-10-31 for the application-model
 restart (assimalign/cohesion#1759, contracts decision C5 "platform pairs"), after the Kubernetes pair
-and on its pattern. It replaces the plan-compiler implementation (`cohesion/plan/v1`, the Containers
-dependency, Gateway.ControlPlane), which is in this repository's history before this change. The BCL
-Engine API client survived, trimmed to the calls the platform makes.
+and on its pattern. It replaces the plan-compiler implementation, which is in this repository's
+history before this change. The BCL Engine API client survived, trimmed to the calls the platform
+makes.
 
 ## Role
 
@@ -87,6 +87,13 @@ running one's state, all at once:
   again on the next poll. A gateway that restarts reads every instance once, so an instance an
   earlier run answered is a renewal (GD8).
 
+The poll does not wait for its handlers: a container still handled from an earlier poll, such as one
+whose publication the gateway is still saving, is skipped, so one slow container never holds the
+others' renewals. A handler never faults the channel: a renewal the gateway fails with any exception
+is not recorded as handled, so the next poll hands it over again. Stopping the channel waits for the
+handlers still running. A publication the gateway accepted is reported to the infrastructure once the
+instance has its answer, which is how an update learns its containers are ready (GD5).
+
 The renewal is a count rather than a time because only the gateway compares it, and only for change.
 
 **GD3 — Calls go over the same port.** A read is `GET actions/{name}`, a write `POST actions/{name}`, a
@@ -124,15 +131,30 @@ previous one. So two hashes, each the first 16 hex digits of a SHA-256:
 
 - the **revision**: the platform's template version (`DockerWorkload.TemplateVersion`, 1), the image,
   and both ports. `PlanResourceAsync` returns it.
-- the **workload**: the revision, the replica count, and the settings in ordinal order. It is a
-  label on every container, and it decides the plan: no container of the resource is a create, as
-  many containers as replicas all running the workload is nothing, and anything else is an update.
+- the **workload**: the revision, the replica count, the environment name the containers receive
+  (`COHESION_ENVIRONMENT`, copied from the gateway's own), and the settings in ordinal order, each
+  value prefixed with its length as the gateway's deployment id is, so no two sets of values hash
+  alike whatever they contain. It is a label on every container, and it decides the plan: no
+  container of the resource is a create; as many containers as replicas, all of the workload, all
+  `running`, and none in a restart loop (fewer than two restarts, GD7) is nothing; anything else is an
+  update. A stopped or crashing container of the workload is therefore an update of the same
+  deployment id, which starts it again and lets the watch report why it does not run, rather than a
+  plan that marks the resource ready with nothing watched.
 
-Kubernetes puts both into one revision (Gateway.Kubernetes open question 5). Containers are named
+Kubernetes keeps the same split (Gateway.Kubernetes GK5). Containers are named
 `{network}-{resource}-{workload[..8]}-{replica}`, so an update's containers never collide with the
-ones they replace: it creates and starts its own, then removes the others. A container of the same
-name from an attempt that did not finish is kept when it is the same deployment's and replaced
-otherwise.
+ones they replace. A container of the same name from an attempt that did not finish is started again
+when it is the same deployment's, recreated when the engine counted it as a restart loop (so one that
+recovered is not reported as one that keeps ending), and replaced when it is another deployment's.
+
+An update keeps the previous containers until every one of its own has published, as a Deployment
+keeps its old pods until the new ones are ready: they keep running, and answering under the
+resource's name, alongside the new ones. The infrastructure records the update's containers before
+it starts them; the channel reports each accepted publication (GD2), and the last one removes every
+other container of the resource. An update whose containers never publish (a bad setting or image)
+therefore leaves the previous containers serving, and the next plan sees the mix and updates again.
+The removal is best effort: one that fails leaves the containers, and the next run's update removes
+them once its containers publish again. Until then the alias round-robins between both workloads.
 
 **GD6 — The program is never PID 1.** Every container runs under the engine's init
 (`HostConfig.Init`: `docker-init` on Docker, `catatonit` on Podman), so the program is PID 2. A .NET
@@ -153,8 +175,9 @@ not 0. The watch ends when the deployment's containers are gone: a later deploym
 teardown removed them.
 
 **GD8 — Workloads outlive the gateway.** A gateway that stops leaves its containers running; one that
-runs again over the same network adopts them: its plan reads the same workload and changes nothing,
-and the instances, which it does not know, renew, are sent to publish again (GD2), and register.
+runs again over the same network adopts them: its plan reads the same workload, running and healthy,
+and changes nothing, and the instances, which it does not know, renew, are sent to publish again
+(GD2), and register. Containers someone stopped, or that crash, are not adopted as they are (GD5).
 Tearing a resource down removes its containers; the network stays, as the Kubernetes namespace does.
 
 **GD9 — The engine is resolved as the docker CLI resolves it**, and spoken to directly. The options'
@@ -173,7 +196,10 @@ extensions, ApplicationModel.Gateway G25), and two `WithReplicas` members would 
 
 **GD11 — An image per resource, pulled by policy.** `AddImage(provider, name, image)` binds a resource
 to the image that runs it, as on Kubernetes. `ImagePullPolicy` is `IfNotPresent` (pull when the engine
-has none by that reference), `Always`, or `Never`. The image must be built for the engine's
+has none by that reference), `Always`, or `Never`. A pull names one tag: the reference's own, or `latest` for a reference with
+neither a tag nor a digest, as the docker CLI pulls (the Engine API pulls every tag of a repository
+named without one). An inspection puts the reference in the path as the docker CLI does, with its
+registry colon, slashes, and tag colon literal. The image must be built for the engine's
 architecture: a Podman machine on an arm64 host is linux/arm64.
 
 ## Open questions
@@ -186,9 +212,10 @@ architecture: a Podman machine on an arm64 host is linux/arm64.
 2. **Remote engines.** Ports are published on the engine's loopback, so a gateway reaches them only on
    the engine's host. A `tcp://` engine elsewhere, and TLS (`DOCKER_TLS_VERIFY`) or SSH endpoints,
    need a reachable publish address and those transports.
-3. **Rollout.** An update removes the previous containers once its own have started, not once they
-   published; dependents can miss the resource for a moment. Waiting for the new instances' first
-   publication needs the provider to hear from the channel.
+3. **Rollout.** An update keeps the previous containers until all of its own published (GD5), but
+   runs every new replica at once, beside every old one: there is no surge limit, and the alias
+   serves both workloads until the last new container publishes. A rollout one replica at a time
+   would need the gateway to wait for it, as Kubernetes does.
 4. **Readiness and liveness.** Containers have no health check. Kubernetes probes the `http` port
    (GK10); Docker could do the same with a `HEALTHCHECK`, which the fixture image cannot run without a
    probe binary, or the gateway could probe the published port.

@@ -1,136 +1,140 @@
 # Platform Areas (`platforms/**`)
 
-Every `platforms/<Platform>/` folder is a **platform area**: the implementation of Cohesion's
-application-model gateway contract for one deployment target. The authoritative upstream direction
-is `docs/DEVELOPER_EXPERIENCE_DESIGN.md` (signed off 2026-09-06) and its realization-plan contract
-`docs/REALIZATION_PLAN.md` in the cohesion repository. Older ApplicationModel design text is
-historical wherever it disagrees.
+Every `platforms/<Platform>/` folder is a **platform area**: one deployment target of Cohesion's
+application model, shipped as a **platform pair** (cohesion's application-model restart,
+assimalign/cohesion#1759, contracts decision C5 "platform pairs"). The upstream contracts are
+cohesion's `Assimalign.Cohesion.ApplicationModel.Gateway` (the gateway's provider and instance-client
+seams) and `Assimalign.Cohesion.ApplicationModel.Hosting` (an instance's gateway client), each with its
+`docs/DESIGN.md`. Read the one a change touches before changing a half. Each pair's own decisions are
+in its gateway half's `docs/DESIGN.md` (Kubernetes `GK*`, Docker `GD*`) and its instance half's
+`docs/DESIGN.md`.
 
-<!-- Deviates from the prior repo platform rules 1, 2, 3, 5, 6, 7, and 9 per the owner-approved
-Developer-Experience Design item 33 (signed 2026-09-06), including §12 deviations (5), (10), and
-(11), R5, and O3/O13/O28–O30. The changes below are scoped to platform gateways. -->
+## The pair
 
-## The gateway family shape
+| Half | Package | References | Public surface |
+| --- | --- | --- | --- |
+| Gateway | `Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>` | `Assimalign.Cohesion.ApplicationModel.Gateway`, plus the platform's own client library if it needs one (`KubernetesClient`) | `<Platform>Infrastructure`, its options, `builder.Use<Platform>(infrastructure)` on the gateway builder, and the platform's resource-extension verbs (`WithReplicas`, `WithDockerReplicas`) |
+| Instance | `Assimalign.Cohesion.ApplicationModel.Hosting.<Platform>` | `Assimalign.Cohesion.ApplicationModel.Hosting`, plus the same platform client if needed | `options.Use<Platform>()`, an extension on `TOptions : ApplicationInstanceOptions` that adds the platform's gateway client to a resource's program: `builder.Services.AddResource(name, options => options.Use<Platform>())` |
 
-A platform gateway package is `Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>` living at
-`platforms/<Platform>/Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>/{src,tests,docs}`. It
-derives from the public guided base `ApplicationGateway` (package
-`Assimalign.Cohesion.ApplicationModel.Gateway`) and supplies only platform hooks:
-
-- `Name` — stable gateway identity (`"kubernetes"`, `"docker"`).
-- Plan compiler/controller — exactly one built-in compiler per platform consumes `ResourcePlan`;
-  domain-authored overrides registered through `ApplicationGatewayOptions.Controllers` are
-  consulted first, in registration order. The framework supplies no overrides by default and
-  never assembly-scans for them.
-- `State` — cohesion's public `InMemoryResourceStateManager`, or another
-  `IApplicationResourceStateManager` implementation with the same level-triggered contract.
-- `GatherAsync` — prepares Local application images through the SDK target before locating and
-  validating an artifact (owner decision, 2026-09-21, Phase 5b). Explicit indexes bypass publishing;
-  SDK freshness decides whether rebuilding is necessary. Compilers remain pure.
-- `StartObserverAsync` / `StopObserverAsync` — the platform's single observer lifecycle.
+- **The gateway half is one type for both seams.** `<Platform>Infrastructure` implements
+  `IApplicationGatewayInfrastructureProvider` (plan, deploy, watch, outputs, teardown, and, from its
+  `StartAsync(context)`/`StopAsync`, the inbound channel that hands publications and renewals to
+  `context.Publisher`) and `IApplicationGatewayInstanceClient` (calls into an instance's control
+  plane). `Use<Platform>` sets it as both. `AddImage(provider, name, image)` binds a resource to the
+  image that runs it.
+- **The instance half is the other end of the channel.** It publishes and renews, and serves the
+  instance's control plane. An instance picks its client by the runtime contract's
+  `COHESION_GATEWAY` value, the platform's name.
+- **One shared protocol file per platform.** Names, labels, variables, and endpoint forms both halves
+  must agree on live in `platforms/<Platform>/Assimalign.Cohesion.ApplicationModel.Hosting.<Platform>/shared/<Platform>Protocol.cs`
+  (namespace `Assimalign.Cohesion.ApplicationModel.<Platform>`, `internal` types). Both csprojs compile
+  it with `<Compile Include="..." Link="Internal\<Platform>Protocol.cs" />`. A change to it changes
+  both halves; test both.
+- **`platforms/Shared/` is linked source, never a project.** It holds code more than one platform
+  compiles, today `InstanceControlPlaneListener.cs` (namespace
+  `Assimalign.Cohesion.ApplicationModel.Hosting.Platforms`), which every instance half that serves its
+  control plane over HTTP links. Each package keeps its own compiled copy.
 
 ## Hard rules
 
-1. **Single-writer observed state.** For platform-realized resources, the platform's one observer
-   is the only writer of observed lifecycle and endpoints into `State`; an external resolver owns
-   only its external-resource observations. Controllers apply desired state and return. A failed
-   liveness probe on a running resource is observed as `Degraded`; it never re-gates dependents.
-2. **Controllers reconcile the plan.** A controller is an idempotent, level-triggered reconciler
-   over the validated `ResourcePlan`; the compiler that produces platform objects is pure. A
-   controller never blocks on readiness. The base gateway reads `plan.Workload.Gate`
-   (`ReadinessGate`): long-running workloads complete on `{Running, Failed, Stopped}` and satisfy
-   only on `Running`; Jobs complete on `{Stopped, Failed}` and satisfy only on `Stopped`.
-   `Degraded` is non-gating.
-3. **Layering.** A platform gateway may reference the `Assimalign.Cohesion.ApplicationModel`
-   contract package, the `Assimalign.Cohesion.ApplicationModel.Gateway` base package, and shared
-   `platforms/Containers` libraries only. It references no resource-area package: never an
-   `<Area>.Client`, an `<Area>.ApplicationModel`, an `<Area>.ApplicationModel.Orchestration`, any
-   `<Area>.Hosting` runtime module, or any `<Area>.Application` runtime — and never any
-   `Microsoft.Extensions.*` assembly. Area behavior reaches a platform gateway only through the
-   base, and the base references no `resources/**` package either (cohesion BYO providers,
-   owner-approved 2026-09-25): it delivers declarative commands through its generic
-   control-plane command client and resolves mount sources, certificates, trust, command inputs,
-   telemetry, credentials, and control-plane callers from the model's `ApplicationProviders`. The
-   application fills those in its own gateway `Program.cs` (for an application-set member, in that
-   member's `AddApplication(..., configure)` callback) — an explicit reference to an
-   `<Area>.ApplicationModel.Orchestration` package plus an explicit verb such as
-   `builder.UseSecretStore(store).AsCertificateAuthority().AsTrustStore()`, or an assignment such as
-   `builder.Providers.Telemetry = ResourceTelemetrySink.FromResource(logs)`. Nothing is injected by
-   convention, so a platform gateway never needs area knowledge to realize a model, and a platform
-   type that wraps an `IApplicationModel` must forward its `Providers`. The Core-only
-   `Assimalign.Cohesion.Hosting` and opt-in `Hosting.Resources` are not area runtime modules.
-   Health contracts are consolidated into `Hosting.Resources`; the former `Hosting.Health` package
-   is retired. The Gateway base package references `Hosting.Resources`, so these may appear in a platform
-   gateway's closure; a platform gateway still never references them directly.
-4. **Digest-pinned images.** Deployments always reference images as
-   `{repository}@sha256:{digest}`. Tags are human-readable metadata only — never a pull reference.
-5. **Observed endpoints are the discovery surface.** Observers publish `ResourceEndpoint`
-   observations through the state manager; their address contract is `System.Uri`, constructed
-   and validated with Core's `UriExtensions` before injection into a resource. Controllers compile
-   from the dependency snapshots supplied on `ResourceControlContext`, never an independent state
-   lookup. Kubernetes publishes stable Service DNS (the governing Service for a StatefulSet),
-   never a NodePort or Ingress allocation for in-cluster dependency injection.
-6. **One frozen runtime contract.** Platform injection uses the `COHESION_*` constants and name
-   builders on `AppEnvironment.Variables` (namespace `Assimalign.Cohesion`, in Core), the contract's
-   only .NET home; resources read them through the `AppEnvironment` readers (`TryGetEndpoint`,
-   `TryGetDependency`, `TryGetMount`). `docs/RUNTIME_CONTRACT.md` in the cohesion
-   repository is the wire contract for non-.NET workloads, including the reserved bootstrap and
-   telemetry keys. The gateway is the authoritative writer of frozen identity and endpoint-binding
-   keys; manifest environment values are preserved except where the planning context must overwrite
-   those identities, and platform-allocated values are supplied only where the plan leaves them
-   unresolved.
-7. **Plan probes plus platform-native observation.** Readiness, liveness, and startup come from
-   the plan's probe mappings together with the platform-native signal: Kubernetes workload/pod
-   status or Docker container health. Stdout markers are a LocalGateway assist, not a platform
-   readiness mechanism.
-8. **Failure semantics come from the base.** A resource that does not satisfy its plan-derived
-   readiness gate blocks transitive dependents and aborts startup with best-effort reverse
-   rollback through `DeleteAsync`. Do not re-implement or bypass this behavior in platform code.
-9. **Stop is not teardown.** `StopAsync` releases runtime supervision and observation in
-   best-effort reverse order while leaving persistent platform state in place. `UninstallAsync`
-   (the `--mode teardown` path) removes platform resources in best-effort reverse order; deletion
-   is idempotent and a failure does not prevent later resources from being attempted.
-10. **One compiler per platform.** A platform compiler consumes the plan schema and is never keyed
-    on manifest kind, resource area, or CLR type. An unknown specification field is an error; an
-    unknown hint warns once and is ignored. A plan whose schema is newer than the compiler
-    supports is refused during `Build()` or `--mode render`, before gathering or platform contact.
+1. **No references between halves or between platforms.** A shipped platform project never
+   references the other half of its pair, nor any project of another platform. What two halves
+   share is the protocol file; what two platforms share is `platforms/Shared/`. Test projects may
+   reference the other half to run it in process (`Gateway.Docker.Tests` runs `Hosting.Docker`), and
+   fixtures reference the instance half they exercise.
+2. **Layering.** A gateway half references the Gateway contract package; an instance half the
+   Hosting contract package; either may add the platform's own client library. Neither references a
+   resource-area package (an `<Area>.ApplicationModel`, an `<Area>.Hosting` runtime module or its
+   `<Area>.Hosting.ApplicationModel` integration, an `<Area>.Application`, an `<Area>.Client`) or any
+   `Microsoft.Extensions.*` assembly. Area behavior never reaches a platform package: a resource's
+   program composes its area and opts into the platform; the gateway sees only manifests, settings,
+   and actions.
+3. **The revision is what the model does not carry.** `PlanResourceAsync` returns a revision over
+   what the provider deploys that the manifest does not say (template version, image, ports), never
+   the settings' values or the extensions: the gateway fingerprints the manifest itself, and a new
+   revision is a new definition that drops the resource's recorded action state. A separate
+   **workload** hash (revision, extensions such as replicas, settings' values), stored on the
+   platform's objects, decides create, update, or nothing. Bump the platform's `TemplateVersion`
+   whenever what it builds changes. (Kubernetes GK5, Docker GD5.)
+4. **One runtime contract.** A platform hands each instance the `COHESION_*` variables through the
+   names on Core's `AppEnvironment.Variables`, plus its own platform variables from the protocol file.
+   `docs/RUNTIME_CONTRACT.md` in the cohesion repository is the wire contract.
+5. **The program is never PID 1.** A .NET program that is PID 1 cannot end itself on an unhandled
+   start failure. Kubernetes shares the pod's process namespace; Docker runs the engine's init.
+   (GK6, GD6.)
+6. **Workloads outlive the gateway.** A gateway that stops leaves its workloads running; one that runs
+   again over the same namespace or network adopts them, and their instances publish to it again.
+   Teardown removes a resource's workloads; the namespace or network stays.
+7. **A watch fails fast with the platform's reason.** Watching a deployment fails the step at once
+   when one of its workloads cannot run without a change to what it runs, naming the workload and the
+   platform's reason, and ends when a later deployment or a teardown replaced it.
 
 ## Enforcement
 
-`build/Targets/Build.Rules.targets` enforces rule 3 as **COHPLT001** for every shipped project
-under `platforms/**`. Tests, samples, and examples are excluded by path. The target inspects both
-the project-reference graph and the resolved compile/runtime assembly closure after
-`ResolveAssemblyReferences`, so direct, transitive, hint-path, and package-delivered forbidden
-assemblies all fail with every offending assembly named in the diagnostic.
+`build/Targets/Build.Rules.targets` enforces rule 2 as **COHPLT001** for every shipped project under
+`platforms/**`; `tests/`, `samples/`, `examples/`, and `fixtures/` projects are excluded by path. It
+checks the project-reference graph and the resolved compile and runtime assembly closure after
+`ResolveAssemblyReferences`, so transitive and package-delivered assemblies count, and it names every
+offending assembly. It rejects `Assimalign.Cohesion.<X>.ApplicationModel`,
+`Assimalign.Cohesion.<X>.Hosting[.*]` (except `Assimalign.Cohesion.ApplicationModel.Hosting[.*]`),
+`Assimalign.Cohesion.<X>.Application`, and `Microsoft.Extensions.*`. `<Area>.Client` and rule 1 are
+enforced in review.
 
-The guard rejects the `<Area>.ApplicationModel`, `<Area>.Hosting[.*]`, `<Area>.Application`, and
-`Microsoft.Extensions.*` families. It does not yet reject `<Area>.Client` or
-`<Area>.ApplicationModel.Orchestration` assemblies, which rule 3 also excludes: Gateway base
-packages built before the BYO-provider change still carry five area clients transitively, so the
-guard can widen only once the consumed Cohesion floor carries a Gateway base without them. Until
-then that part of rule 3 is enforced in review. When it widens, match resource-area client names
-(the `resources/**` projects), not every `*.Client`: libraries such as `Assimalign.Cohesion.Dns.Client`
-are not resource-area packages.
+## Layout of an area
 
-## Area layout
+```
+platforms/<Platform>/
+├── README.md
+├── Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>/{src,tests,docs}
+├── Assimalign.Cohesion.ApplicationModel.Hosting.<Platform>/{src,tests,docs,shared}
+├── fixtures/WebProgram/        resource program the end-to-end tests deploy (IsPackable=false)
+└── scripts/                    builds and publishes the fixture image, and any local cluster
+```
 
-- `platforms/Containers/` — shared container artifact, image-index, OCI-store, registry, and test
-  infrastructure. It never owns a platform compiler or depends on a specific platform gateway.
-- `platforms/Kubernetes/`, `platforms/Docker/` — one area and one plan compiler per target.
-- Cross-area references flow **only** toward `Containers`; Kubernetes and Docker never reference
-  each other.
+- Project, assembly, and package names are `Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>`
+  and `Assimalign.Cohesion.ApplicationModel.Hosting.<Platform>`, with `RootNamespace` equal to the
+  assembly name. Test projects append `.Tests`; fixtures use
+  `Assimalign.Cohesion.ApplicationModel.<Platform>.Fixtures`.
+- The end-to-end tests live in the gateway half's tests and skip unless their environment names a
+  target (`COHESION_KIND_CONTEXT`, `COHESION_DOCKER_E2E=1`).
+
+## CI and packages
+
+- **Per-platform workflow** `platform-<platform>.yml`: on every push touching the area,
+  `platforms/Shared/`, or the build, it runs `.github/actions/build` for both halves on Linux,
+  Windows, and macOS (build, then the tests).
+- **End-to-end workflows** `e2e-kubernetes.yml` (kind on the runner's Docker engine) and
+  `e2e-docker.yml` (the runner's Docker engine): on demand and weekly, and each fails unless its tests
+  executed and passed, so a skip never reads as a pass.
+- **`ci-packages.yml`** packs both halves of every pair (its `CI_PACKAGE_PROJECTS` list), after their
+  tests, at a CI version of their own (`10.0.0-preview.0.ci.<run>` for `main`,
+  `10.0.0-preview.0.pr.<pr>.<run>` for a same-repository pull request) and pushes them to the
+  Assimalign GitHub Packages feed. It never publishes to nuget.org or a canonical version.
+- **The cohesion pin.** Every Cohesion package is consumed at exactly `CohesionPackageVersion` in
+  `build/Targets/Build.References.Packages.targets`: a cohesion CI build from its own
+  `ci-packages.yml`. The platform packages depend on exactly that build, so a consumer pins one build
+  of each repository. A pull request's cohesion CI versions are deleted when it closes; move the pin
+  to a `main` build once it merges. Locally, `.github/scripts/Pack-CohesionSibling.ps1 -Local` packs
+  the sibling cohesion checkout, and `-p:CohesionSiblingPackageVersion=<version>` selects it.
+
+## Adding a platform
+
+1. Both halves, with `{src,tests,docs}`, the shared protocol file, and a `README.md` for the area.
+2. `.slnx` entries for every project and file.
+3. `platform-<platform>.yml` with both halves in its matrix and `platforms/Shared/**` in its paths.
+4. Both halves in `ci-packages.yml`'s `CI_PACKAGE_PROJECTS`.
+5. A fixture program and an `e2e-<platform>.yml` once the platform runs end to end.
+6. The root `README.md` table and `.claude/CLAUDE.md` repository map.
 
 ## AOT posture
 
-**No hard AOT mandate in this repo** (owner decision, 2026-07-20): gateways are deploy-time
-control planes, so `KubernetesClient` and similar dependencies need no exception machinery. The
-cohesion repo's deployed runtime libraries retain their AOT mandate. Keep source-generated
-serialization as the default. Reintroducing a repo-wide mandate requires explicit owner
-confirmation under `deviations.md`.
+**No hard AOT mandate in this repo** (owner decision, 2026-07-20): gateways are deploy-time control
+planes, so `KubernetesClient` and similar dependencies need no exception machinery. The cohesion
+repo's deployed runtime libraries retain their AOT mandate. Keep source-generated serialization as
+the default. Reintroducing a repo-wide mandate requires explicit owner confirmation under
+`deviations.md`.
 
-## Relaxing these rules
+## Changing these rules
 
-Changing a hard rule means updating this file, every affected area `README.md`, and any build
-enforcement in the same commit under `deviations.md`. The changes above are already authorized by
-the signed Developer-Experience Design; a different relaxation still requires explicit owner
-confirmation.
+Changing a hard rule means updating this file, every affected area `README.md` and `DESIGN.md`, and
+any build enforcement in the same commit, with the owner's confirmation under `deviations.md`.

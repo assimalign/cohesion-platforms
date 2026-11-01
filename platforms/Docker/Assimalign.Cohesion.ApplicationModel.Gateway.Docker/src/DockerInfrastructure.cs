@@ -38,8 +38,9 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 /// </para>
 /// <para>
 /// Workloads outlive the gateway, as a platform's do: a gateway that stops leaves its containers
-/// running, and one that runs again over the same network adopts them. A resource whose image, ports,
-/// replica count, or settings changed is replaced with new containers, and tearing a resource down
+/// running, and one that runs again over the same network adopts them when they run healthy. A
+/// resource whose image, ports, replica count, or settings changed is replaced with new containers,
+/// and the previous ones keep running until every new one has published. Tearing a resource down
 /// removes its containers. The network stays.
 /// </para>
 /// </remarks>
@@ -52,6 +53,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
     private static readonly IReadOnlyDictionary<OutputName, string> _noOutputs = new Dictionary<OutputName, string>();
 
     private readonly ConcurrentDictionary<(ProviderName Provider, ResourceName Name), string> _images = new();
+    private readonly ConcurrentDictionary<(ProviderName Provider, ResourceName Name), Rollout> _rollouts = new();
     private readonly DockerInfrastructureOptions _options;
     private readonly IDockerEngine _engine;
     private readonly string _host;
@@ -68,7 +70,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         _host = host;
         Endpoint = endpoint;
         _http = new HttpClient(new SocketsHttpHandler { UseProxy = false, PooledConnectionLifetime = TimeSpan.FromMinutes(1) });
-        _channel = new DockerChannel(engine, options.Network, options.ControlPlanePort, host, _http);
+        _channel = new DockerChannel(engine, options.Network, options.ControlPlanePort, host, _http, OnPublishedAsync);
     }
 
     /// <summary>
@@ -179,18 +181,41 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         CancellationToken cancellationToken)
     {
         string revision = DockerWorkload.GetRevision(GetImage(resource), _options.EndpointPort, _options.ControlPlanePort);
-        string workload = DockerWorkload.GetWorkload(revision, resource, settings);
-        IReadOnlyList<DockerContainerSummary> running = await _engine.ListContainersAsync(DockerWorkload.SelectResource(Network, resource), cancellationToken).ConfigureAwait(false);
+        string workload = DockerWorkload.GetWorkload(revision, resource, settings, DockerWorkload.GetEnvironmentName());
+        IReadOnlyList<DockerContainerSummary> containers = await _engine.ListContainersAsync(DockerWorkload.SelectResource(Network, resource), cancellationToken).ConfigureAwait(false);
 
-        // The containers decide, as the platform runs them: none is a create, all of the workload and as
-        // many as it runs is nothing, and anything else is an update.
-        ApplicationGatewayDeploymentChange change = running.Count == 0
+        // The containers decide, as the platform runs them: none is a create; as many as the resource
+        // runs, all of the workload and all running outside a restart loop, is nothing; anything else is
+        // an update. A stopped or crashing container of the workload is an update of the same deployment,
+        // which starts it again and lets the watch report why it does not run.
+        ApplicationGatewayDeploymentChange change = containers.Count == 0
             ? ApplicationGatewayDeploymentChange.Create
-            : running.Count == DockerWorkload.GetReplicas(resource) && running.All(container => Label(container, DockerWorkload.WorkloadLabel) == workload)
+            : await RunsWorkloadAsync(containers, DockerWorkload.GetReplicas(resource), workload, cancellationToken).ConfigureAwait(false)
                 ? ApplicationGatewayDeploymentChange.None
                 : ApplicationGatewayDeploymentChange.Update;
 
         return new ApplicationGatewayDeploymentPlan(change, revision);
+    }
+
+    private async Task<bool> RunsWorkloadAsync(IReadOnlyList<DockerContainerSummary> containers, int replicas, string workload, CancellationToken cancellationToken)
+    {
+        if (containers.Count != replicas || !containers.All(container => container.State == "running" && Label(container, DockerWorkload.WorkloadLabel) == workload))
+        {
+            return false;
+        }
+
+        // A listing gives no restart count, so each container is inspected.
+        foreach (DockerContainerSummary container in containers)
+        {
+            if ((container.Id ?? DockerWorkload.GetName(container)) is not { } id
+                || await _engine.InspectContainerAsync(id, cancellationToken).ConfigureAwait(false) is not { } inspected
+                || !DockerWorkload.IsHealthy(inspected))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     async ValueTask IApplicationGatewayInfrastructureProvider.DeployResourceAsync(
@@ -204,22 +229,39 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
 
         string image = GetImage(resource);
         string revision = DockerWorkload.GetRevision(image, _options.EndpointPort, _options.ControlPlanePort);
-        string workload = DockerWorkload.GetWorkload(revision, resource, settings);
+        string workload = DockerWorkload.GetWorkload(revision, resource, settings, DockerWorkload.GetEnvironmentName());
         int replicas = DockerWorkload.GetReplicas(resource);
         await EnsureNetworkAsync(cancellationToken).ConfigureAwait(false);
         await EnsureImageAsync(resource, image, cancellationToken).ConfigureAwait(false);
 
         IReadOnlyList<DockerContainerSummary> previous = await _engine.ListContainersAsync(DockerWorkload.SelectResource(Network, resource), cancellationToken).ConfigureAwait(false);
-        var current = new HashSet<string>(StringComparer.Ordinal);
+        string[] current = [.. Enumerable.Range(0, replicas).Select(replica => DockerWorkload.GetContainerName(Network, resource, workload, replica))];
+
+        // The containers this deployment replaces keep running, and serving under the resource's name,
+        // until every one of its own has published (OnPublishedAsync), as a rollout keeps the previous
+        // pods until the new ones are ready. An update whose containers never publish leaves them. The
+        // rollout is recorded first, so no publication of its containers can come before it.
+        if (previous.Any(container => DockerWorkload.GetName(container) is { } name && !current.Contains(name, StringComparer.Ordinal)))
+        {
+            _rollouts[(resource.Provider, resource.Name)] = new Rollout(resource, current);
+        }
+        else
+        {
+            _rollouts.TryRemove((resource.Provider, resource.Name), out _);
+        }
+
         for (int replica = 0; replica < replicas; replica++)
         {
-            string name = DockerWorkload.GetContainerName(Network, resource, workload, replica);
-            current.Add(name);
+            string name = current[replica];
 
             // A container of this name from an attempt that did not finish is replaced, unless it is
-            // this deployment's already.
+            // this deployment's already: that one is started again, or, when the engine gave up on it as
+            // a restart loop, created again, so a container that recovered is not reported as one that
+            // keeps ending.
             DockerContainerSummary? existing = previous.FirstOrDefault(container => DockerWorkload.GetName(container) == name);
-            if (existing is not null && Label(existing, DockerWorkload.DeploymentLabel) == deployment.ToString())
+            if (existing is not null
+                && Label(existing, DockerWorkload.DeploymentLabel) == deployment.ToString()
+                && await _engine.InspectContainerAsync(name, cancellationToken).ConfigureAwait(false) is { RestartCount: < DockerWorkload.RestartLoopCount })
             {
                 await _engine.StartContainerAsync(name, cancellationToken).ConfigureAwait(false);
                 continue;
@@ -234,15 +276,36 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
             await _engine.CreateContainerAsync(name, container, cancellationToken).ConfigureAwait(false);
             await _engine.StartContainerAsync(name, cancellationToken).ConfigureAwait(false);
         }
+    }
 
-        // The containers this deployment replaces go once its own run, as a rollout replaces the
-        // previous one's pods.
-        foreach (DockerContainerSummary container in previous)
+    // A container that published: when it completes a rollout, the containers of every other workload
+    // of the resource go. Best effort: a removal that fails leaves them, and the next run plans an update,
+    // which removes them once its containers publish again.
+    internal async Task OnPublishedAsync(string container, CancellationToken cancellationToken)
+    {
+        foreach (KeyValuePair<(ProviderName Provider, ResourceName Name), Rollout> entry in _rollouts)
         {
-            if (DockerWorkload.GetName(container) is { } name && !current.Contains(name))
+            if (!entry.Value.Complete(container))
             {
-                await _engine.RemoveContainerAsync(container.Id ?? name, cancellationToken).ConfigureAwait(false);
+                continue;
             }
+
+            if (!_rollouts.TryRemove(entry))
+            {
+                // A later deployment replaced the rollout.
+                return;
+            }
+
+            IReadOnlyList<DockerContainerSummary> containers = await _engine.ListContainersAsync(DockerWorkload.SelectResource(Network, entry.Value.Resource), cancellationToken).ConfigureAwait(false);
+            foreach (DockerContainerSummary summary in containers)
+            {
+                if (DockerWorkload.GetName(summary) is { } name && !entry.Value.Containers.Contains(name, StringComparer.Ordinal))
+                {
+                    await _engine.RemoveContainerAsync(summary.Id ?? name, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            return;
         }
     }
 
@@ -288,6 +351,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
 
     async ValueTask IApplicationGatewayInfrastructureProvider.TeardownResourceAsync(IApplicationModel model, ApplicationResourceManifest resource, CancellationToken cancellationToken)
     {
+        _rollouts.TryRemove((resource.Provider, resource.Name), out _);
         IReadOnlyList<DockerContainerSummary> containers = await _engine.ListContainersAsync(DockerWorkload.SelectResource(Network, resource), cancellationToken).ConfigureAwait(false);
         foreach (DockerContainerSummary container in containers)
         {
@@ -538,6 +602,33 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
     private static string Format(string format, params object?[] arguments)
     {
         return string.Format(CultureInfo.CurrentCulture, format, arguments);
+    }
+
+    // An update whose containers have not all published yet: the containers it runs, and those still to
+    // publish. Until none is left, the resource's other containers keep running.
+    private sealed class Rollout
+    {
+        private readonly HashSet<string> _pending;
+
+        public Rollout(ApplicationResourceManifest resource, string[] containers)
+        {
+            Resource = resource;
+            Containers = containers;
+            _pending = new HashSet<string>(containers, StringComparer.Ordinal);
+        }
+
+        public ApplicationResourceManifest Resource { get; }
+
+        public string[] Containers { get; }
+
+        // Marks a container published; true when it was the last of the rollout's.
+        public bool Complete(string container)
+        {
+            lock (_pending)
+            {
+                return _pending.Remove(container) && _pending.Count == 0;
+            }
+        }
     }
 
     private sealed class DebugView

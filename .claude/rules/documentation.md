@@ -8,14 +8,14 @@ paths:
 
 ## Markdown file naming
 
-Markdown files use UPPERCASE names (`README.md`, `OVERVIEW.md`, `DESIGN.md`). Exception: files whose names are fixed by external tooling keep their conventional casing (e.g., `.github/pull_request_template.md`, files under `.claude/**`). API reference under `docs/Assembly/` needs no exception — its **folders** mirror CLR namespace/type names, while every file is `OVERVIEW.md` (see "Assembly documentation layout" below).
+Markdown files use UPPERCASE names (`README.md`, `OVERVIEW.md`, `DESIGN.md`). Exception: files whose names are fixed by external tooling keep their conventional casing (e.g., `.github/pull_request_template.md`, files under `.claude/**`).
 
 ## Three layers of documentation
 
 Cohesion has three layers of documentation, each with distinct purpose and audience.
 
 1. **Area-level `README.md`** — overview of a major area (e.g., `platforms/Kubernetes/`, `platforms/Docker/`)
-2. **Project-level docs** — `OVERVIEW.md`, `DESIGN.md`, and `docs/Assembly/` per project
+2. **Project-level docs** — `OVERVIEW.md` and `DESIGN.md` per project
 3. **XML doc comments** — on public APIs
 
 Each project with `src/` and `tests/` folders should also have a sibling `docs/` folder.
@@ -26,13 +26,14 @@ Required files per project:
 
 - `docs/OVERVIEW.md` — project purpose, scope, dependencies, and usage at a high level
 - `docs/DESIGN.md` — architecture, important design choices, lifecycle behavior, extension points, operational concerns, known constraints
-- `docs/Assembly/` — API reference material organized by namespace and type
+
+Public API reference pages belong in the `cohesion-docs` companion repository; keep XML documentation in source and `OVERVIEW.md` / `DESIGN.md` here.
 
 ### `docs/DESIGN.md` — required for every library
 
 Every library under `platforms/` must have a `docs/DESIGN.md`. The purpose is to make the *reasoning* behind the library's shape readable without re-deriving it from diffs, commit history, or code archaeology — when a future session surveys the code, `DESIGN.md` is what tells them why it looks the way it does.
 
-**Canonical example:** `libraries/Dns/Assimalign.Cohesion.Dns/docs/DESIGN.md` in the cohesion repo (`C:\Source\repos\assimalign\cohesion`). Match its depth and structure for new libraries; once this repo has a mature `DESIGN.md` of its own, nominate it here as the local canonical example.
+**Canonical example:** `platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/DESIGN.md`. A platform pair's gateway half carries the pair's decisions, numbered per platform (`GK*` for Kubernetes, `GD*` for Docker), each dated, with what it supersedes and the alternatives it rejected; its instance half's `DESIGN.md` carries the instance side's (`HK*`, `HD*`). Open questions are numbered; a closed one is removed, and the decision that closed it says so.
 
 **Typical sections** (adapt to the library — these aren't a rigid template):
 
@@ -59,14 +60,6 @@ When a code change alters or extends a design decision, `DESIGN.md` is updated i
 
 A `DESIGN.md` that lags the code actively misleads — worse than not having one. If you're not sure whether a change rises to the level of a `DESIGN.md` update, ask: *"would the existing DESIGN.md surprise or mislead someone reading it after this change?"* If yes, update it.
 
-### Assembly documentation layout
-
-- Namespace folders under `docs/Assembly/` mirror the documented namespace (e.g., `docs/Assembly/System.IO/`)
-- Each documented type gets a **folder** named for the type, containing an `OVERVIEW.md` (e.g., `docs/Assembly/System.IO/Glob/OVERVIEW.md`). The folder leaves room for additional per-member or design pages beside the overview later.
-- A namespace folder may also carry its own `OVERVIEW.md` introducing the assembly/namespace (the IdentityModel family uses this while its per-type reference is pending).
-- Folder names mirror CLR namespace and type names exactly; the markdown files themselves stay UPPERCASE (`OVERVIEW.md`), so API reference needs no naming exception.
-- API reference docs should outline: public surface area, constructor or factory behavior, methods, properties, exceptions, usage notes
-
 ## Area-level `README.md`
 
 Each major area root contains a `README.md` providing an overview. Examples:
@@ -76,7 +69,7 @@ Each major area root contains a `README.md` providing an overview. Examples:
 Area `README.md` files should summarize:
 - The purpose of the area
 - The major projects or services it contains
-- How the area fits into the Cohesion layering model (this repo realizes the L2 application model onto deployment targets)
+- How the area fits as a platform pair: the gateway half, the instance half, and the protocol they share (`platform-areas.md`)
 - Important dependencies on other areas and on cohesion-repo packages
 - Links to project-level `OVERVIEW.md` and `DESIGN.md` files where relevant
 

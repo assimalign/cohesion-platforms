@@ -64,13 +64,13 @@ internal sealed class DockerEngineClient : IDockerEngine
 
     public Task<DockerImageInspectResponse?> InspectImageAsync(string image, CancellationToken cancellationToken)
     {
-        return InspectAsync(string.Concat("/images/", Uri.EscapeDataString(image), "/json"), DockerEngineJsonContext.Default.DockerImageInspectResponse, cancellationToken);
+        return InspectAsync(GetImageInspectPath(image), DockerEngineJsonContext.Default.DockerImageInspectResponse, cancellationToken);
     }
 
     public async Task PullImageAsync(string image, CancellationToken cancellationToken)
     {
-        // fromImage carries the tag or digest itself; the engine reports a failed pull in its stream.
-        using HttpResponseMessage response = await SendAsync(HttpMethod.Post, string.Concat("/images/create?fromImage=", Uri.EscapeDataString(image)), null, cancellationToken).ConfigureAwait(false);
+        // The engine reports a failed pull in its stream.
+        using HttpResponseMessage response = await SendAsync(HttpMethod.Post, GetPullPath(image), null, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
 
         await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -182,6 +182,42 @@ internal sealed class DockerEngineClient : IDockerEngine
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
         byte[] body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
         return DemultiplexLogs(body);
+    }
+
+    /// <summary>
+    /// The path that inspects an image: its reference in the path as the docker CLI sends it, with the
+    /// registry's colon, the repository's slashes, and the tag's colon or the digest's at sign literal,
+    /// and anything else a path cannot hold escaped. Both Docker's and Podman's routers match the name
+    /// against the decoded path, so the literal form is the one neither can read differently.
+    /// </summary>
+    internal static string GetImageInspectPath(string image)
+    {
+        var path = new StringBuilder("/images/");
+        foreach (char character in image)
+        {
+            if (char.IsAsciiLetterOrDigit(character) || character is '/' or ':' or '@' or '.' or '-' or '_')
+            {
+                path.Append(character);
+            }
+            else
+            {
+                path.Append(Uri.EscapeDataString(character.ToString()));
+            }
+        }
+
+        return path.Append("/json").ToString();
+    }
+
+    /// <summary>
+    /// The path that pulls an image: one tag of it, <c>latest</c> for a reference that names none, as
+    /// the docker CLI pulls; the Engine API pulls every tag of a repository named without one.
+    /// </summary>
+    internal static string GetPullPath(string image)
+    {
+        (string repository, string tag) = DockerWorkload.SplitPullReference(image);
+        return tag.Length == 0
+            ? string.Concat("/images/create?fromImage=", Uri.EscapeDataString(repository))
+            : string.Concat("/images/create?fromImage=", Uri.EscapeDataString(repository), "&tag=", Uri.EscapeDataString(tag));
     }
 
     /// <summary>

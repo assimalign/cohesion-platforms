@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading;
@@ -28,13 +29,20 @@ namespace Assimalign.Cohesion.ApplicationModel.Hosting.Platforms;
 /// The port is the instance's own, apart from the application's listener and middleware, so the
 /// application never sees a gateway's call. It listens on every address (on Windows, the loopback
 /// name only, which needs no URL reservation). Each request runs in the execution context the
-/// listener started in, the instance's.
+/// listener started in, the instance's. A body is read only by a route that takes one, and one
+/// longer than <see cref="MaximumBodyLength"/> is refused with 413.
 /// </para>
 /// </remarks>
 internal sealed class InstanceControlPlaneListener : IAsyncDisposable
 {
+    /// <summary>The longest request body the listener reads: 4 MiB.</summary>
+    public const int MaximumBodyLength = 4 * 1024 * 1024;
+
+    private static readonly TimeSpan _acceptRetryDelay = TimeSpan.FromMilliseconds(100);
+
     private readonly HttpListener _listener = new();
     private readonly InstanceControlPlaneRoutes? _routes;
+    private readonly ConcurrentDictionary<Task, byte> _handling = new();
     private IApplicationInstanceControlPlane? _controlPlane;
     private Task _accepting = Task.CompletedTask;
     private int _isStopped;
@@ -71,6 +79,10 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
         Volatile.Write(ref _controlPlane, controlPlane);
     }
 
+    /// <summary>
+    /// Stops listening, waits for the requests still being handled, and closes the port.
+    /// </summary>
+    /// <returns>A task that completes when the port is closed.</returns>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _isStopped, 1) != 0)
@@ -80,6 +92,10 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
 
         _listener.Stop();
         await _accepting.ConfigureAwait(false);
+
+        // The requests still being handled finish before the port closes, so none reaches a control
+        // plane its instance stopped after this returns. A handler never faults.
+        await Task.WhenAll(_handling.Keys).ConfigureAwait(false);
         _listener.Close();
     }
 
@@ -96,9 +112,28 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
             {
                 return;
             }
+            catch (Exception)
+            {
+                // Deliberately broad: a request that fails before it is accepted, such as one whose
+                // client reset its connection, never stops the port answering the next one.
+                await Task.Delay(_acceptRetryDelay).ConfigureAwait(false);
+                continue;
+            }
 
-            _ = HandleAsync(context);
+            Track(HandleAsync(context));
         }
+    }
+
+    // Keeps a request's handler until it completes, so disposal can wait for it.
+    private void Track(Task handling)
+    {
+        _handling.TryAdd(handling, 0);
+        _ = handling.ContinueWith(
+            static (task, state) => ((ConcurrentDictionary<Task, byte>)state!).TryRemove(task, out _),
+            _handling,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async Task HandleAsync(HttpListenerContext context)
@@ -106,7 +141,16 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
         HttpListenerResponse response = context.Response;
         try
         {
-            InstanceControlPlaneResponse answer = await DispatchAsync(context.Request).ConfigureAwait(false);
+            InstanceControlPlaneResponse answer;
+            try
+            {
+                answer = await DispatchAsync(context.Request).ConfigureAwait(false);
+            }
+            catch (InstanceControlPlaneBodyTooLargeException)
+            {
+                answer = InstanceControlPlaneResponse.Empty(HttpStatusCode.RequestEntityTooLarge);
+            }
+
             response.StatusCode = answer.Status;
             if (!answer.Body.IsEmpty)
             {
@@ -129,15 +173,22 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
         }
         finally
         {
-            response.Close();
+            try
+            {
+                response.Close();
+            }
+            catch (Exception)
+            {
+                // Deliberately broad: a connection the client already dropped cannot be closed cleanly,
+                // and the handler never faults.
+            }
         }
     }
 
     private async Task<InstanceControlPlaneResponse> DispatchAsync(HttpListenerRequest request)
     {
         string[] segments = request.Url?.AbsolutePath.Trim('/').Split('/') ?? [];
-        byte[] body = await ReadBodyAsync(request).ConfigureAwait(false);
-        if (_routes is not null && await _routes.Invoke(request.HttpMethod, segments, body).ConfigureAwait(false) is { } routed)
+        if (_routes is not null && await _routes.Invoke(request.HttpMethod, segments, () => ReadBodyAsync(request)).ConfigureAwait(false) is { } routed)
         {
             return routed;
         }
@@ -172,7 +223,8 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
                 return InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed);
             }
 
-            result = await controlPlane.RestoreAsync(ApplicationActionSnapshot.Create(action, body)).ConfigureAwait(false);
+            ReadOnlyMemory<byte> snapshot = await ReadBodyAsync(request).ConfigureAwait(false);
+            result = await controlPlane.RestoreAsync(ApplicationActionSnapshot.Create(action, snapshot)).ConfigureAwait(false);
         }
         else
         {
@@ -188,7 +240,7 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
             }
 
             ApplicationActionContext invocation = operation == ApplicationActionOperation.Write
-                ? ApplicationActionContext.Create(operation, controlPlane.Serializer, body)
+                ? ApplicationActionContext.Create(operation, controlPlane.Serializer, await ReadBodyAsync(request).ConfigureAwait(false))
                 : ApplicationActionContext.Create(operation, controlPlane.Serializer);
             result = await controlPlane.ExecuteAsync(action, invocation).ConfigureAwait(false);
         }
@@ -209,16 +261,45 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
         return new InstanceControlPlaneResponse((int)status, controlPlane.Serializer.Serialize(result), controlPlane.Serializer.MediaType);
     }
 
-    private static async Task<byte[]> ReadBodyAsync(HttpListenerRequest request)
+    // Reads the body, up to MaximumBodyLength; a longer one, declared or sent, is refused.
+    private static async ValueTask<ReadOnlyMemory<byte>> ReadBodyAsync(HttpListenerRequest request)
     {
         if (!request.HasEntityBody)
         {
-            return [];
+            return ReadOnlyMemory<byte>.Empty;
+        }
+
+        if (request.ContentLength64 > MaximumBodyLength)
+        {
+            throw new InstanceControlPlaneBodyTooLargeException();
         }
 
         using var buffer = new MemoryStream();
-        await request.InputStream.CopyToAsync(buffer).ConfigureAwait(false);
+        byte[] chunk = new byte[16 * 1024];
+        int read;
+        while ((read = await request.InputStream.ReadAsync(chunk).ConfigureAwait(false)) > 0)
+        {
+            if (buffer.Length + read > MaximumBodyLength)
+            {
+                throw new InstanceControlPlaneBodyTooLargeException();
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
         return buffer.ToArray();
+    }
+}
+
+/// <summary>
+/// A request body longer than <see cref="InstanceControlPlaneListener.MaximumBodyLength"/>, which the
+/// listener answers with 413.
+/// </summary>
+internal sealed class InstanceControlPlaneBodyTooLargeException : Exception
+{
+    public InstanceControlPlaneBodyTooLargeException()
+        : base("The request body is longer than an instance's control-plane port reads.")
+    {
     }
 }
 
@@ -227,9 +308,13 @@ internal sealed class InstanceControlPlaneListener : IAsyncDisposable
 /// </summary>
 /// <param name="method">The request's HTTP method.</param>
 /// <param name="segments">The request path's segments, still escaped.</param>
-/// <param name="body">The request's body; empty for none.</param>
+/// <param name="readBody">
+/// Reads the request's body, empty for none, for a route that takes one. It throws
+/// <see cref="InstanceControlPlaneBodyTooLargeException"/>, which the listener answers with 413, for a
+/// body longer than <see cref="InstanceControlPlaneListener.MaximumBodyLength"/>.
+/// </param>
 /// <returns>The answer, or <see langword="null"/> when the route is not the platform's.</returns>
-internal delegate ValueTask<InstanceControlPlaneResponse?> InstanceControlPlaneRoutes(string method, string[] segments, ReadOnlyMemory<byte> body);
+internal delegate ValueTask<InstanceControlPlaneResponse?> InstanceControlPlaneRoutes(string method, string[] segments, Func<ValueTask<ReadOnlyMemory<byte>>> readBody);
 
 /// <summary>
 /// What an instance's control-plane port answers a request with.

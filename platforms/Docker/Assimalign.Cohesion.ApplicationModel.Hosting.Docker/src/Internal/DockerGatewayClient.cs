@@ -139,6 +139,10 @@ internal sealed class DockerGatewayClient : IApplicationInstanceGatewayClient
             _listener = null;
             _serving = false;
             _state = null;
+
+            // A publication still waiting ends now: nothing answers a stopped client.
+            _answer?.TrySetCanceled(CancellationToken.None);
+            _answer = null;
         }
 
         if (listener is not null)
@@ -149,24 +153,25 @@ internal sealed class DockerGatewayClient : IApplicationInstanceGatewayClient
 
     // The instance's side of the channel: the gateway reads the state, answers the publication it
     // names, and clears its answer for an instance it does not know.
-    private ValueTask<InstanceControlPlaneResponse?> RouteAsync(string method, string[] segments, ReadOnlyMemory<byte> body)
+    // Only the answer route reads a body.
+    private async ValueTask<InstanceControlPlaneResponse?> RouteAsync(string method, string[] segments, Func<ValueTask<ReadOnlyMemory<byte>>> readBody)
     {
         if (segments is [DockerProtocol.ChannelRoute])
         {
-            return ValueTask.FromResult<InstanceControlPlaneResponse?>(method == "GET" ? ReadState() : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed));
+            return method == "GET" ? ReadState() : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed);
         }
 
         if (segments is [DockerProtocol.ChannelRoute, DockerProtocol.AnswerRoute])
         {
-            return ValueTask.FromResult<InstanceControlPlaneResponse?>(method == "POST" ? Answer(body) : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed));
+            return method == "POST" ? Answer(await readBody().ConfigureAwait(false)) : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed);
         }
 
         if (segments is [DockerProtocol.ChannelRoute, DockerProtocol.AnswerRoute, string key])
         {
-            return ValueTask.FromResult<InstanceControlPlaneResponse?>(method == "DELETE" ? Clear(Uri.UnescapeDataString(key)) : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed));
+            return method == "DELETE" ? Clear(Uri.UnescapeDataString(key)) : InstanceControlPlaneResponse.Empty(HttpStatusCode.MethodNotAllowed);
         }
 
-        return ValueTask.FromResult<InstanceControlPlaneResponse?>(null);
+        return null;
     }
 
     private InstanceControlPlaneResponse ReadState()

@@ -22,7 +22,7 @@ Mark each applicable item ✅ or ❌. If anything is ❌, fix it before reportin
 - [ ] No per-project `<Version>` overrides — `$(CohesionVersion)` chain intact
 - [ ] No hardcoded versions on `<Import Sdk>` elements
 - [ ] No new reflection-based serialization, runtime code generation, or `Assembly.LoadFrom()`; serializers are source-generated where practical (this repo has no hard AOT mandate — see `general-rules.md § AOT posture`; sample/workload runtimes keep the cohesion AOT posture)
-- [ ] If a new project was added, it is wired into the `.slnx` solution and covered by a CI workflow matrix
+- [ ] If a new project was added, it is wired into the `.slnx` solution and covered by a CI workflow matrix; a new shipped platform package is also in `ci-packages.yml`'s `CI_PACKAGE_PROJECTS`
 
 ## Code surface
 
@@ -67,12 +67,13 @@ Mark each applicable item ✅ or ❌. If anything is ❌, fix it before reportin
 
 ## Documentation
 
-- [ ] Markdown files use UPPERCASE names (`README.md`, `OVERVIEW.md`, `DESIGN.md`) — except tool-fixed names (`.github/pull_request_template.md`, files under `.claude/**`); `docs/Assembly/` complies via folder-per-type (`<Type>/OVERVIEW.md`)
+- [ ] Markdown files use UPPERCASE names (`README.md`, `OVERVIEW.md`, `DESIGN.md`) — except tool-fixed names (`.github/pull_request_template.md`, files under `.claude/**`)
 - [ ] If a new project was added, `docs/OVERVIEW.md` and `docs/DESIGN.md` were created
 - [ ] If a new area was added, an area `README.md` was created
 - [ ] Every library touched has a `docs/DESIGN.md` — if one was missing, it was created in this change (canonical example: `libraries/Dns/Assimalign.Cohesion.Dns/docs/DESIGN.md` in the cohesion repo)
 - [ ] If this change altered or extended a design decision (lifecycle, error model, contract shape, family layout, AOT posture, non-goals), `docs/DESIGN.md` was updated in the same commit
-- [ ] Public API additions are reflected in `docs/Assembly/<Namespace>/<Type>/OVERVIEW.md` if that page exists for the type
+- [ ] Public API additions have XML documentation; API reference pages belong in the `cohesion-docs` companion repository, not here
+- [ ] A change to a pair's shared protocol file was built and tested in both halves
 
 ## Deviations from rules
 

@@ -158,6 +158,44 @@ public class DockerGatewayClientTests
         await Should.ThrowAsync<InvalidOperationException>(() => instance.Client.StartAsync(instance.ControlPlane).AsTask());
     }
 
+    [Fact(DisplayName = DisplayPrefix + "Stopping the client ends a publication still waiting for its answer at once")]
+    public async Task StopAsync_WhilePublishing_ShouldCancelThePublication()
+    {
+        // Arrange
+        await using var instance = new Instance();
+        Task<ApplicationInstancePublication> publishing = instance.Client.PublishAsync(instance.ControlPlane.Manifest).AsTask();
+        await instance.ReadStateAsync();
+
+        // Act
+        await instance.Client.StopAsync();
+
+        // Assert: well inside the 60-second answer window.
+        await Should.ThrowAsync<OperationCanceledException>(() => publishing.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "A body longer than the port reads is refused with 413, and routes that take none answer as before")]
+    public async Task Listener_WithOversizedBody_ShouldRefuseIt()
+    {
+        // Arrange
+        await using var instance = new Instance();
+        Task<ApplicationInstancePublication> publishing = instance.Client.PublishAsync(instance.ControlPlane.Manifest).AsTask();
+        await instance.ReadStateAsync();
+        byte[] oversized = new byte[InstanceControlPlaneListenerLimit + 1];
+
+        // Act
+        using HttpResponseMessage answer = await instance.Http.PostAsync("channel/answer", new ByteArrayContent(oversized));
+        using HttpResponseMessage unknown = await instance.Http.PostAsync("nowhere", new ByteArrayContent([1, 2, 3]));
+        using HttpResponseMessage state = await instance.Http.PostAsync("channel", new ByteArrayContent([1, 2, 3]));
+
+        // Assert
+        answer.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+        unknown.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        state.StatusCode.ShouldBe(HttpStatusCode.MethodNotAllowed);
+        publishing.IsCompleted.ShouldBeFalse();
+    }
+
+    private const int InstanceControlPlaneListenerLimit = 4 * 1024 * 1024;
+
     private static string Publication(TimeSpan lease)
     {
         return Encoding.UTF8.GetString(_protocol.Serialize(new ApplicationInstancePublication([], lease)).Span);

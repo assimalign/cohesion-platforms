@@ -49,7 +49,6 @@ These are also centrally managed. Don't duplicate per project unless the project
 - ✅ `README.md`, `CONTRIBUTING.md`, `LICENSE`
 - ❌ `readme.md`, `contributing.md`
 - Exception: files whose names are fixed by external tooling keep their conventional casing (e.g., `.github/pull_request_template.md`, files under `.claude/**`).
-- API reference needs no exception: **folders** under `docs/Assembly/` mirror CLR namespace/type names, and each type's page is `docs/Assembly/<Namespace>/<Type>/OVERVIEW.md`.
 
 ### Direct throws or .NET 10 extension type methods, not `ThrowHelper`
 - Use direct `throw` statements or framework guard APIs (e.g., `ArgumentNullException.ThrowIfNull`) when the logic is local.
@@ -163,7 +162,7 @@ public static class DatabaseExtensions
 
 ### Library folder structure
 ```
-platforms/{Platform}/Assimalign.Cohesion.{Library}/
+platforms/{Platform}/Assimalign.Cohesion.ApplicationModel.{Gateway|Hosting}.{Platform}/
 ├── src/
 │   ├── Abstractions/      # Interfaces only
 │   ├── Extensions/        # Extension members
@@ -173,8 +172,8 @@ platforms/{Platform}/Assimalign.Cohesion.{Library}/
 │   └── [Feature folders]
 ├── docs/
 │   ├── OVERVIEW.md
-│   ├── DESIGN.md
-│   └── Assembly/          # API reference by namespace and type
+│   └── DESIGN.md
+├── shared/                # instance half only: {Platform}Protocol.cs, linked into both halves
 └── tests/
     ├── TestObjects/
     └── Shared/
@@ -251,7 +250,7 @@ The interface remains the canonical public surface; concrete types derive from t
 
 ## Service composition
 
-This repo implements the deployment/hosting plane for Cohesion's application model: platform gateways realize an `IApplicationModel` (from `Assimalign.Cohesion.ApplicationModel`) onto a concrete target (Kubernetes, Docker). Preserve the Cohesion layering model (L1 = foundation libraries and SDK/tooling, L2 = application runtime and composition, L3 = service platforms; see `docs/DELIVERY_ROADMAP.md` in the cohesion repo) and the gateway layering rules in `platform-areas.md` — shipped platform projects may reference only the generic ApplicationModel contract, Gateway base, and shared Containers libraries; they reference no resource-area package (`<Area>.Client`, `<Area>.ApplicationModel`, `<Area>.ApplicationModel.Orchestration`, `*.Hosting`, `<Area>.Application` runtimes) and never `Microsoft.Extensions.*`. Area roles (stores, certificate authority, trust, telemetry, credentials) reach the gateway only as `ApplicationProviders` registrations the application makes explicitly.
+This repo implements Cohesion's application model on concrete deployment targets: each platform is a pair, a gateway half that deploys a gateway's resources there (`IApplicationGatewayInfrastructureProvider` and `IApplicationGatewayInstanceClient`, from `Assimalign.Cohesion.ApplicationModel.Gateway`) and an instance half that a resource's program opts into (its gateway client, on `Assimalign.Cohesion.ApplicationModel.Hosting`). The halves share one linked protocol file and never reference each other, and no platform references another or any resource-area package; see `platform-areas.md`.
 
 ## Async / await
 
