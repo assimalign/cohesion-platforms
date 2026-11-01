@@ -33,8 +33,10 @@ permissions:
   contents: read
 
 env:
-  # The shipped platform packages. Docker is rebuilt as a platform pair before it ships again.
+  # The shipped platform packages: both halves of every platform pair.
   CI_PACKAGE_PROJECTS: >-
+    platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker
+    platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker
     platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes
     platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes
 

@@ -2,10 +2,12 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^[a-z0-9][a-z0-9-]*$')][string] $Name = 'cohesion',
-    [switch] $Recreate
+    [switch] $Recreate,
+    # The engine kind's nodes run on: podman (the default, through kind's Podman provider) or docker.
+    [ValidateSet('podman', 'docker')][string] $Engine = 'podman'
 )
 $ErrorActionPreference = 'Stop'
-$env:KIND_EXPERIMENTAL_PROVIDER = 'podman'
+$env:KIND_EXPERIMENTAL_PROVIDER = if ($Engine -eq 'podman') { 'podman' } else { $null }
 if ($IsWindows) {
     $kindDirectory = Join-Path $env:LOCALAPPDATA 'Microsoft/WinGet/Packages/Kubernetes.kind_Microsoft.Winget.Source_8wekyb3d8bbwe'
     if (Test-Path (Join-Path $kindDirectory 'kind.exe')) { $env:PATH = "$kindDirectory;$env:PATH" }
@@ -22,27 +24,27 @@ if ($Name -in $clusters -and $Recreate) {
     Assert-Exit 'Recreate Kind cluster'
     $clusters = @($clusters | Where-Object { $_ -ne $Name })
 }
-podman network exists kind
-if ($LASTEXITCODE -eq 1) {
-    podman network create kind
+& $Engine network inspect kind *> $null
+if ($LASTEXITCODE -ne 0) {
+    & $Engine network create kind
     Assert-Exit 'Create kind network'
-} elseif ($LASTEXITCODE -ne 0) { throw 'Cannot inspect kind network.' }
+}
 
-podman container exists cohesion-registry
-if ($LASTEXITCODE -eq 1) {
-    podman run -d --restart=always --name cohesion-registry --network kind -p 127.0.0.1:5001:5000 docker.io/library/registry:2
+& $Engine container inspect cohesion-registry *> $null
+if ($LASTEXITCODE -ne 0) {
+    & $Engine run -d --restart=always --name cohesion-registry --network kind -p 127.0.0.1:5001:5000 docker.io/library/registry:2
     Assert-Exit 'Create local registry'
-} elseif ($LASTEXITCODE -ne 0) { throw 'Cannot inspect registry container.' }
+}
 else {
-    $registry = (podman inspect cohesion-registry | ConvertFrom-Json)[0]
+    $registry = (& $Engine inspect cohesion-registry | ConvertFrom-Json)[0]
     Assert-Exit 'Inspect local registry'
     $ports = @($registry.NetworkSettings.Ports.'5000/tcp')
     if (-not ($ports | Where-Object { $_.HostPort -eq '5001' -and $_.HostIp -eq '127.0.0.1' })) {
         throw 'Existing cohesion-registry does not map 127.0.0.1:5001 to 5000. Correct its mapping before reuse.'
     }
-    if (-not $registry.State.Running) { podman start cohesion-registry; Assert-Exit 'Start local registry' }
+    if (-not $registry.State.Running) { & $Engine start cohesion-registry; Assert-Exit 'Start local registry' }
     if (-not $registry.NetworkSettings.Networks.kind) {
-        podman network connect kind cohesion-registry
+        & $Engine network connect kind cohesion-registry
         Assert-Exit 'Connect local registry'
     }
 }
@@ -64,18 +66,18 @@ containerdConfigPatches:
 $nodes = @(kind get nodes --name $Name)
 Assert-Exit 'List Kind nodes'
 foreach ($node in $nodes) {
-    $config = podman exec $node cat /etc/containerd/config.toml
+    $config = & $Engine exec $node cat /etc/containerd/config.toml
     Assert-Exit 'Read containerd configuration'
     if (($config -join "`n") -notmatch 'config_path\s*=\s*["'']/etc/containerd/certs.d["'']') {
         throw "Node $node does not enable registry config_path. Run this script with -Name $Name -Recreate."
     }
-    podman exec $node mkdir -p /etc/containerd/certs.d/localhost:5001
+    & $Engine exec $node mkdir -p /etc/containerd/certs.d/localhost:5001
     Assert-Exit 'Create registry configuration directory'
     @'
 server = "http://cohesion-registry:5000"
 [host."http://cohesion-registry:5000"]
   capabilities = ["pull", "resolve"]
-'@ | podman exec -i $node cp /dev/stdin /etc/containerd/certs.d/localhost:5001/hosts.toml
+'@ | & $Engine exec -i $node cp /dev/stdin /etc/containerd/certs.d/localhost:5001/hosts.toml
     Assert-Exit 'Configure containerd registry route'
 }
 @'
@@ -92,9 +94,9 @@ data:
 Assert-Exit 'Advertise local registry'
 kubectl --context "kind-$Name" get nodes
 Assert-Exit 'Verify Kind nodes'
-podman ps --filter name=cohesion-registry
+& $Engine ps --filter name=cohesion-registry
 Assert-Exit 'Verify registry container'
 foreach ($node in $nodes) {
-    podman exec $node cat /etc/containerd/certs.d/localhost:5001/hosts.toml
+    & $Engine exec $node cat /etc/containerd/certs.d/localhost:5001/hosts.toml
     Assert-Exit 'Verify registry route'
 }

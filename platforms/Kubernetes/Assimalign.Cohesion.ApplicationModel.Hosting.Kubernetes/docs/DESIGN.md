@@ -52,7 +52,10 @@ publication, and with it the program's start.
 the gateway no longer knows the instance: renewal returns `false`, and the service publishes again.
 
 **HK4 — The control plane is an `HttpListener` on the control-plane port**, on every interface (on
-Windows, `localhost`, which needs no URL reservation). It serves `GET /manifest`,
+Windows, `localhost`, which needs no URL reservation). The listener is
+`platforms/Shared/InstanceControlPlaneListener.cs`, linked source the Docker instance half compiles
+too (2026-10-31), so the two platforms serve a control plane identically without either package
+referencing the other. It serves `GET /manifest`,
 `GET` and `POST /actions/{name}` (a read and a write: `ApplicationActionOperation.Read` and
 `.Write`), and `PUT /state/{name}`, with the control plane's own serializer,
 and maps a result to 200 (succeeded), 400 (rejected), 404 (not found), or 405. It has no

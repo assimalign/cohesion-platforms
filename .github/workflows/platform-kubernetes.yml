@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "platforms/Kubernetes/**"
+      - "platforms/Shared/**"
       - "build/**"
       - "global.json"
       - "nuget.config"

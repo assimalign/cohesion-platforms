@@ -19,8 +19,9 @@ This repository is the **deployment/hosting plane** for [Cohesion](https://githu
 ## Repository map
 
 - `platforms/` — one folder per deployment target, each an area with `Assimalign.Cohesion.*` projects in `{src,tests,docs}` layout:
-  - `platforms/Kubernetes/` — `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes`
-  - `platforms/Docker/` — `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`
+  - `platforms/Kubernetes/` — the pair `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` (gateway half) and `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` (instance half; `shared/KubernetesProtocol.cs` is linked into both), plus `fixtures/WebProgram` and the kind `scripts/`
+  - `platforms/Docker/` — the pair `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` and `Assimalign.Cohesion.ApplicationModel.Hosting.Docker` (`shared/DockerProtocol.cs` linked into both), plus `fixtures/WebProgram` and `scripts/Publish-CohesionDockerFixtures.ps1`
+  - `platforms/Shared/` — linked source compiled into more than one platform package (`InstanceControlPlaneListener.cs`, the instance halves' control-plane listener); never a project, so no platform package references another
 - `sdks/` — MSBuild SDK/targets packages this repo ships (e.g., orchestrator-side container gathering targets)
 - `build/` — centralized MSBuild (`build/Targets/*.props|targets`); same `CohesionProjectReference` / `CohesionPackageReference` / `$(CohesionVersion)` model as cohesion — see `.claude/rules/build-system.md`
 - `docs/` — repo-level docs, including `PLATFORMS_PROGRAM_PLAN.md` (the multi-session delivery plan)

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Assimalign.Cohesion.ApplicationModel.Hosting.Docker</RootNamespace>
+		<Description>The instance half of the Cohesion Docker platform: the gateway client a resource instance uses when its gateway runs it as a container on a Docker-compatible engine. The instance serves its side of the publication channel and its control plane on its container's control-plane port, which the engine publishes on a loopback port of its host, where the gateway polls and calls it.</Description>
+	</PropertyGroup>
+	<ItemGroup>
+		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Hosting" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- The protocol both halves of the platform share; the gateway half links the same file. -->
+		<Compile Include="..\shared\DockerProtocol.cs" Link="Internal\DockerProtocol.cs" />
+		<!-- The control-plane listener every instance half that serves its control plane over HTTP compiles;
+		     linked source, so no platform package references another. -->
+		<Compile Include="..\..\..\Shared\InstanceControlPlaneListener.cs" Link="Internal\InstanceControlPlaneListener.cs" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Hosting.Docker.Tests" />
+	</ItemGroup>
+</Project>

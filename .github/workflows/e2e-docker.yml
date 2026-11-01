@@ -1,0 +1,59 @@
+# The Docker platform end to end on the runner's Docker engine: DockerEndToEndTests deploys
+# orders-api x2 and a storefront through a gateway in the test process, checks the storefront answers
+# through orders-api and a write reaches every instance, that a second gateway adopts what the first
+# left running, and that a program that fails its start fails the gateway's start with its reason.
+#
+# On demand and weekly, as e2e-kubernetes.yml: platform-docker.yml's unit tests gate every push.
+# GitHub's hosted runners are x64, so the fixture image is linux-x64 (locally, the same script builds
+# for the Podman machine's architecture).
+name: Platform Docker E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 6 * * 1"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      COHESION_DOCKER_E2E: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The cohesion packages CohesionPackageVersion pins come from GitHub Packages.
+      - name: Add GitHub Packages source
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            --name github --username "${{ github.actor }}" --password $env:GITHUB_TOKEN --store-password-in-clear-text
+
+      - name: Load the fixture image into the engine
+        shell: pwsh
+        run: ./platforms/Docker/scripts/Publish-CohesionDockerFixtures.ps1 -Engine Docker
+
+      - name: Run DockerEndToEndTests
+        shell: pwsh
+        run: |
+          dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj `
+            --configuration Release `
+            --filter 'FullyQualifiedName~DockerEndToEndTests' `
+            --logger 'trx;LogFileName=docker.trx' --results-directory "$env:RUNNER_TEMP/docker-results"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # A skipped test passes dotnet test; the run counts only when every test executed and passed.
+          [xml] $results = Get-Content -Raw "$env:RUNNER_TEMP/docker-results/docker.trx"
+          $counters = $results.TestRun.ResultSummary.Counters
+          if ($counters.executed -ne $counters.total -or $counters.passed -ne $counters.total -or $counters.total -eq '0') {
+            throw "Expected every DockerEndToEndTests test to execute and pass; $($counters.passed) of $($counters.total) passed."
+          }
+          "DockerEndToEndTests: $($counters.passed) executed and passed." >> $env:GITHUB_STEP_SUMMARY

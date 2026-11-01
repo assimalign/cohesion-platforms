@@ -8,17 +8,19 @@ param(
     [string] $CohesionVersion = '10.0.0-preview.1.local',
     # The kind nodes' architecture is the podman machine's, which follows the host's: an arm64 Windows
     # machine runs arm64 nodes, which cannot run an x64 image.
-    [ValidateSet('', 'linux-x64', 'linux-arm64')][string] $RuntimeIdentifier = ''
+    [ValidateSet('', 'linux-x64', 'linux-arm64')][string] $RuntimeIdentifier = '',
+    # The engine kind's nodes run on, which New-CohesionKindCluster.ps1 was given: podman or docker.
+    [ValidateSet('podman', 'docker')][string] $Engine = 'podman'
 )
 $ErrorActionPreference = 'Stop'
 
 if (-not $RuntimeIdentifier) {
-    $architecture = podman info --format '{{.Host.Arch}}'
-    if ($LASTEXITCODE -ne 0) { throw "Read the podman machine's architecture failed (exit $LASTEXITCODE)." }
+    $architecture = if ($Engine -eq 'podman') { podman info --format '{{.Host.Arch}}' } else { docker version --format '{{.Server.Arch}}' }
+    if ($LASTEXITCODE -ne 0) { throw "Read the engine's architecture failed (exit $LASTEXITCODE)." }
     $RuntimeIdentifier = switch ($architecture.Trim()) {
         'amd64' { 'linux-x64' }
         'arm64' { 'linux-arm64' }
-        default { throw "The podman machine's architecture '$architecture' has no .NET runtime identifier here." }
+        default { throw "The engine's architecture '$architecture' has no .NET runtime identifier here." }
     }
 }
 

@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "platforms/Docker/**"
+      - "platforms/Shared/**"
       - "build/**"
       - "global.json"
       - "nuget.config"
@@ -22,6 +23,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         projects:
           - Assimalign.Cohesion.ApplicationModel.Gateway.Docker
+          - Assimalign.Cohesion.ApplicationModel.Hosting.Docker
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -30,4 +32,3 @@ jobs:
           area: platforms
           category: Docker
           project: ${{ matrix.projects }}
-          cohesion-ref: ${{ vars.COHESION_SIBLING_REF }}

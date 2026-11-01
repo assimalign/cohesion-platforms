@@ -12,6 +12,7 @@ using k8s;
 using k8s.Autorest;
 using k8s.Models;
 
+using Assimalign.Cohesion.ApplicationModel.Hosting.Platforms;
 using Assimalign.Cohesion.ApplicationModel.Kubernetes;
 
 namespace Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Internal;
@@ -49,7 +50,7 @@ internal sealed class KubernetesGatewayClient : IApplicationInstanceGatewayClien
     private readonly JsonApplicationContentSerializer _json = JsonApplicationContentSerializer.Create();
     private readonly Lock _lock = new();
     private IKubernetes? _client;
-    private KubernetesControlPlaneListener? _listener;
+    private InstanceControlPlaneListener? _listener;
 
     public KubernetesGatewayClient(KubernetesInstanceEnvironment environment)
     {
@@ -110,7 +111,7 @@ internal sealed class KubernetesGatewayClient : IApplicationInstanceGatewayClien
                 throw new InvalidOperationException(ErrorMessages.ClientAlreadyStarted);
             }
 
-            _listener = KubernetesControlPlaneListener.Start(controlPlane, _environment.ControlPlanePort);
+            _listener = InstanceControlPlaneListener.Start(_environment.ControlPlanePort, controlPlane);
         }
 
         return ValueTask.CompletedTask;
@@ -118,7 +119,7 @@ internal sealed class KubernetesGatewayClient : IApplicationInstanceGatewayClien
 
     public async ValueTask StopAsync(CancellationToken cancellationToken = default)
     {
-        KubernetesControlPlaneListener? listener;
+        InstanceControlPlaneListener? listener;
         lock (_lock)
         {
             listener = _listener;

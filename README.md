@@ -10,14 +10,15 @@ processes, Docker containers, or Kubernetes workloads without changing applicati
 cohesion repo ships the contracts, the guided gateway base, and the `LocalGateway`; **this repo
 implements the platform gateways**:
 
-At application `Build()`, each resource-area planner produces a validated, platform-neutral
-`ResourcePlan` (`cohesion/plan/v1`). Exactly one compiler for the selected platform translates
-those plans into platform objects; compilers never dispatch on resource kind, area, or CLR type.
+Each platform is a pair of packages: a gateway half the gateway program uses
+(`builder.UseKubernetes(...)`, `builder.UseDocker(...)`), and an instance half each resource's program
+opts into (`resource.UseKubernetes()`, `resource.UseDocker()`). The two halves share one protocol
+file and never reference each other.
 
-| Area | Package | Target |
+| Area | Packages | Target |
 | --- | --- | --- |
-| [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` | Kubernetes clusters (Kind on Podman for development) |
-| [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | Docker-compatible engines (Podman locally) |
+| [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes`, `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` | Kubernetes clusters (kind on Podman for development) |
+| [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`, `Assimalign.Cohesion.ApplicationModel.Hosting.Docker` | Docker-compatible engines (Podman locally) |
 
 Delivery is tracked in the shared org [Project #13 "Cohesion"](https://github.com/orgs/assimalign/projects/13)
 under WBS program root `L04.01` (`Codebase = cohesion-platforms`); sequencing lives in

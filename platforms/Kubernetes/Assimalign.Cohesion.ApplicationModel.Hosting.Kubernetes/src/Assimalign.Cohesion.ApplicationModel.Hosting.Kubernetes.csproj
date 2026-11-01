@@ -10,6 +10,9 @@
 	<ItemGroup>
 		<!-- The protocol both halves of the platform share; the gateway half links the same file. -->
 		<Compile Include="..\shared\KubernetesProtocol.cs" Link="Internal\KubernetesProtocol.cs" />
+		<!-- The control-plane listener every instance half that serves its control plane over HTTP compiles;
+		     linked source, so no platform package references another. -->
+		<Compile Include="..\..\..\Shared\InstanceControlPlaneListener.cs" Link="Internal\InstanceControlPlaneListener.cs" />
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Tests" />

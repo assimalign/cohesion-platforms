@@ -47,6 +47,25 @@
 	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/">
 		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj" />
 	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/">
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/OVERVIEW.md" />
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/shared/">
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/shared/DockerProtocol.cs" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/src/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/src/Assimalign.Cohesion.ApplicationModel.Hosting.Docker.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/tests/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/tests/Assimalign.Cohesion.ApplicationModel.Hosting.Docker.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/fixtures/">
+		<Project Path="platforms/Docker/fixtures/WebProgram/WebProgram.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/scripts/">
+		<File Path="platforms/Docker/scripts/Publish-CohesionDockerFixtures.ps1" />
+	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Kubernetes/">
 		<File Path="platforms/Kubernetes/README.md" />
 	</Folder>
@@ -79,5 +98,8 @@
 	<Folder Name="/cohesion-platforms/platforms/Kubernetes/scripts/">
 		<File Path="platforms/Kubernetes/scripts/New-CohesionKindCluster.ps1" />
 		<File Path="platforms/Kubernetes/scripts/Publish-CohesionKindFixtures.ps1" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Shared/">
+		<File Path="platforms/Shared/InstanceControlPlaneListener.cs" />
 	</Folder>
 </Solution>

@@ -160,10 +160,22 @@ without a run ending. The Lease protocol (GK2) is unchanged.
 3. **Image architecture.** A kind node's architecture is its host's, so an x64 image does not run on
    an arm64 machine. `scripts/Publish-CohesionKindFixtures.ps1` builds for the Podman machine's
    architecture; a multi-architecture image would remove the choice.
-4. **CI.** `platform-kubernetes.yml` builds and tests both halves. `e2e-kubernetes.yml` still drives
-   the original implementation's render conformance and Kind smoke test and needs a rewrite around
-   `KubernetesEndToEndTests`, which passes locally on kind (first on 2026-10-30: kind 0.33.0,
-   Kubernetes 1.37.0, arm64).
+4. **CI.** `platform-kubernetes.yml` builds and tests both halves on every push.
+   `e2e-kubernetes.yml` runs `KubernetesEndToEndTests` on kind over the x64 runner's Docker engine
+   (both scripts' `-Engine docker`), on demand and weekly, and fails unless the test executed and
+   passed (rewritten 2026-10-31; it drove the original implementation's render conformance and Kind
+   smoke test before). It has not run on GitHub yet: once a dispatched run passes, it can gate pushes
+   to `platforms/Kubernetes`. Locally it passes on kind over Podman (first on 2026-10-30: kind
+   0.33.0, Kubernetes 1.37.0, arm64).
+5. **The revision carries settings and the replica count (2026-10-31).** GK5's revision hashes the
+   settings' values and `replicas`, which `IApplicationGatewayInfrastructureProvider.PlanResourceAsync`
+   says a revision leaves out: the gateway fingerprints the manifest, extensions included, itself, and
+   treats a new revision as a new definition, which starts without the state recorded for the previous
+   one. So a dependency's redeploy that changes a filled-in setting here discards the resource's
+   recorded action state. The Docker pair keeps the two apart (Gateway.Docker GD5): the revision
+   covers what the model does not carry, and a separate workload hash, which includes the settings and
+   the replica count, decides create, update, or nothing. Moving Kubernetes to the same split changes
+   every running Deployment's revision once, so it waits for the owner.
 
 ## Diagnostics
 
