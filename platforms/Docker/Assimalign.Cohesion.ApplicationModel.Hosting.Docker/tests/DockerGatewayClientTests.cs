@@ -180,21 +180,34 @@ public class DockerGatewayClientTests
         await using var instance = new Instance();
         Task<ApplicationInstancePublication> publishing = instance.Client.PublishAsync(instance.ControlPlane.Manifest).AsTask();
         await instance.ReadStateAsync();
-        byte[] oversized = new byte[InstanceControlPlaneListenerLimit + 1];
 
-        // Act
-        using HttpResponseMessage answer = await instance.Http.PostAsync("channel/answer", new ByteArrayContent(oversized));
+        // Act: the oversized request only declares its length. The listener refuses it without reading
+        // the body, so a client still sending one sees the connection reset on Linux and macOS.
+        string answer = await SendDeclaringLengthAsync(instance.Port, "channel/answer", InstanceControlPlaneListenerLimit + 1);
         using HttpResponseMessage unknown = await instance.Http.PostAsync("nowhere", new ByteArrayContent([1, 2, 3]));
         using HttpResponseMessage state = await instance.Http.PostAsync("channel", new ByteArrayContent([1, 2, 3]));
 
         // Assert
-        answer.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+        answer.ShouldStartWith("HTTP/1.1 413 ");
         unknown.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         state.StatusCode.ShouldBe(HttpStatusCode.MethodNotAllowed);
         publishing.IsCompleted.ShouldBeFalse();
     }
 
     private const int InstanceControlPlaneListenerLimit = 4 * 1024 * 1024;
+
+    // A POST whose head declares a body of the given length and sends none; returns the status line.
+    private static async Task<string> SendDeclaringLengthAsync(int port, string path, long length)
+    {
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port);
+        NetworkStream stream = client.GetStream();
+        byte[] head = Encoding.ASCII.GetBytes(
+            $"POST /{path} HTTP/1.1\r\nHost: localhost:{port}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(head);
+        using var reader = new System.IO.StreamReader(stream, Encoding.ASCII);
+        return await reader.ReadLineAsync() ?? string.Empty;
+    }
 
     private static string Publication(TimeSpan lease)
     {

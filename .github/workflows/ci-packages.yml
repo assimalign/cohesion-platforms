@@ -31,6 +31,8 @@ on:
 
 permissions:
   contents: read
+  # Restore reads cohesion's CI packages; only the publish job writes.
+  packages: read
 
 env:
   # The shipped platform packages: both halves of every platform pair.
