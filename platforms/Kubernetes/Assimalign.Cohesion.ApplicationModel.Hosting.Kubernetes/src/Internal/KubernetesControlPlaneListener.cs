@@ -144,20 +144,20 @@ internal sealed class KubernetesControlPlaneListener : IAsyncDisposable
         }
         else
         {
-            ApplicationActionKind? operation = request.HttpMethod switch
+            ApplicationActionOperation? method = request.HttpMethod switch
             {
-                "GET" => ApplicationActionKind.Read,
-                "POST" => ApplicationActionKind.Write,
+                "GET" => ApplicationActionOperation.Read,
+                "POST" => ApplicationActionOperation.Write,
                 _ => null,
             };
-            if (operation is not { } kind)
+            if (method is not { } operation)
             {
                 return ((int)HttpStatusCode.MethodNotAllowed, ReadOnlyMemory<byte>.Empty);
             }
 
-            ApplicationActionContext invocation = kind == ApplicationActionKind.Write
-                ? ApplicationActionContext.Create(kind, _controlPlane.Serializer, body)
-                : ApplicationActionContext.Create(kind, _controlPlane.Serializer);
+            ApplicationActionContext invocation = operation == ApplicationActionOperation.Write
+                ? ApplicationActionContext.Create(operation, _controlPlane.Serializer, body)
+                : ApplicationActionContext.Create(operation, _controlPlane.Serializer);
             result = await _controlPlane.ExecuteAsync(action, invocation).ConfigureAwait(false);
         }
 

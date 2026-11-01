@@ -30,7 +30,7 @@ public class KubernetesEndToEndTests
     private static readonly TimeSpan _startupTimeout = TimeSpan.FromMinutes(4);
 
     [KindFact(DisplayName = DisplayPrefix + "The gateway deploys its resources, their pods publish, the storefront reaches orders-api at its endpoint, and a write reaches every instance")]
-    public async Task RunAsync_OnKind_ShouldDeployManageAndServeTheResources()
+    public async Task StartAsync_OnKind_ShouldDeployManageAndServeTheResources()
     {
         // Arrange: one image runs both resources. orders-api runs two instances, and the storefront's
         // setting is orders-api's endpoint, which the platform's Service gives it.
@@ -40,7 +40,7 @@ public class KubernetesEndToEndTests
             .AddImage("Web", "orders-api", cluster.Image)
             .AddImage("Web", "storefront", cluster.Image);
 
-        ApplicationBuilder builder = ApplicationGateway.CreateBuilder("local");
+        ApplicationGatewayBuilder builder = ApplicationGateway.CreateBuilder("local");
         builder.StartupTimeout = _startupTimeout;
         builder.UseKubernetes(infrastructure);
         IApplicationResourceDefinition orders = builder.AddResource("Web", "orders-api").WithReplicas(2);
@@ -51,13 +51,13 @@ public class KubernetesEndToEndTests
         // publication; the second orders-api pod may publish after the gateway started.
         await using GatewayRun run = await GatewayRun.StartAsync(builder.Build(), _startupTimeout + TimeSpan.FromMinutes(1));
         string answer = await Eventually.GetAsync(() => GetAsync(cluster, "storefront"), IsUnavailable, TimeSpan.FromMinutes(1));
-        IApplicationResourceDeployment ordersApi = run.Gateway.Resources.Single(static resource => resource.Name.Value == "orders-api");
+        IApplicationGatewayDeployment ordersApi = run.Gateway.Resources.Single(static resource => resource.Name.Value == "orders-api");
         await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(2));
         ApplicationActionResult write = await run.Gateway.ExecuteAsync(
             "Web",
             "orders-api",
             "greeting",
-            ApplicationActionContext.Create(ApplicationActionKind.Write, json, json.Serialize(new Greeting("hello kubernetes"))));
+            ApplicationActionContext.Create(ApplicationActionOperation.Write, json, json.Serialize(new Greeting("hello kubernetes"))));
 
         // Assert: the write ran on one instance and reached the other, by the gateway's restore or, when
         // the restore came before that instance's control plane opened, by its next publication, after
@@ -70,13 +70,13 @@ public class KubernetesEndToEndTests
         // http endpoint, which it opens only after its instance published.
         await Eventually.WaitUntilAsync(() => ArePodsReadyAsync(cluster, expected: 3), TimeSpan.FromMinutes(1));
         await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(1));
-        IApplicationInstanceClient client = infrastructure;
+        IApplicationGatewayInstanceClient client = infrastructure;
         ApplicationInstanceManifest[] instances = [.. ordersApi.Instances];
         instances.Length.ShouldBe(2);
         foreach (ApplicationInstanceManifest instance in instances)
         {
             ApplicationActionResult read = await Eventually.GetAsync(
-                () => client.ExecuteAsync(instance, "greeting", ApplicationActionContext.Create(ApplicationActionKind.Read, json)).AsTask(),
+                () => client.ExecuteAsync(instance, "greeting", ApplicationActionContext.Create(ApplicationActionOperation.Read, json)).AsTask(),
                 static exception => exception is HttpRequestException,
                 TimeSpan.FromSeconds(30));
             read.Status.ShouldBe(ApplicationActionStatus.Succeeded);

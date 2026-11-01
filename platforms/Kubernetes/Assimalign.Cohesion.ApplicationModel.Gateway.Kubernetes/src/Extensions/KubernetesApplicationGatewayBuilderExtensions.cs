@@ -5,13 +5,13 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// <summary>
 /// Runs a gateway's resources on a Kubernetes cluster.
 /// </summary>
-public static class KubernetesApplicationBuilderExtensions
+public static class KubernetesApplicationGatewayBuilderExtensions
 {
-    extension(ApplicationBuilder builder)
+    extension(ApplicationGatewayBuilder builder)
     {
         /// <summary>
-        /// Runs the gateway's resources on the Kubernetes infrastructure, which is also the transport
-        /// their instances publish through and the client the gateway calls their control planes with.
+        /// Runs the gateway's resources on the Kubernetes infrastructure, which is also the channel their
+        /// instances publish through and the client the gateway calls their control planes with.
         /// </summary>
         /// <remarks>
         /// Each resource's program opts into the platform too, with <c>UseKubernetes()</c> on its
@@ -21,14 +21,13 @@ public static class KubernetesApplicationBuilderExtensions
         /// <param name="infrastructure">The infrastructure, with an image bound to every resource the gateway deploys.</param>
         /// <returns>The same builder for chaining.</returns>
         /// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
-        /// <exception cref="ArgumentException">The infrastructure is already the builder's transport.</exception>
         /// <exception cref="InvalidOperationException">The gateway is built.</exception>
-        public ApplicationBuilder UseKubernetes(KubernetesInfrastructure infrastructure)
+        public ApplicationGatewayBuilder UseKubernetes(KubernetesInfrastructure infrastructure)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(infrastructure);
 
-            return builder.UseInfrastructure(infrastructure).UseTransport(infrastructure).UseInstanceClient(infrastructure);
+            return builder.UseInfrastructure(infrastructure).UseInstanceClient(infrastructure);
         }
     }
 }

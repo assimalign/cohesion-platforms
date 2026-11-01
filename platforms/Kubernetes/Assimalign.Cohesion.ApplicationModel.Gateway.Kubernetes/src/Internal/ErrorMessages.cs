@@ -25,5 +25,5 @@ internal static class ErrorMessages
 
     public const string InstanceUnanswered = "The control plane of instance {0} at '{1}' answered HTTP {2} without an action result.";
 
-    public const string TransportAlreadyStarted = "A gateway already receives the namespace's publications.";
+    public const string ChannelAlreadyStarted = "A gateway already receives the namespace's publications.";
 }

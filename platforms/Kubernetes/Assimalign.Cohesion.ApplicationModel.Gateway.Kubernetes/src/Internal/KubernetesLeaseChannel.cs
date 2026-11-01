@@ -13,7 +13,7 @@ using Assimalign.Cohesion.ApplicationModel.Kubernetes;
 namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Internal;
 
 /// <summary>
-/// The transport between a namespace's instances and their gateway: it watches the namespace's
+/// The channel between a namespace's instances and their gateway: it watches the namespace's
 /// instance Leases and hands the gateway each publication and renewal they carry, then writes the
 /// gateway's answer back on the Lease.
 /// </summary>
@@ -22,16 +22,16 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Internal;
 /// A Lease whose answer is not for the key its manifest names is a publication: the gateway's answer,
 /// or its refusal, goes into the Lease's annotations, where the instance waits for it. A Lease whose
 /// answer is current and whose renew time moved is a renewal; when the gateway does not know the
-/// instance, the transport clears the answer, so the instance's next renewal finds itself unknown and
+/// instance, the channel clears the answer, so the instance's next renewal finds itself unknown and
 /// it publishes again.
 /// </para>
 /// <para>
 /// The watch is listed again from the start whenever it ends or fails, so a gateway that restarts reads
 /// every Lease once: a Lease an earlier gateway answered is a renewal, and the new gateway keeps it or
-/// sends it to publish again. Events are handled one at a time on the transport's own flow.
+/// sends it to publish again. Events are handled one at a time on the channel's own flow.
 /// </para>
 /// </remarks>
-internal sealed class KubernetesLeaseTransport
+internal sealed class KubernetesLeaseChannel
 {
     private const string fieldManager = "cohesion-gateway";
 
@@ -45,7 +45,7 @@ internal sealed class KubernetesLeaseTransport
     private CancellationTokenSource? _running;
     private Task _loop = Task.CompletedTask;
 
-    public KubernetesLeaseTransport(IKubernetes client, string ns)
+    public KubernetesLeaseChannel(IKubernetes client, string ns)
     {
         _client = client;
         _namespace = ns;
@@ -57,7 +57,7 @@ internal sealed class KubernetesLeaseTransport
         {
             if (_running is not null)
             {
-                throw new InvalidOperationException(ErrorMessages.TransportAlreadyStarted);
+                throw new InvalidOperationException(ErrorMessages.ChannelAlreadyStarted);
             }
 
             var running = new CancellationTokenSource();
@@ -175,7 +175,7 @@ internal sealed class KubernetesLeaseTransport
             return;
         }
 
-        // An answered Lease whose renew time has not moved is the transport's own write, or one already
+        // An answered Lease whose renew time has not moved is the channel's own write, or one already
         // handled.
         DateTime? renewed = lease.Spec?.RenewTime;
         if (_renewals.TryGetValue(name, out DateTime? last) && last == renewed)
@@ -231,7 +231,7 @@ internal sealed class KubernetesLeaseTransport
             [KubernetesProtocol.PublicationKeyAnnotation] = key,
         }, leaseSeconds, cancellationToken).ConfigureAwait(false);
 
-        // The transport's own write moves no renew time, so it is not taken for a renewal.
+        // The channel's own write moves no renew time, so it is not taken for a renewal.
         _renewals[name] = renewed;
     }
 

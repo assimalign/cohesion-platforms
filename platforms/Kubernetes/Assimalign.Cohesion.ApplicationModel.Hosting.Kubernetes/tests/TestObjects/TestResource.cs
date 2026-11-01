@@ -8,9 +8,9 @@ namespace Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Tests;
 /// <summary>
 /// One running instance of <c>Web/orders-api</c> with a stateful greeting.
 /// </summary>
-internal sealed class TestResource : IApplicationResourceInstance, IApplicationInstanceAction
+internal sealed class TestResource : IApplicationInstance, IApplicationInstanceAction
 {
-    private readonly ApplicationActionState<Greeting> _state = ApplicationActionState<Greeting>.Create(new Greeting("hello"), static _ => { });
+    private readonly ApplicationInstanceActionState<Greeting> _state = ApplicationInstanceActionState<Greeting>.Create(new Greeting("hello"), static _ => { });
 
     public Greeting Current => _state.Value;
 
@@ -24,13 +24,13 @@ internal sealed class TestResource : IApplicationResourceInstance, IApplicationI
 
     public IReadOnlyCollection<IApplicationInstanceAction> Actions => [this];
 
-    public IReadOnlyCollection<IApplicationHealthContributor> HealthContributors => [];
+    public IReadOnlyCollection<IApplicationInstanceHealthContributor> HealthContributors => [];
 
     ActionName IApplicationInstanceAction.Name => "greeting";
 
     ApplicationActionKind IApplicationInstanceAction.Kind => ApplicationActionKind.ReadWrite;
 
-    IApplicationActionState? IApplicationInstanceAction.State => _state;
+    IApplicationInstanceActionState? IApplicationInstanceAction.State => _state;
 
     public IApplicationInstanceControlPlane CreateControlPlane()
     {
@@ -39,7 +39,7 @@ internal sealed class TestResource : IApplicationResourceInstance, IApplicationI
 
     async ValueTask<ApplicationActionResult> IApplicationInstanceAction.ExecuteAsync(ApplicationActionContext context, CancellationToken cancellationToken)
     {
-        if (context.Operation == ApplicationActionKind.Read)
+        if (context.Operation == ApplicationActionOperation.Read)
         {
             return ApplicationActionResult.Success(_state.Value, context.Serializer);
         }

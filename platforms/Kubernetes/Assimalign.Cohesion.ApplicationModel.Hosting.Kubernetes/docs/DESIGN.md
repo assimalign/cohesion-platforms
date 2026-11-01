@@ -2,7 +2,7 @@
 
 The instance half of the Kubernetes platform pair (assimalign/cohesion#1759, contracts decision C5
 "platform pairs"; the gateway half is `Gateway.Kubernetes`, whose DESIGN.md has the whole exchange).
-The package is one internal `IApplicationGatewayClient`, `KubernetesGatewayClient`, and the
+The package is one internal `IApplicationInstanceGatewayClient`, `KubernetesGatewayClient`, and the
 extension that adds it.
 
 ## Lifecycle
@@ -53,7 +53,8 @@ the gateway no longer knows the instance: renewal returns `false`, and the servi
 
 **HK4 — The control plane is an `HttpListener` on the control-plane port**, on every interface (on
 Windows, `localhost`, which needs no URL reservation). It serves `GET /manifest`,
-`GET` and `POST /actions/{name}`, and `PUT /state/{name}`, with the control plane's own serializer,
+`GET` and `POST /actions/{name}` (a read and a write: `ApplicationActionOperation.Read` and
+`.Write`), and `PUT /state/{name}`, with the control plane's own serializer,
 and maps a result to 200 (succeeded), 400 (rejected), 404 (not found), or 405. It has no
 authentication of its own: see the gateway half's open question 2.
 

@@ -35,9 +35,10 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// service account, which may manage Leases only.
 /// </para>
 /// <para>
-/// The infrastructure is also the gateway's transport and its instance client, all through the
+/// The infrastructure is also the gateway's inbound channel and its instance client, all through the
 /// cluster's API server, so the gateway runs inside the cluster or outside it alike:
-/// <see cref="KubernetesApplicationBuilderExtensions.UseKubernetes"/> sets it as all three. An instance
+/// <see cref="KubernetesApplicationGatewayBuilderExtensions.UseKubernetes"/> sets it as both the
+/// gateway's infrastructure and its instance client. An instance
 /// opts into the platform with the instance half's <c>UseKubernetes()</c>: it publishes and renews
 /// through a Lease named after its pod, and the gateway calls its control plane through the API
 /// server's pod proxy.
@@ -50,7 +51,7 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// </remarks>
 [DebuggerDisplay("{Namespace}")]
 [DebuggerTypeProxy(typeof(DebugView))]
-public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplicationGatewayTransport, IApplicationInstanceClient, IAsyncDisposable
+public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructureProvider, IApplicationGatewayInstanceClient, IAsyncDisposable
 {
     private const string fieldManager = "cohesion-gateway";
 
@@ -73,7 +74,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
     private readonly k8s.Kubernetes _client;
     private readonly HttpClient _proxy;
     private readonly Uri _apiServer;
-    private readonly KubernetesLeaseTransport _transport;
+    private readonly KubernetesLeaseChannel _channel;
     private readonly JsonApplicationContentSerializer _json = JsonApplicationContentSerializer.Create();
     private int _isDisposed;
 
@@ -87,7 +88,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
         _client = new k8s.Kubernetes(configuration, pipeline);
         _proxy = new HttpClient(pipeline, disposeHandler: false);
         _apiServer = new Uri(_client.BaseUri.AbsoluteUri.TrimEnd('/') + "/");
-        _transport = new KubernetesLeaseTransport(_client, options.Namespace);
+        _channel = new KubernetesLeaseChannel(_client, options.Namespace);
     }
 
     /// <summary>
@@ -185,7 +186,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
     /// Stops receiving the namespace's publications and releases the connection to the cluster. What
     /// the gateway deployed keeps running.
     /// </summary>
-    /// <returns>A task that completes when the transport has stopped.</returns>
+    /// <returns>A task that completes when the channel has stopped.</returns>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
@@ -193,17 +194,17 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
             return;
         }
 
-        await _transport.StopAsync().ConfigureAwait(false);
+        await _channel.StopAsync().ConfigureAwait(false);
         _proxy.Dispose();
         _client.Dispose();
     }
 
-    IReadOnlyCollection<IApplicationResourceAction> IInfrastructureProvider.GetResourceActions(IApplicationModel model, ApplicationResourceManifest resource)
+    IReadOnlyCollection<IApplicationGatewayDeploymentAction> IApplicationGatewayInfrastructureProvider.GetResourceActions(IApplicationModel model, ApplicationResourceManifest resource)
     {
         return [];
     }
 
-    async ValueTask<InfrastructurePlan> IInfrastructureProvider.PlanResourceAsync(
+    async ValueTask<ApplicationGatewayDeploymentPlan> IApplicationGatewayInfrastructureProvider.PlanResourceAsync(
         IApplicationModel model,
         ApplicationResourceManifest resource,
         IReadOnlyDictionary<SettingName, string> settings,
@@ -211,16 +212,16 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
     {
         string revision = KubernetesWorkload.GetRevision(resource, settings, GetImage(resource), _options.EndpointPort, _options.ControlPlanePort);
         V1Deployment? running = await ReadAsync(() => _client.AppsV1.ReadNamespacedDeploymentAsync(resource.Name.Value, Namespace, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        InfrastructureChange change = running is null
-            ? InfrastructureChange.Create
+        ApplicationGatewayDeploymentChange change = running is null
+            ? ApplicationGatewayDeploymentChange.Create
             : running.Metadata?.Annotations?.TryGetValue(KubernetesWorkload.RevisionAnnotation, out string? current) == true && current == revision
-                ? InfrastructureChange.None
-                : InfrastructureChange.Update;
+                ? ApplicationGatewayDeploymentChange.None
+                : ApplicationGatewayDeploymentChange.Update;
 
-        return new InfrastructurePlan(change, revision);
+        return new ApplicationGatewayDeploymentPlan(change, revision);
     }
 
-    async ValueTask IInfrastructureProvider.DeployResourceAsync(
+    async ValueTask IApplicationGatewayInfrastructureProvider.DeployResourceAsync(
         IApplicationModel model,
         ApplicationResourceManifest resource,
         IReadOnlyDictionary<SettingName, string> settings,
@@ -245,7 +246,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
         await _client.CoreV1.PatchNamespacedServiceAsync(Apply(service), service.Metadata.Name, Namespace, fieldManager: fieldManager, force: true, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    async ValueTask IInfrastructureProvider.WatchResourceAsync(IApplicationModel model, ApplicationResourceManifest resource, DeploymentId deployment, CancellationToken cancellationToken)
+    async ValueTask IApplicationGatewayInfrastructureProvider.WatchResourceAsync(IApplicationModel model, ApplicationResourceManifest resource, DeploymentId deployment, CancellationToken cancellationToken)
     {
         // A pod of the deployment that cannot run without a change to what it runs fails the step with
         // the platform's reason. A deployment that a later one replaced, or a teardown removed, has ended.
@@ -274,7 +275,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
         }
     }
 
-    async ValueTask<IReadOnlyDictionary<OutputName, string>> IInfrastructureProvider.GetResourceOutputsAsync(IApplicationModel model, ApplicationResourceManifest resource, CancellationToken cancellationToken)
+    async ValueTask<IReadOnlyDictionary<OutputName, string>> IApplicationGatewayInfrastructureProvider.GetResourceOutputsAsync(IApplicationModel model, ApplicationResourceManifest resource, CancellationToken cancellationToken)
     {
         V1Service? service = await ReadAsync(() => _client.CoreV1.ReadNamespacedServiceAsync(resource.Name.Value, Namespace, cancellationToken: cancellationToken)).ConfigureAwait(false);
         return service is null
@@ -282,34 +283,36 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
             : new Dictionary<OutputName, string> { [OutputName.Endpoint] = KubernetesWorkload.GetEndpoint(resource, Namespace) };
     }
 
-    async ValueTask IInfrastructureProvider.TeardownResourceAsync(IApplicationModel model, ApplicationResourceManifest resource, CancellationToken cancellationToken)
+    async ValueTask IApplicationGatewayInfrastructureProvider.TeardownResourceAsync(IApplicationModel model, ApplicationResourceManifest resource, CancellationToken cancellationToken)
     {
         await IgnoreMissingAsync(() => _client.AppsV1.DeleteNamespacedDeploymentAsync(resource.Name.Value, Namespace, propagationPolicy: "Background", cancellationToken: cancellationToken)).ConfigureAwait(false);
         await IgnoreMissingAsync(() => _client.CoreV1.DeleteNamespacedServiceAsync(resource.Name.Value, Namespace, cancellationToken: cancellationToken)).ConfigureAwait(false);
     }
 
-    async ValueTask IApplicationGatewayTransport.StartAsync(IApplicationInstancePublisher gateway, CancellationToken cancellationToken)
+    // The channel watches the namespace's instance Leases and hands what they carry to the gateway's
+    // publisher, on the gateway's own flow, until the gateway's run ends.
+    async ValueTask IApplicationGatewayInfrastructureProvider.StartAsync(IApplicationGatewayContext context, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(context);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) != 0, this);
 
         await EnsureNamespaceAsync(cancellationToken).ConfigureAwait(false);
-        _transport.Start(gateway);
+        _channel.Start(context.Publisher);
     }
 
-    async ValueTask IApplicationGatewayTransport.StopAsync(CancellationToken cancellationToken)
+    async ValueTask IApplicationGatewayInfrastructureProvider.StopAsync(CancellationToken cancellationToken)
     {
-        await _transport.StopAsync().ConfigureAwait(false);
+        await _channel.StopAsync().ConfigureAwait(false);
     }
 
     // The gateway calls an instance's control plane through the API server's pod proxy, at the port its
     // manifest names. The content crosses as bytes, which the control plane reads with its own serializer.
-    async ValueTask<ApplicationActionResult> IApplicationInstanceClient.ExecuteAsync(ApplicationInstanceManifest instance, ActionName action, ApplicationActionContext context, CancellationToken cancellationToken)
+    async ValueTask<ApplicationActionResult> IApplicationGatewayInstanceClient.ExecuteAsync(ApplicationInstanceManifest instance, ActionName action, ApplicationActionContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         ArgumentNullException.ThrowIfNull(context);
 
-        bool write = context.Operation == ApplicationActionKind.Write;
+        bool write = context.Operation == ApplicationActionOperation.Write;
         using var request = new HttpRequestMessage(write ? HttpMethod.Post : HttpMethod.Get, ResolveProxy(instance, string.Concat("actions/", Uri.EscapeDataString(action.Value))));
         if (write)
         {
@@ -319,7 +322,7 @@ public sealed class KubernetesInfrastructure : IInfrastructureProvider, IApplica
         return await SendAsync(instance, request, cancellationToken).ConfigureAwait(false);
     }
 
-    async ValueTask<ApplicationActionResult> IApplicationInstanceClient.RestoreAsync(ApplicationInstanceManifest instance, ApplicationActionSnapshot snapshot, CancellationToken cancellationToken)
+    async ValueTask<ApplicationActionResult> IApplicationGatewayInstanceClient.RestoreAsync(ApplicationInstanceManifest instance, ApplicationActionSnapshot snapshot, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         ArgumentNullException.ThrowIfNull(snapshot);

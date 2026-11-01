@@ -12,17 +12,17 @@ namespace Assimalign.Cohesion.ApplicationModel.Kubernetes.Fixtures;
 /// </summary>
 internal sealed class GreetingAction : IApplicationInstanceAction
 {
-    private readonly ApplicationActionState<Greeting> _state = ApplicationActionState<Greeting>.Create(new Greeting("hello"), static _ => { });
+    private readonly ApplicationInstanceActionState<Greeting> _state = ApplicationInstanceActionState<Greeting>.Create(new Greeting("hello"), static _ => { });
 
     public ActionName Name => "greeting";
 
     public ApplicationActionKind Kind => ApplicationActionKind.ReadWrite;
 
-    public IApplicationActionState? State => _state;
+    public IApplicationInstanceActionState? State => _state;
 
     public async ValueTask<ApplicationActionResult> ExecuteAsync(ApplicationActionContext context, CancellationToken cancellationToken = default)
     {
-        if (context.Operation == ApplicationActionKind.Read)
+        if (context.Operation == ApplicationActionOperation.Read)
         {
             return ApplicationActionResult.Success(_state.Value, context.Serializer);
         }

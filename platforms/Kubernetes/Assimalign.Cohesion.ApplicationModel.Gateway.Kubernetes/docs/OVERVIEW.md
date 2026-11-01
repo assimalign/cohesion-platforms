@@ -14,7 +14,7 @@ kubernetes
     .AddImage("Web", "orders-api", "localhost:5001/orders-api:1.0")
     .AddImage("Web", "storefront", "localhost:5001/storefront:1.0");
 
-ApplicationBuilder builder = ApplicationGateway.CreateBuilder("shop");
+ApplicationGatewayBuilder builder = ApplicationGateway.CreateBuilder("shop");
 builder.UseKubernetes(kubernetes);
 IApplicationResourceDefinition orders = builder.AddResource("Web", "orders-api").WithReplicas(2);
 builder.AddResource("Web", "storefront").WithSetting("Orders:Url", orders.Endpoint);
@@ -36,7 +36,7 @@ builder.Services.AddResource("orders-api", resource => resource.UseKubernetes())
 | `KubernetesInfrastructure.Create(options)` | Connects to the cluster the options name: a kubeconfig path, `KUBECONFIG`, the default kubeconfig, or the pod's service account. |
 | `KubernetesInfrastructure.AddImage(provider, name, image)` | Binds a resource to the container image that runs it. |
 | `KubernetesInfrastructureOptions` | `KubeConfigPath`, `Context`, `Namespace` (`cohesion`), `EndpointPort` (8080), `ControlPlanePort` (9090), `ImagePullPolicy` (`IfNotPresent`). |
-| `builder.UseKubernetes(infrastructure)` | Sets the infrastructure as the gateway's infrastructure provider, transport, and instance client. |
+| `builder.UseKubernetes(infrastructure)` | Sets the infrastructure as the gateway's infrastructure provider, which is also its inbound channel, and its instance client. |
 | `resource.WithReplicas(count)` | The resource's `replicas` extension on the `kubernetes` platform: how many pods its Deployment runs. |
 
 What it runs per resource, how the two halves talk, and what is still to come back from the

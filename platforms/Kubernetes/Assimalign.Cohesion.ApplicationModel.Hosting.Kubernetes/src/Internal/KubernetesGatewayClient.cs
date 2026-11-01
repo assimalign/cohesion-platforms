@@ -38,7 +38,7 @@ namespace Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Internal;
 /// with its service account; outside a cluster, as in a test, it uses the kubeconfig.
 /// </para>
 /// </remarks>
-internal sealed class KubernetesGatewayClient : IApplicationGatewayClient
+internal sealed class KubernetesGatewayClient : IApplicationInstanceGatewayClient
 {
     private const string fieldManager = "cohesion-instance";
 

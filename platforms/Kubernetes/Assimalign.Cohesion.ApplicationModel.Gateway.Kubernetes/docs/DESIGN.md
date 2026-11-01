@@ -7,16 +7,15 @@ come back from it is listed under [Backfill](#backfill).
 
 ## Role
 
-`KubernetesInfrastructure` is all three of the gateway's platform seams:
+`KubernetesInfrastructure` is both of the gateway's platform seams:
 
 | Seam | What it does on Kubernetes |
 | --- | --- |
-| `IInfrastructureProvider` | Plans, deploys, watches, reports the outputs of, and tears down each resource as a Deployment and a Service. |
-| `IApplicationGatewayTransport` | Watches the namespace's instance Leases and answers their publications and renewals. |
-| `IApplicationInstanceClient` | Calls an instance's control plane through the API server's pod proxy. |
+| `IApplicationGatewayInfrastructureProvider` | Plans, deploys, watches, reports the outputs of, and tears down each resource as a Deployment and a Service. Its `StartAsync(context)` and `StopAsync` run the inbound channel (GK11): it watches the namespace's instance Leases and answers their publications and renewals through `context.Publisher`. |
+| `IApplicationGatewayInstanceClient` | Calls an instance's control plane through the API server's pod proxy. |
 
-`builder.UseKubernetes(infrastructure)` sets it as all three. The instance half,
-`Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes`, is the other end of the transport and the
+`builder.UseKubernetes(infrastructure)` sets it as both. The instance half,
+`Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes`, is the other end of the channel and the
 client. The two halves never reference each other: the protocol they share, names and endpoint
 forms, is one file, `Hosting.Kubernetes/shared/KubernetesProtocol.cs`, compiled into both.
 
@@ -57,7 +56,7 @@ ingress is needed for the platform to work.
 `coordination.k8s.io/v1` Lease named after its pod, labelled
 `app.kubernetes.io/managed-by=cohesion` and `cohesion.assimalign.com/role=instance`, owned by the
 pod so the cluster deletes it with the pod. Its annotations carry the manifest and the instance key.
-The transport lists, then watches, the instance Leases of its namespace and answers a publication
+The channel lists, then watches, the instance Leases of its namespace and answers a publication
 whose key it has not answered by calling the gateway and writing `publication` and
 `publication-key`, or `refusal` and `refusal-key`, back with the gateway's lease as
 `leaseDurationSeconds`. A renewal is a moved `spec.renewTime`. A renewal the gateway does not know,
@@ -135,6 +134,18 @@ ready.
   which needs a new member on the ApplicationModel.Hosting contract (open question 1).
 - *Rejected:* a liveness probe on the endpoint. It would also restart a pod whose program is still
   waiting for its gateway's answer.
+
+**GK11 — The Lease watch is the provider's channel (2026-10-31).** ApplicationModel.Gateway folded
+its transport seam into the infrastructure provider (ApplicationModel.Gateway G39 and G40, superseding G33), so the
+watch is no longer a seam of its own. The gateway calls the provider's `StartAsync(context)` once
+per run, after it loads its record and before it plans; the provider ensures the namespace exists
+and starts the internal `KubernetesLeaseChannel` over `context.Publisher`. `StopAsync` stops the
+watch; the gateway calls it when the run ends. `DisposeAsync` stops it too, for a provider disposed
+without a run ending. The Lease protocol (GK2) is unchanged.
+
+- *Rejected:* keeping a separate channel object for the builder to register. The builder no longer
+  takes one (`UseTransport` is gone), and the channel shares the infrastructure's client and
+  namespace.
 
 ## Open questions
 

@@ -57,13 +57,13 @@ public class KubernetesInfrastructureTests
         // Arrange
         using var kubeConfig = new TestKubeConfig();
         await using KubernetesInfrastructure infrastructure = kubeConfig.Create();
-        IApplicationInstanceClient client = infrastructure;
+        IApplicationGatewayInstanceClient client = infrastructure;
         var manifest = new ApplicationInstanceManifest("Web", "orders-api", InstanceKey.New(), null, new Uri("http://127.0.0.1:9090/"), []);
 
         // Act & Assert
         await Should.ThrowAsync<ArgumentException>(() => client.ExecuteAsync(
             manifest,
             "greeting",
-            ApplicationActionContext.Create(ApplicationActionKind.Read, JsonApplicationContentSerializer.Create())).AsTask());
+            ApplicationActionContext.Create(ApplicationActionOperation.Read, JsonApplicationContentSerializer.Create())).AsTask());
     }
 }
