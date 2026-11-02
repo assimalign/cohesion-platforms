@@ -50,15 +50,25 @@ internal sealed class DockerEngine : IAsyncDisposable
         return new DockerEngine(Environment.GetEnvironmentVariable(EndpointVariable) is { Length: > 0 } endpoint ? endpoint : null);
     }
 
-    public DockerInfrastructure CreateInfrastructure()
+    /// <summary>
+    /// Points the gateway's infrastructure at the engine and the test's network.
+    /// </summary>
+    public DockerInfrastructureBuilder Configure(DockerInfrastructureBuilder docker)
     {
         // The fixture image is loaded into the engine's store, never pulled.
-        return DockerInfrastructure.Create(new DockerInfrastructureOptions
-        {
-            Endpoint = Endpoint,
-            Network = Network,
-            ImagePullPolicy = "Never",
-        });
+        docker.Options.Endpoint = Endpoint;
+        docker.Options.Network = Network;
+        docker.Options.ImagePullPolicy = "Never";
+        return docker;
+    }
+
+    /// <summary>
+    /// Creates an infrastructure of the test's own over the same network, apart from the one the
+    /// gateway owns, such as to call each instance's control plane directly.
+    /// </summary>
+    public DockerInfrastructure CreateInfrastructure()
+    {
+        return Configure(new DockerInfrastructureBuilder()).Build();
     }
 
     public async ValueTask DisposeAsync()

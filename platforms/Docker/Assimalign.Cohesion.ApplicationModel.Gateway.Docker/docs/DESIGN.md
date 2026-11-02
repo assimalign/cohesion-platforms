@@ -15,7 +15,8 @@ makes.
 | `IApplicationGatewayInfrastructureProvider` | Plans, deploys, watches, reports the outputs of, and tears down each resource as containers on the gateway's network. Its `StartAsync(context)` and `StopAsync` run the inbound channel (GD2): it polls the network's instance containers and hands their publications and renewals to `context.Publisher`. |
 | `IApplicationGatewayInstanceClient` | Calls an instance's control plane on the loopback port the engine published it on. |
 
-`builder.UseDocker(infrastructure)` sets it as both. The instance half,
+`builder.UseDocker(configure)`, which builds it and gives it to the gateway to own, or
+`builder.UseDocker(infrastructure)`, which lends it, sets it as both (GD12). The instance half,
 `Assimalign.Cohesion.ApplicationModel.Hosting.Docker`, is the other end of the channel and the
 client. The two halves never reference each other: the protocol they share, variables, endpoint
 forms, channel routes and documents, is one file, `Hosting.Docker/shared/DockerProtocol.cs`,
@@ -150,11 +151,35 @@ recovered is not reported as one that keeps ending), and replaced when it is ano
 An update keeps the previous containers until every one of its own has published, as a Deployment
 keeps its old pods until the new ones are ready: they keep running, and answering under the
 resource's name, alongside the new ones. The infrastructure records the update's containers before
-it starts them; the channel reports each accepted publication (GD2), and the last one removes every
-other container of the resource. An update whose containers never publish (a bad setting or image)
-therefore leaves the previous containers serving, and the next plan sees the mix and updates again.
-The removal is best effort: one that fails leaves the containers, and the next run's update removes
-them once its containers publish again. Until then the alias round-robins between both workloads.
+it starts them; the channel reports each accepted publication and known renewal (GD2), and the
+last one removes every other container of the resource. An update whose containers never publish
+(a bad setting or image) therefore leaves the previous containers serving, and the next plan sees
+the mix and updates again. The removal is best effort: one that fails leaves the containers, and
+the next run's update removes them once its containers publish again. Until then the alias
+round-robins between both workloads.
+
+Since 2026-11-01 the channel reports every renewal the gateway knows as well, and finishing a
+rollout ignores a container reported again or before any rollout names it. The gateway answers
+publications before it plans a resource, so a container that an earlier gateway started and never
+answered can publish before the update is recorded, and afterwards only renews. Before, nothing
+then finished the rollout, and the previous containers kept serving under the resource's name for
+the whole run; now its next renewal (every third of a lease) does. The gateway's G43 takes the
+same evidence for the resource's start: an instance that published before the plan counts when it
+repeats the plan's id and renews after the deployment call returns, which shows the deployment
+kept it. A container this deployment removes and recreates (a restart loop) never renews after
+that, so its replacement's publication counts instead.
+
+The rollout applies that rule inside the call too. The channel runs beside the deployment, and a
+container in a restart loop still renews until the replica loop reaches and removes it, so a report
+counts only once the loop has settled its container: started again as this deployment's, or
+created again. A renewal from a container the loop has yet to recreate finishes nothing, and the
+previous workload keeps serving until the replacement publishes or renews. Before (the first form
+of the change above), such a renewal could finish the rollout and remove the previous containers
+moments before the loop removed the one that renewed, leaving nothing serving whenever the
+replacement never published. One window remains: a renewal the channel read from the old container
+before its removal and reports only after the replacement was created still counts. It spans one
+renewal call against a removal, a create and a start; keying the rollout by container id, which
+the channel would then pass with each report, would close it.
 
 **GD6 — The program is never PID 1.** Every container runs under the engine's init
 (`HostConfig.Init`: `docker-init` on Docker, `catatonit` on Podman), so the program is PID 2. A .NET
@@ -201,6 +226,30 @@ neither a tag nor a digest, as the docker CLI pulls (the Engine API pulls every 
 named without one). An inspection puts the reference in the path as the docker CLI does, with its
 registry colon, slashes, and tag colon literal. The image must be built for the engine's
 architecture: a Podman machine on an arm64 host is linux/arm64.
+
+**GD12 — The gateway owns the infrastructure its verb builds (2026-11-01).** ApplicationModel.Gateway
+lets a platform's verb hand the gateway a factory instead of an object (`UsePlatform`, G42), so the
+platform has two registration verbs:
+
+- `builder.UseDocker(configure)` takes a callback over a `DockerInfrastructureBuilder`, whose
+  `Options` are the `DockerInfrastructureOptions` and whose `AddImage` binds an image as the
+  infrastructure's does. The gateway's `Build()` calls the callback and the builder's `Build()` last,
+  after everything else it checks has passed: a gateway that is never built creates no infrastructure,
+  and an invalid network or a duplicate image fails the gateway's build. The gateway owns the
+  infrastructure and disposes it when it is disposed, after its run has stopped.
+- `builder.UseDocker(infrastructure)` stays for an infrastructure the program creates itself. The
+  gateway borrows it, and the program disposes it after the gateway stops.
+
+The builder checks each image as it is added, with the infrastructure's own rules, so a duplicate
+fails at the call that adds it and binding the images to the new infrastructure cannot fail. Its
+`Build()` creates the infrastructure through `Create`, which copies the options, so each call
+creates an independent infrastructure and later changes to `Options` change nothing.
+
+- *Rejected:* creating the infrastructure in `UseDocker`. A builder that is never built, or whose
+  model breaks a rule, would then leave an open engine client the program has no handle to dispose.
+- *Rejected:* an optional callback. Unlike the in-process platform, nothing runs on Docker
+  without an image bound, so `UseDocker()` with no callback would build a gateway that cannot
+  deploy anything.
 
 ## Open questions
 

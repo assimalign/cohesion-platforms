@@ -35,14 +35,11 @@ public class KubernetesEndToEndTests
         // Arrange: one image runs both resources. orders-api runs two instances, and the storefront's
         // setting is orders-api's endpoint, which the platform's Service gives it.
         await using KindCluster cluster = KindCluster.Connect();
-        await using KubernetesInfrastructure infrastructure = cluster.CreateInfrastructure();
-        infrastructure
-            .AddImage("Web", "orders-api", cluster.Image)
-            .AddImage("Web", "storefront", cluster.Image);
-
         ApplicationGatewayBuilder builder = ApplicationGateway.CreateBuilder("local");
         builder.StartupTimeout = _startupTimeout;
-        builder.UseKubernetes(infrastructure);
+        builder.UseKubernetes(kubernetes => cluster.Configure(kubernetes)
+            .AddImage("Web", "orders-api", cluster.Image)
+            .AddImage("Web", "storefront", cluster.Image));
         IApplicationResourceDefinition orders = builder.AddResource("Web", "orders-api").WithReplicas(2);
         builder.AddResource("Web", "storefront").WithSetting("Orders:Url", orders.Endpoint);
         JsonApplicationContentSerializer json = JsonApplicationContentSerializer.Create(TestJsonContext.Default);
@@ -69,8 +66,11 @@ public class KubernetesEndToEndTests
         // Every pod becomes ready, as its readiness probe decides: its program accepts connections on its
         // http endpoint, which it opens only after its instance published.
         await Eventually.WaitUntilAsync(() => ArePodsReadyAsync(cluster, expected: 3), TimeSpan.FromMinutes(1));
+        // Each instance holds the write: the test reads it from every one with a client of its own, as
+        // the gateway owns its infrastructure.
         await Eventually.WaitUntilAsync(() => ordersApi.Instances.Count == 2, TimeSpan.FromMinutes(1));
-        IApplicationGatewayInstanceClient client = infrastructure;
+        await using KubernetesInfrastructure reader = cluster.CreateInfrastructure();
+        IApplicationGatewayInstanceClient client = reader;
         ApplicationInstanceManifest[] instances = [.. ordersApi.Instances];
         instances.Length.ShouldBe(2);
         foreach (ApplicationInstanceManifest instance in instances)

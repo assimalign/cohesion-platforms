@@ -121,6 +121,102 @@ public class DockerInfrastructureTests
         healthy.Change.ShouldBe(ApplicationGatewayDeploymentChange.None);
     }
 
+    [Fact(DisplayName = DisplayPrefix + "An update whose containers published before the plan finishes its rollout when they are reported again")]
+    public async Task DeployResourceAsync_WhenItsContainersPublishedBeforeThePlan_ShouldFinishTheRolloutOnTheirNextReport()
+    {
+        // Arrange: a gateway started the update and stopped before its containers published, so both
+        // workloads run when the next gateway starts.
+        var engine = new FakeDockerEngine();
+        (IApplicationModel model, ApplicationResourceManifest resource) = CreateResource(replicas: 2);
+        DeploymentId first = DeploymentId.New();
+        DeploymentId second = DeploymentId.New();
+        string[] added;
+        await using (DockerInfrastructure earlier = Create(engine))
+        {
+            IApplicationGatewayInfrastructureProvider stopped = earlier;
+            await stopped.DeployResourceAsync(model, resource, Settings(("Greeting", "hello")), first);
+            await stopped.DeployResourceAsync(model, resource, Settings(("Greeting", "welcome")), second);
+            added = [.. engine.Containers.Where(container => container.Labels[DockerWorkload.DeploymentLabel] == second.ToString()).Select(static container => container.Name)];
+        }
+
+        await using DockerInfrastructure infrastructure = Create(engine);
+        IApplicationGatewayInfrastructureProvider provider = infrastructure;
+
+        // The next gateway's channel answers them before the resource's step plans it.
+        await infrastructure.OnPublishedAsync(added[0], CancellationToken.None);
+        await infrastructure.OnPublishedAsync(added[1], CancellationToken.None);
+        int beforePlan = engine.Containers.Count;
+
+        // Act
+        ApplicationGatewayDeploymentPlan plan = await provider.PlanResourceAsync(model, resource, Settings(("Greeting", "welcome")));
+        await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "welcome")), second);
+        int afterDeploy = engine.Containers.Count;
+
+        // From then on they only renew, and the channel reports each known renewal.
+        await infrastructure.OnPublishedAsync(added[0], CancellationToken.None);
+        await infrastructure.OnPublishedAsync(added[1], CancellationToken.None);
+
+        // Assert
+        beforePlan.ShouldBe(4);
+        plan.Change.ShouldBe(ApplicationGatewayDeploymentChange.Update);
+        afterDeploy.ShouldBe(4);
+        engine.Containers.Select(static container => container.Name).ShouldBe(added, ignoreOrder: true);
+    }
+
+    [Fact(DisplayName = DisplayPrefix + "A renewal from a container the update is about to recreate does not finish the rollout, so the previous workload keeps serving until the replacement publishes")]
+    public async Task DeployResourceAsync_WhenAContainerItRecreatesRenewsMeanwhile_ShouldKeepThePreviousContainers()
+    {
+        // Arrange: a gateway started the update and stopped before its container published; the
+        // container then fell into a restart loop, while the previous workload's kept serving.
+        var engine = new FakeDockerEngine();
+        (IApplicationModel model, ApplicationResourceManifest resource) = CreateResource();
+        DeploymentId first = DeploymentId.New();
+        DeploymentId second = DeploymentId.New();
+        string previous;
+        string looping;
+        await using (DockerInfrastructure earlier = Create(engine))
+        {
+            IApplicationGatewayInfrastructureProvider stopped = earlier;
+            await stopped.DeployResourceAsync(model, resource, Settings(("Greeting", "hello")), first);
+            previous = engine.Containers.ShouldHaveSingleItem().Name;
+            await stopped.DeployResourceAsync(model, resource, Settings(("Greeting", "welcome")), second);
+            looping = engine.Containers.Single(container => container.Name != previous).Name;
+        }
+
+        engine[looping].RestartCount = DockerWorkload.RestartLoopCount;
+        await using DockerInfrastructure infrastructure = Create(engine);
+        IApplicationGatewayInfrastructureProvider provider = infrastructure;
+
+        // The looping container's current process renews while the deployment removes it, and the
+        // channel reports the known renewal.
+        bool reported = false;
+        bool previousAfterTheRenewal = false;
+        engine.Removing = async container =>
+        {
+            if (container == looping && !reported)
+            {
+                reported = true;
+                await infrastructure.OnPublishedAsync(looping, CancellationToken.None);
+                previousAfterTheRenewal = engine.Containers.Any(candidate => candidate.Name == previous);
+            }
+        };
+
+        // Act
+        await provider.DeployResourceAsync(model, resource, Settings(("Greeting", "welcome")), second);
+        engine.Removing = null;
+        bool previousAfterTheDeploy = engine.Containers.Any(candidate => candidate.Name == previous);
+        int recreatedRestarts = engine[looping].RestartCount;
+
+        // The replacement publishes.
+        await infrastructure.OnPublishedAsync(looping, CancellationToken.None);
+
+        // Assert
+        previousAfterTheRenewal.ShouldBeTrue();
+        previousAfterTheDeploy.ShouldBeTrue();
+        recreatedRestarts.ShouldBe(0);
+        engine.Containers.ShouldHaveSingleItem().Name.ShouldBe(looping);
+    }
+
     [Fact(DisplayName = DisplayPrefix + "Deploying runs one started container per replica on the network, pulls a missing image, and keeps the previous workload's containers until every new one has published")]
     public async Task DeployResourceAsync_ShouldReplaceThePreviousContainersOncePublished()
     {

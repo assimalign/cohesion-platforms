@@ -27,18 +27,26 @@ internal sealed class GatewayRun : IAsyncDisposable
         }
         catch
         {
-            // Startup already reported the run's failure, or the timeout: stop the run and rethrow it.
-            await gateway.StopAsync();
+            // Startup already reported the run's failure, or the timeout: stop the run, release the
+            // platform the gateway owns, and rethrow it.
+            await gateway.DisposeAsync();
             throw;
         }
     }
 
     /// <summary>
-    /// Stops the run; a run that failed while it ran throws its failure.
+    /// Stops the run and disposes the gateway; a run that failed while it ran throws its failure.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        await Gateway.StopAsync();
-        await Gateway.Completion;
+        try
+        {
+            await Gateway.StopAsync();
+            await Gateway.Completion;
+        }
+        finally
+        {
+            await Gateway.DisposeAsync();
+        }
     }
 }

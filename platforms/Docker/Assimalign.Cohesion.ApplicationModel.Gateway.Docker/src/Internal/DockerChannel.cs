@@ -27,7 +27,9 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Internal;
 /// is not for the key its manifest names is a publication: the gateway's answer, or its refusal, is
 /// posted back, where the instance waits for it. A state whose answer is current and whose renewal
 /// count moved is a renewal; when the gateway does not know the instance, the channel clears the
-/// answer, so the instance's next renewal finds itself unknown and it publishes again.
+/// answer, so the instance's next renewal finds itself unknown and it publishes again. An accepted
+/// publication and a known renewal are both reported to the infrastructure, which finishes a rollout
+/// on them.
 /// </para>
 /// <para>
 /// The channel lists the network's containers every <see cref="PollInterval"/>, so a gateway that
@@ -64,7 +66,8 @@ internal sealed class DockerChannel
     /// <param name="http">The client that reaches the published ports.</param>
     /// <param name="published">
     /// Called with a container's name once the gateway accepted its publication and the instance has
-    /// the answer, such as to finish a rollout; a failure there is ignored.
+    /// the answer, and again on each renewal the gateway knows, such as to finish a rollout; a failure
+    /// there is ignored. The call must therefore be idempotent.
     /// </param>
     public DockerChannel(IDockerEngine engine, string network, int controlPlanePort, string host, HttpClient http, Func<string, CancellationToken, Task>? published = null)
     {
@@ -281,7 +284,13 @@ internal sealed class DockerChannel
         {
             // The instance's next renewal finds no answer for itself, and it publishes again.
             await SendAsync(new HttpRequestMessage(HttpMethod.Delete, string.Concat(channel.AbsoluteUri, "/", DockerProtocol.AnswerRoute, "/", Uri.EscapeDataString(state.InstanceKey))), cancellationToken).ConfigureAwait(false);
+            return;
         }
+
+        // A known renewal is reported as a publication is. The gateway answers publications before it
+        // plans a resource, so an instance can publish before the deployment that runs it is recorded,
+        // and afterwards it only renews: its renewal is what finishes that deployment's rollout.
+        await ReportPublishedAsync(container, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task PublishAsync(IApplicationInstancePublisher gateway, string container, Uri channel, DockerChannelState state, ApplicationInstanceManifest manifest, CancellationToken cancellationToken)
@@ -306,22 +315,29 @@ internal sealed class DockerChannel
         {
             // The channel's own answer moves no renewal count, so it is not taken for a renewal.
             _renewals[container] = (state.InstanceKey, state.Renewal);
-            if (_published is { } published)
-            {
-                try
-                {
-                    await published.Invoke(container, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception)
-                {
-                    // Deliberately broad: what follows a publication is best effort, and never the
-                    // instance's concern.
-                }
-            }
+            await ReportPublishedAsync(container, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ReportPublishedAsync(string container, CancellationToken cancellationToken)
+    {
+        if (_published is not { } published)
+        {
+            return;
+        }
+
+        try
+        {
+            await published.Invoke(container, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Deliberately broad: what follows a publication is best effort, and never the instance's
+            // concern.
         }
     }
 

@@ -30,8 +30,10 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
 /// <c>http</c> and control-plane ports on loopback ports of its host.
 /// </para>
 /// <para>
-/// The infrastructure is also the gateway's inbound channel and its instance client:
-/// <see cref="DockerApplicationGatewayBuilderExtensions.UseDocker"/> sets it as both. The gateway
+/// The infrastructure is also the gateway's inbound channel and its instance client: the gateway
+/// builder's <c>UseDocker</c> sets it as both. <c>UseDocker(configure)</c> builds one with a
+/// <see cref="DockerInfrastructureBuilder"/> when the gateway is built, and the gateway owns it;
+/// <c>UseDocker(infrastructure)</c> borrows one its caller created and disposes. The gateway
 /// pulls: it polls each instance container's published control-plane port for the instance's
 /// publication and renewals, answers there, and calls the instance's control plane over the same
 /// port. An instance opts into the platform with the instance half's <c>UseDocker()</c>.
@@ -128,21 +130,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
     /// <exception cref="ObjectDisposedException">The infrastructure is disposed.</exception>
     public DockerInfrastructure AddImage(ProviderName provider, ResourceName name, string image)
     {
-        if (provider.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
-        }
-
-        if (name.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
-        }
-
-        if (string.IsNullOrWhiteSpace(image))
-        {
-            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
-        }
-
+        CheckImage(provider, name, image);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) != 0, this);
         if (!_images.TryAdd((provider, name), image))
         {
@@ -240,10 +228,18 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         // The containers this deployment replaces keep running, and serving under the resource's name,
         // until every one of its own has published (OnPublishedAsync), as a rollout keeps the previous
         // pods until the new ones are ready. An update whose containers never publish leaves them. The
-        // rollout is recorded first, so no publication of its containers can come before it.
+        // rollout is recorded before its containers start, but one that already runs, such as a
+        // container an earlier gateway started and never answered, can have published before the plan:
+        // the channel reports each of its known renewals too, so the next one finishes the rollout.
+        // A report counts only once the loop below has settled that container, kept or created
+        // again (Rollout.Settle): the channel runs beside the deployment, and a container caught in
+        // a restart loop still renews until the loop removes it, which proves nothing about the
+        // container that replaces it (the gateway's own rule, G43).
+        Rollout? rollout = null;
         if (previous.Any(container => DockerWorkload.GetName(container) is { } name && !current.Contains(name, StringComparer.Ordinal)))
         {
-            _rollouts[(resource.Provider, resource.Name)] = new Rollout(resource, current);
+            rollout = new Rollout(resource, current);
+            _rollouts[(resource.Provider, resource.Name)] = rollout;
         }
         else
         {
@@ -263,6 +259,7 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
                 && Label(existing, DockerWorkload.DeploymentLabel) == deployment.ToString()
                 && await _engine.InspectContainerAsync(name, cancellationToken).ConfigureAwait(false) is { RestartCount: < DockerWorkload.RestartLoopCount })
             {
+                rollout?.Settle(name);
                 await _engine.StartContainerAsync(name, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -272,15 +269,19 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
                 await _engine.RemoveContainerAsync(name, cancellationToken).ConfigureAwait(false);
             }
 
+            // Settled once created: whatever reports this name from here on is the new container,
+            // which cannot publish before it starts.
             DockerContainerCreateRequest container = DockerWorkload.CreateContainer(model, resource, settings, deployment, image, revision, workload, replica, name, Network, _options);
             await _engine.CreateContainerAsync(name, container, cancellationToken).ConfigureAwait(false);
+            rollout?.Settle(name);
             await _engine.StartContainerAsync(name, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    // A container that published: when it completes a rollout, the containers of every other workload
-    // of the resource go. Best effort: a removal that fails leaves them, and the next run plans an update,
-    // which removes them once its containers publish again.
+    // A container that published or renewed: when it completes a rollout, the containers of every other
+    // workload of the resource go. A container reported again, before any rollout names it, or before
+    // the deployment settled it, changes nothing. Best effort: a removal that fails leaves them, and the next run plans an update, which
+    // removes them once its containers publish or renew again.
     internal async Task OnPublishedAsync(string container, CancellationToken cancellationToken)
     {
         foreach (KeyValuePair<(ProviderName Provider, ResourceName Name), Rollout> entry in _rollouts)
@@ -564,6 +565,25 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         return new DockerInfrastructure(Validate(options), engine, "test://engine", host);
     }
 
+    // An image binding as both AddImage and the builder's take it.
+    internal static void CheckImage(ProviderName provider, ResourceName name, string image)
+    {
+        if (provider.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
+        }
+
+        if (name.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
+        }
+
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
+        }
+    }
+
     private static string? Label(DockerContainerSummary container, string name)
     {
         return container.Labels is { } labels && labels.TryGetValue(name, out string? value) ? value : null;
@@ -606,9 +626,13 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
 
     // An update whose containers have not all published yet: the containers it runs, and those still to
     // publish. Until none is left, the resource's other containers keep running.
+    // A container counts only once the deployment has settled it (kept, or created again), so a
+    // report from a container the deployment has yet to remove finishes nothing.
     private sealed class Rollout
     {
+        private readonly Lock _lock = new();
         private readonly HashSet<string> _pending;
+        private readonly HashSet<string> _settled = new(StringComparer.Ordinal);
 
         public Rollout(ApplicationResourceManifest resource, string[] containers)
         {
@@ -621,12 +645,23 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
 
         public string[] Containers { get; }
 
-        // Marks a container published; true when it was the last of the rollout's.
+        // The deployment kept the container, or created it again: what reports it from here on is
+        // the container the rollout runs.
+        public void Settle(string container)
+        {
+            lock (_lock)
+            {
+                _settled.Add(container);
+            }
+        }
+
+        // Marks a settled container published; true when it was the last of the rollout's. A report
+        // before the deployment settled the container is ignored: the container may yet be removed.
         public bool Complete(string container)
         {
-            lock (_pending)
+            lock (_lock)
             {
-                return _pending.Remove(container) && _pending.Count == 0;
+                return _settled.Contains(container) && _pending.Remove(container) && _pending.Count == 0;
             }
         }
     }

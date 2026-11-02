@@ -36,9 +36,11 @@ namespace Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes;
 /// </para>
 /// <para>
 /// The infrastructure is also the gateway's inbound channel and its instance client, all through the
-/// cluster's API server, so the gateway runs inside the cluster or outside it alike:
-/// <see cref="KubernetesApplicationGatewayBuilderExtensions.UseKubernetes"/> sets it as both the
-/// gateway's infrastructure and its instance client. An instance
+/// cluster's API server, so the gateway runs inside the cluster or outside it alike: the gateway
+/// builder's <c>UseKubernetes</c> sets it as both the gateway's infrastructure and its instance client.
+/// <c>UseKubernetes(configure)</c> builds one with a <see cref="KubernetesInfrastructureBuilder"/> when
+/// the gateway is built, and the gateway owns it; <c>UseKubernetes(infrastructure)</c> borrows one its
+/// caller created and disposes. An instance
 /// opts into the platform with the instance half's <c>UseKubernetes()</c>: it publishes and renews
 /// through a Lease named after its pod, and the gateway calls its control plane through the API
 /// server's pod proxy.
@@ -158,21 +160,7 @@ public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructure
     /// <exception cref="ObjectDisposedException">The infrastructure is disposed.</exception>
     public KubernetesInfrastructure AddImage(ProviderName provider, ResourceName name, string image)
     {
-        if (provider.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
-        }
-
-        if (name.Value is null)
-        {
-            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
-        }
-
-        if (string.IsNullOrWhiteSpace(image))
-        {
-            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
-        }
-
+        CheckImage(provider, name, image);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) != 0, this);
         if (!_images.TryAdd((provider, name), image))
         {
@@ -394,6 +382,25 @@ public sealed class KubernetesInfrastructure : IApplicationGatewayInfrastructure
         return _images.TryGetValue((resource.Provider, resource.Name), out string? image)
             ? image
             : throw new InvalidOperationException(Format(ErrorMessages.ImageUnbound, resource.Provider, resource.Name));
+    }
+
+    // An image binding as both AddImage and the builder's take it.
+    internal static void CheckImage(ProviderName provider, ResourceName name, string image)
+    {
+        if (provider.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ProviderNameMissing, nameof(provider));
+        }
+
+        if (name.Value is null)
+        {
+            throw new ArgumentException(ErrorMessages.ResourceNameMissing, nameof(name));
+        }
+
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            throw new ArgumentException(ErrorMessages.ImageMissing, nameof(image));
+        }
     }
 
     private static V1Patch Apply<T>(T value)

@@ -14,7 +14,8 @@ come back from it is listed under [Backfill](#backfill).
 | `IApplicationGatewayInfrastructureProvider` | Plans, deploys, watches, reports the outputs of, and tears down each resource as a Deployment and a Service. Its `StartAsync(context)` and `StopAsync` run the inbound channel (GK11): it watches the namespace's instance Leases and answers their publications and renewals through `context.Publisher`. |
 | `IApplicationGatewayInstanceClient` | Calls an instance's control plane through the API server's pod proxy. |
 
-`builder.UseKubernetes(infrastructure)` sets it as both. The instance half,
+`builder.UseKubernetes(configure)`, which builds it and gives it to the gateway to own, or
+`builder.UseKubernetes(infrastructure)`, which lends it, sets it as both (GK12). The instance half,
 `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes`, is the other end of the channel and the
 client. The two halves never reference each other: the protocol they share, names and endpoint
 forms, is one file, `Hosting.Kubernetes/shared/KubernetesProtocol.cs`, compiled into both.
@@ -182,6 +183,30 @@ without a run ending. The Lease protocol (GK2) is unchanged.
 - *Rejected:* keeping a separate channel object for the builder to register. The builder no longer
   takes one (`UseTransport` is gone), and the channel shares the infrastructure's client and
   namespace.
+
+**GK12 — The gateway owns the infrastructure its verb builds (2026-11-01).** ApplicationModel.Gateway
+lets a platform's verb hand the gateway a factory instead of an object (`UsePlatform`, G42), so the
+platform has two registration verbs:
+
+- `builder.UseKubernetes(configure)` takes a callback over a `KubernetesInfrastructureBuilder`, whose
+  `Options` are the `KubernetesInfrastructureOptions` and whose `AddImage` binds an image as the
+  infrastructure's does. The gateway's `Build()` calls the callback and the builder's `Build()` last,
+  after everything else it checks has passed: a gateway that is never built connects to no cluster,
+  and an invalid namespace or a duplicate image fails the gateway's build. The gateway owns the
+  infrastructure and disposes it when it is disposed, after its run has stopped.
+- `builder.UseKubernetes(infrastructure)` stays for an infrastructure the program creates itself. The
+  gateway borrows it, and the program disposes it after the gateway stops.
+
+The builder checks each image as it is added, with the infrastructure's own rules, so a duplicate
+fails at the call that adds it and binding the images to the new infrastructure cannot fail. Its
+`Build()` creates the infrastructure through `Create`, which copies the options, so each call
+creates an independent infrastructure and later changes to `Options` change nothing.
+
+- *Rejected:* creating the infrastructure in `UseKubernetes`. A builder that is never built, or whose
+  model breaks a rule, would then leave an open client the program has no handle to dispose.
+- *Rejected:* an optional callback. Unlike the in-process platform, nothing runs on Kubernetes
+  without an image bound, so `UseKubernetes()` with no callback would build a gateway that cannot
+  deploy anything.
 
 ## Open questions
 

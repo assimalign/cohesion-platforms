@@ -13,14 +13,17 @@ in its gateway half's `docs/DESIGN.md` (Kubernetes `GK*`, Docker `GD*`) and its 
 
 | Half | Package | References | Public surface |
 | --- | --- | --- | --- |
-| Gateway | `Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>` | `Assimalign.Cohesion.ApplicationModel.Gateway`, plus the platform's own client library if it needs one (`KubernetesClient`) | `<Platform>Infrastructure`, its options, `builder.Use<Platform>(infrastructure)` on the gateway builder, and the platform's resource-extension verbs (`WithReplicas`, `WithDockerReplicas`) |
+| Gateway | `Assimalign.Cohesion.ApplicationModel.Gateway.<Platform>` | `Assimalign.Cohesion.ApplicationModel.Gateway`, plus the platform's own client library if it needs one (`KubernetesClient`) | `<Platform>Infrastructure`, its options, its `<Platform>InfrastructureBuilder`, `builder.Use<Platform>(configure)` and `builder.Use<Platform>(infrastructure)` on the gateway builder, and the platform's resource-extension verbs (`WithReplicas`, `WithDockerReplicas`) |
 | Instance | `Assimalign.Cohesion.ApplicationModel.Hosting.<Platform>` | `Assimalign.Cohesion.ApplicationModel.Hosting`, plus the same platform client if needed | `options.Use<Platform>()`, an extension on `TOptions : ApplicationInstanceOptions` that adds the platform's gateway client to a resource's program: `builder.Services.AddResource(name, options => options.Use<Platform>())` |
 
 - **The gateway half is one type for both seams.** `<Platform>Infrastructure` implements
   `IApplicationGatewayInfrastructureProvider` (plan, deploy, watch, outputs, teardown, and, from its
   `StartAsync(context)`/`StopAsync`, the inbound channel that hands publications and renewals to
   `context.Publisher`) and `IApplicationGatewayInstanceClient` (calls into an instance's control
-  plane). `Use<Platform>` sets it as both. `AddImage(provider, name, image)` binds a resource to the
+  plane). `Use<Platform>` sets it as both: `Use<Platform>(configure)` passes the gateway builder's
+  `UsePlatform` a factory over a `<Platform>InfrastructureBuilder`, so the gateway creates and owns the
+  infrastructure, and `Use<Platform>(infrastructure)` lends one the program created and disposes
+  (Kubernetes GK12, Docker GD12). `AddImage(provider, name, image)` binds a resource to the
   image that runs it.
 - **The instance half is the other end of the channel.** It publishes and renews, and serves the
   instance's control plane. An instance picks its client by the runtime contract's
