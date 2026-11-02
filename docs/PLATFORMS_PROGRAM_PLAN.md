@@ -48,9 +48,10 @@ platform pairs with the `cohesion-work-items` skill.
 1. **The cohesion pin.** Every Cohesion package is consumed at `CohesionPackageVersion` in
    `build/Targets/Build.References.Packages.targets`, today a pull-request CI build of
    assimalign/cohesion#1784 (stacked on #1759). Its versions are deleted when that pull request
-   closes: move the pin to a cohesion `main` CI build once it merges. The pin, `pr.1784.178`, was
-   built from cohesion c0c16dec7 and carries `ApplicationGatewayBuilder.UsePlatform`, which
-   `UseKubernetes` and `UseDocker` build on.
+   closes: move the pin to a cohesion `main` CI build once it merges. The pin, `pr.1784.179`, was
+   built from cohesion 9c402d1bc and carries `ApplicationGatewayBuilder.UsePlatform`, which
+   `UseKubernetes` and `UseDocker` build on, and the gateway fix that counts an instance publishing
+   before its resource is planned.
 2. **The contracts.** A gateway half follows cohesion's `ApplicationModel.Gateway` design and an
    instance half its `ApplicationModel.Hosting` design; a contract change there is a change to both
    pairs here. `docs/RUNTIME_CONTRACT.md` in cohesion is the runtime contract every platform hands its
