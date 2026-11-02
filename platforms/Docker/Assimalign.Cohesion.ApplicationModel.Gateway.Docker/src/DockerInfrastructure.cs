@@ -228,7 +228,9 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         // The containers this deployment replaces keep running, and serving under the resource's name,
         // until every one of its own has published (OnPublishedAsync), as a rollout keeps the previous
         // pods until the new ones are ready. An update whose containers never publish leaves them. The
-        // rollout is recorded first, so no publication of its containers can come before it.
+        // rollout is recorded before its containers start, but one that already runs, such as a
+        // container an earlier gateway started and never answered, can have published before the plan:
+        // the channel reports each of its known renewals too, so the next one finishes the rollout.
         if (previous.Any(container => DockerWorkload.GetName(container) is { } name && !current.Contains(name, StringComparer.Ordinal)))
         {
             _rollouts[(resource.Provider, resource.Name)] = new Rollout(resource, current);
@@ -266,9 +268,10 @@ public sealed class DockerInfrastructure : IApplicationGatewayInfrastructureProv
         }
     }
 
-    // A container that published: when it completes a rollout, the containers of every other workload
-    // of the resource go. Best effort: a removal that fails leaves them, and the next run plans an update,
-    // which removes them once its containers publish again.
+    // A container that published or renewed: when it completes a rollout, the containers of every other
+    // workload of the resource go. A container reported again, or before any rollout names it, changes
+    // nothing. Best effort: a removal that fails leaves them, and the next run plans an update, which
+    // removes them once its containers publish or renew again.
     internal async Task OnPublishedAsync(string container, CancellationToken cancellationToken)
     {
         foreach (KeyValuePair<(ProviderName Provider, ResourceName Name), Rollout> entry in _rollouts)

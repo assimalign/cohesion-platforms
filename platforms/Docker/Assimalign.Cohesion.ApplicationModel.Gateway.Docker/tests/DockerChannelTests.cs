@@ -130,6 +130,43 @@ public class DockerChannelTests
         published.ShouldBe([Instance.Container]);
     }
 
+    [Fact(DisplayName = DisplayPrefix + "A renewal the gateway knows is reported as a publication is, and one it does not know is not")]
+    public async Task PollAsync_WithKnownRenewal_ShouldReportTheContainerAgain()
+    {
+        // Arrange
+        await using var instance = new Instance();
+        var gateway = new RecordingPublisher();
+        var published = new ConcurrentQueue<string>();
+        var channel = new DockerChannel(instance.Engine, "cohesion", instance.Port, "localhost", instance.Http, (container, _) =>
+        {
+            published.Enqueue(container);
+            return Task.CompletedTask;
+        });
+        Task<ApplicationInstancePublication> publishing = instance.Client.PublishAsync(instance.ControlPlane.Manifest).AsTask();
+        for (int attempt = 0; !publishing.IsCompleted; attempt++)
+        {
+            attempt.ShouldBeLessThan(100);
+            await channel.PollAsync(gateway, CancellationToken.None);
+            await Task.Delay(50);
+        }
+
+        await publishing;
+        int afterPublication = published.Count;
+
+        // Act
+        (await instance.Client.RenewAsync(instance.ControlPlane.Manifest)).ShouldBeTrue();
+        await channel.PollAsync(gateway, CancellationToken.None);
+        int afterKnownRenewal = published.Count;
+        gateway.Known = false;
+        (await instance.Client.RenewAsync(instance.ControlPlane.Manifest)).ShouldBeTrue();
+        await channel.PollAsync(gateway, CancellationToken.None);
+
+        // Assert
+        afterPublication.ShouldBe(1);
+        afterKnownRenewal.ShouldBe(2);
+        published.ShouldBe([Instance.Container, Instance.Container]);
+    }
+
     [Fact(DisplayName = DisplayPrefix + "A renewal the gateway does not know clears the answer, so the instance finds itself unknown and publishes again")]
     public async Task PollAsync_WithUnknownRenewal_ShouldSendTheInstanceToPublishAgain()
     {

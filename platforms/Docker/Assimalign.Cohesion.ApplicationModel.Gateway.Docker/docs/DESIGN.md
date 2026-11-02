@@ -151,11 +151,19 @@ recovered is not reported as one that keeps ending), and replaced when it is ano
 An update keeps the previous containers until every one of its own has published, as a Deployment
 keeps its old pods until the new ones are ready: they keep running, and answering under the
 resource's name, alongside the new ones. The infrastructure records the update's containers before
-it starts them; the channel reports each accepted publication (GD2), and the last one removes every
-other container of the resource. An update whose containers never publish (a bad setting or image)
+it starts them; the channel reports each accepted publication and known renewal (GD2), and the
+last one removes every other container of the resource. An update whose containers never publish (a bad setting or image)
 therefore leaves the previous containers serving, and the next plan sees the mix and updates again.
 The removal is best effort: one that fails leaves the containers, and the next run's update removes
 them once its containers publish again. Until then the alias round-robins between both workloads.
+
+Since 2026-11-01 the channel reports every renewal the gateway knows as well, and finishing a
+rollout ignores a container reported again or before any rollout names it. The gateway answers
+publications before it plans a resource, and since its G43 a publication made before the plan
+counts as the deployment's start when it repeats the plan's id. So a container that an earlier
+gateway started and never answered can publish before the update is recorded, and afterwards only
+renews. Before, nothing then finished the rollout, and the previous containers kept serving under
+the resource's name for the whole run; now its next renewal (every third of a lease) does.
 
 **GD6 — The program is never PID 1.** Every container runs under the engine's init
 (`HostConfig.Init`: `docker-init` on Docker, `catatonit` on Podman), so the program is PID 2. A .NET
