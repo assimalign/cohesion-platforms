@@ -152,20 +152,34 @@ An update keeps the previous containers until every one of its own has published
 keeps its old pods until the new ones are ready: they keep running, and answering under the
 resource's name, alongside the new ones. The infrastructure records the update's containers before
 it starts them; the channel reports each accepted publication and known renewal (GD2), and the
-last one removes every other container of the resource. An update whose containers never publish (a bad setting or image)
-therefore leaves the previous containers serving, and the next plan sees the mix and updates again.
-The removal is best effort: one that fails leaves the containers, and the next run's update removes
-them once its containers publish again. Until then the alias round-robins between both workloads.
+last one removes every other container of the resource. An update whose containers never publish
+(a bad setting or image) therefore leaves the previous containers serving, and the next plan sees
+the mix and updates again. The removal is best effort: one that fails leaves the containers, and
+the next run's update removes them once its containers publish again. Until then the alias
+round-robins between both workloads.
 
 Since 2026-11-01 the channel reports every renewal the gateway knows as well, and finishing a
 rollout ignores a container reported again or before any rollout names it. The gateway answers
-publications before it plans a resource, and since its G43 an instance that published before the
-plan counts as the deployment's start when it repeats the plan's id and renews after the
-deployment call returns, which shows the deployment kept it. A container this deployment removes
-and recreates (a restart loop) never renews, so its replacement's publication counts instead. So a
-container that an earlier gateway started and never answered can publish before the update is
-recorded, and afterwards only renews. Before, nothing then finished the rollout, and the previous containers kept serving under
-the resource's name for the whole run; now its next renewal (every third of a lease) does.
+publications before it plans a resource, so a container that an earlier gateway started and never
+answered can publish before the update is recorded, and afterwards only renews. Before, nothing
+then finished the rollout, and the previous containers kept serving under the resource's name for
+the whole run; now its next renewal (every third of a lease) does. The gateway's G43 takes the
+same evidence for the resource's start: an instance that published before the plan counts when it
+repeats the plan's id and renews after the deployment call returns, which shows the deployment
+kept it. A container this deployment removes and recreates (a restart loop) never renews after
+that, so its replacement's publication counts instead.
+
+The rollout applies that rule inside the call too. The channel runs beside the deployment, and a
+container in a restart loop still renews until the replica loop reaches and removes it, so a report
+counts only once the loop has settled its container: started again as this deployment's, or
+created again. A renewal from a container the loop has yet to recreate finishes nothing, and the
+previous workload keeps serving until the replacement publishes or renews. Before (the first form
+of the change above), such a renewal could finish the rollout and remove the previous containers
+moments before the loop removed the one that renewed, leaving nothing serving whenever the
+replacement never published. One window remains: a renewal the channel read from the old container
+before its removal and reports only after the replacement was created still counts. It spans one
+renewal call against a removal, a create and a start; keying the rollout by container id, which
+the channel would then pass with each report, would close it.
 
 **GD6 — The program is never PID 1.** Every container runs under the engine's init
 (`HostConfig.Init`: `docker-init` on Docker, `catatonit` on Podman), so the program is PID 2. A .NET

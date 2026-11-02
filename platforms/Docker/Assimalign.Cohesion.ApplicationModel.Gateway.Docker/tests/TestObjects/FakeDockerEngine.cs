@@ -27,6 +27,9 @@ internal sealed class FakeDockerEngine : IDockerEngine
     /// <summary>The host port the next container's control-plane port is published on; ephemeral ports otherwise.</summary>
     public int? NextControlPlanePort { get; set; }
 
+    /// <summary>Called with a container's name before the engine removes it, such as to report it meanwhile.</summary>
+    public Func<string, Task>? Removing { get; set; }
+
     public IReadOnlyList<FakeContainer> Containers
     {
         get
@@ -141,14 +144,17 @@ internal sealed class FakeDockerEngine : IDockerEngine
         }
     }
 
-    public Task RemoveContainerAsync(string container, CancellationToken cancellationToken)
+    public async Task RemoveContainerAsync(string container, CancellationToken cancellationToken)
     {
+        if (Removing is { } removing)
+        {
+            await removing.Invoke(container);
+        }
+
         lock (_lock)
         {
             _containers.Remove(container);
         }
-
-        return Task.CompletedTask;
     }
 
     public void Dispose()
