@@ -159,10 +159,12 @@ them once its containers publish again. Until then the alias round-robins betwee
 
 Since 2026-11-01 the channel reports every renewal the gateway knows as well, and finishing a
 rollout ignores a container reported again or before any rollout names it. The gateway answers
-publications before it plans a resource, and since its G43 a publication made before the plan
-counts as the deployment's start when it repeats the plan's id. So a container that an earlier
-gateway started and never answered can publish before the update is recorded, and afterwards only
-renews. Before, nothing then finished the rollout, and the previous containers kept serving under
+publications before it plans a resource, and since its G43 an instance that published before the
+plan counts as the deployment's start when it repeats the plan's id and renews after the
+deployment call returns, which shows the deployment kept it. A container this deployment removes
+and recreates (a restart loop) never renews, so its replacement's publication counts instead. So a
+container that an earlier gateway started and never answered can publish before the update is
+recorded, and afterwards only renews. Before, nothing then finished the rollout, and the previous containers kept serving under
 the resource's name for the whole run; now its next renewal (every third of a lease) does.
 
 **GD6 — The program is never PID 1.** Every container runs under the engine's init
