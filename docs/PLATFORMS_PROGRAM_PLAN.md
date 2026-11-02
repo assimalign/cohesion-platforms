@@ -46,17 +46,17 @@ platform pairs with the `cohesion-work-items` skill.
 ## Cross-repository dependencies
 
 1. **The cohesion pin.** Every Cohesion package is consumed at `CohesionPackageVersion` in
-   `build/Targets/Build.References.Packages.targets`, today a pull-request CI build of
-   assimalign/cohesion#1759. Its versions are deleted when that pull request closes: move the pin to
-   a cohesion `main` CI build once it merges. **Open (2026-10-31):** the pin, `pr.1759.172`, was
-   built from cohesion 607b27a53 and predates the renames this branch's code consumes (cohesion
-   784cd2404 and 475592db6, not pushed yet), so this branch builds only against the local sibling
-   packs until those commits are pushed, packed, and pinned (item 2).
+   `build/Targets/Build.References.Packages.targets`, today the cohesion `main` CI build
+   `ci.185`, built from cohesion e86d5dcc5 after assimalign/cohesion#1759 and #1784 merged. It
+   carries the restarted application model, including the gateway's `UseInfrastructure` and
+   `UseInstanceClient`, which `UseKubernetes` and `UseDocker` build on. No preview release is
+   planned for a while, so the pin follows `main` CI builds; move it forward when cohesion `main`
+   changes something the platforms consume, and before the feed prunes the pinned build.
 2. **The contracts.** A gateway half follows cohesion's `ApplicationModel.Gateway` design and an
    instance half its `ApplicationModel.Hosting` design; a contract change there is a change to both
    pairs here. `docs/RUNTIME_CONTRACT.md` in cohesion is the runtime contract every platform hands its
    instances. **Order the pushes:** a cohesion contract change is pushed and CI-packed (its
-   `ci-packages` run on #1759, or on `main`) before the platforms change that consumes it, and the pin
+   `ci-packages` run on `main`, or on its pull request) before the platforms change that consumes it, and the pin
    moves to that run's version in the same change. Verify without the sibling override first: restore
    from GitHub Packages in a copy outside the tree, then build, since a build against
    `CohesionSiblingPackageVersion` proves nothing about CI.
