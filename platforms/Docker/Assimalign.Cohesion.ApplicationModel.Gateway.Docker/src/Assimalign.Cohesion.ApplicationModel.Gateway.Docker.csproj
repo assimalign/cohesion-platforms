@@ -1,21 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<IsAotCompatible>true</IsAotCompatible>
+		<RootNamespace>Assimalign.Cohesion.ApplicationModel.Gateway.Docker</RootNamespace>
+		<Description>The gateway half of the Cohesion Docker platform: runs a gateway's resources as containers on one network of a Docker-compatible engine, Podman's included, polls their instances' control-plane ports for publications and renewals, and calls their control planes there. Talks to the engine's API directly, with no Docker SDK.</Description>
 	</PropertyGroup>
 	<ItemGroup>
-		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel" />
 		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
 	</ItemGroup>
 	<ItemGroup>
-		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Containers" />
+		<!-- The protocol both halves of the platform share, compiled from the instance half's folder. -->
+		<Compile Include="..\..\Assimalign.Cohesion.ApplicationModel.Hosting.Docker\shared\DockerProtocol.cs" Link="Internal\DockerProtocol.cs" />
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests" />
-	</ItemGroup>
-	<ItemGroup>
-		<None
-			Include="..\buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Docker.props"
-			Pack="true"
-			PackagePath="buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Docker.props" />
 	</ItemGroup>
 </Project>

@@ -1,24 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <IsPackable>false</IsPackable>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <CohesionPackageReference Include="coverlet.collector" />
-    <CohesionPackageReference Include="Microsoft.NET.Test.Sdk" />
-    <CohesionPackageReference Include="xunit" />
-    <CohesionPackageReference Include="xunit.runner.visualstudio" />
-    <CohesionPackageReference Include="Shouldly" />
-    <CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
+	<PropertyGroup>
+		<RootNamespace>Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests</RootNamespace>
+		<IsPackable>false</IsPackable>
+	</PropertyGroup>
+	<ItemGroup>
+		<CohesionPackageReference Include="coverlet.collector" />
+		<CohesionPackageReference Include="Microsoft.NET.Test.Sdk" />
+		<CohesionPackageReference Include="xunit" />
+		<CohesionPackageReference Include="xunit.runner.visualstudio" />
+		<CohesionPackageReference Include="Shouldly" />
+	</ItemGroup>
+	<ItemGroup>
+		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes" />
+	</ItemGroup>
 </Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- The Kubernetes end-to-end test's resource program: an ordinary Web application that opts its
+	     resource into the Kubernetes platform. One image runs as every resource of the test's model; the
+	     resource's name, from its environment, chooses what it answers. Never packed. -->
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<RootNamespace>Assimalign.Cohesion.ApplicationModel.Kubernetes.Fixtures</RootNamespace>
+		<IsPackable>false</IsPackable>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<EnableSdkContainerSupport>true</EnableSdkContainerSupport>
+		<ContainerRepository>cohesion-kubernetes-web</ContainerRepository>
+		<ContainerImageTag>e2e</ContainerImageTag>
+	</PropertyGroup>
+	<ItemGroup>
+		<CohesionPackageReference Include="Assimalign.Cohesion.Web.Hosting" />
+		<CohesionPackageReference Include="Assimalign.Cohesion.Web.Hosting.ApplicationModel" />
+	</ItemGroup>
+	<ItemGroup>
+		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes" />
+	</ItemGroup>
+</Project>

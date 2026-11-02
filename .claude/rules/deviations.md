@@ -33,5 +33,5 @@ These are architectural commitments, not stylistic preferences — deviating has
 - No `Microsoft.Extensions.*` references
 - The `$(CohesionVersion)` single-source-of-truth chain
 - Never hardcoding a version on `<Import Sdk>`
-- The platform layering rule: shipped platform projects may reference the generic ApplicationModel contract, Gateway base, and shared Containers libraries only; never a resource-area package (`<Area>.Client`, `<Area>.ApplicationModel`, `<Area>.ApplicationModel.Orchestration`, `*.Hosting`, `<Area>.Application` runtimes) or `Microsoft.Extensions.*`
-- Digest-pinned container image references — deployments always pull by `@sha256:` digest, never by tag
+- The platform-pair rules in `platform-areas.md`: no references between a pair's halves or between platforms (they share linked source only), and no resource-area package (`<Area>.ApplicationModel`, `<Area>.Hosting` runtime modules and their `.ApplicationModel` integrations, `<Area>.Application`, `<Area>.Client`) or `Microsoft.Extensions.*` in a shipped platform project
+- The provider-contract revision rule: a plan's revision never carries settings' values or extensions, because the gateway drops a resource's recorded state on a new revision

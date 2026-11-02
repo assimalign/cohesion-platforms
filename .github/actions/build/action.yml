@@ -1,12 +1,12 @@
 name: "Cohesion Platforms Build"
-description: "Restores, builds, tests, and (on main/Linux) packs + publishes one platform project."
+description: "Restores, builds, and tests one platform project. Publishing is ci-packages.yml's alone."
 
 inputs:
   area:
     description: "Top-level tree the project lives in (e.g. platforms)."
     required: true
   category:
-    description: "Area folder name (e.g. Kubernetes, Docker, Containers)."
+    description: "Area folder name (e.g. Kubernetes, Docker)."
     required: true
   project:
     description: "Project/assembly name (e.g. Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes)."
@@ -14,9 +14,10 @@ inputs:
   cohesion-ref:
     description: >-
       When set, build against a sibling checkout of assimalign/cohesion at this ref (branch, tag or SHA)
-      instead of the staging feed: .github/scripts/Pack-CohesionSibling.ps1 clones it to ../cohesion and packs the
-      consumed package closure into its _out/packages, which build/Targets/Build.References.Packages.targets
-      picks up automatically. Used while this branch tracks unreleased cohesion work; empty means the feed.
+      instead of the pinned CI packages: .github/scripts/Pack-CohesionSibling.ps1 clones it to ../cohesion,
+      packs the consumed package closure into its _out/packages at cohesion's .local version, and reports
+      that version, which restore, build and test receive as CohesionSiblingPackageVersion. Empty means
+      the CohesionPackageVersion pin in build/Targets/Build.References.Packages.targets.
     required: false
     default: ""
 
@@ -29,6 +30,7 @@ runs:
         global-json-file: global.json
 
     - name: Pack the sibling cohesion checkout
+      id: sibling
       if: ${{ inputs.cohesion-ref != '' }}
       shell: pwsh
       run: ./.github/scripts/Pack-CohesionSibling.ps1 -Ref "${{ inputs.cohesion-ref }}"
@@ -46,26 +48,23 @@ runs:
 
     - name: Build
       shell: pwsh
+      env:
+        COHESION_SIBLING_VERSION: ${{ steps.sibling.outputs.version }}
       run: |
-        dotnet restore ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj
-        dotnet build ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj --configuration Release --no-restore
+        $sibling = if ($env:COHESION_SIBLING_VERSION) { @("-p:CohesionSiblingPackageVersion=$env:COHESION_SIBLING_VERSION") } else { @() }
+        $project = "./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj"
+        dotnet restore $project @sibling
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet build $project --configuration Release --no-restore @sibling
 
     - name: Test
       if: ${{ hashFiles(format('./{0}/{1}/{2}/tests/{2}.Tests.csproj', inputs.area, inputs.category, inputs.project)) != '' }}
       shell: pwsh
-      run: |
-        dotnet restore ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/tests/${{ inputs.project }}.Tests.csproj
-        dotnet test ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/tests/${{ inputs.project }}.Tests.csproj --configuration Release --no-restore
-
-    # Publish once per matrix (Linux) and only from main. The feed is QA/UAT staging with
-    # delete-then-replace semantics on a constant version (see .github/scripts/Publish-Nupkg.ps1).
-    - name: Pack & publish (main, Linux only)
-      if: ${{ github.ref == 'refs/heads/main' && runner.os == 'Linux' }}
-      shell: pwsh
       env:
-        GITHUB_TOKEN: ${{ github.token }}
+        COHESION_SIBLING_VERSION: ${{ steps.sibling.outputs.version }}
       run: |
-        dotnet pack ./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/src/${{ inputs.project }}.csproj --configuration Release --no-build
-        $nupkg = Get-ChildItem ./_out/packages/${{ inputs.project }}.*.nupkg -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $nupkg) { Write-Host "No nupkg produced (IsPackable=false?); skipping publish."; exit 0 }
-        ./.github/scripts/Publish-Nupkg.ps1 -NupkgPath $nupkg.FullName
+        $sibling = if ($env:COHESION_SIBLING_VERSION) { @("-p:CohesionSiblingPackageVersion=$env:COHESION_SIBLING_VERSION") } else { @() }
+        $project = "./${{ inputs.area }}/${{ inputs.category }}/${{ inputs.project }}/tests/${{ inputs.project }}.Tests.csproj"
+        dotnet restore $project @sibling
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet test $project --configuration Release --no-restore @sibling

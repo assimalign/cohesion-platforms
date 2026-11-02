@@ -1,12 +1,11 @@
 <Project>
     <!--
-        Local inner-loop feed: when a sibling cohesion checkout has packed nupkgs
-        (installer/scripts/Install-Local.ps1 or dotnet pack -> _out/packages), restore
-        resolves Assimalign.Cohesion.* from it. Cohesion package releases are immutable:
-        advance the release floor to consume a newer line, and never name a version that
-        is absent from its feed. The Exists-guarded CohesionSiblingPackageVersion property
-        is intentionally overridable so inner-loop builds can select the exact .local
-        identity; CI and machines without the sibling checkout use the release floor.
+        Every Assimalign.Cohesion.* package is consumed at one version, chosen in this order:
+          1. CohesionSiblingPackageVersion, when a sibling cohesion checkout has packed nupkgs
+             into _out/packages (.github/scripts/Pack-CohesionSibling.ps1 -Local): the inner loop.
+          2. CohesionPackageVersion: the cohesion CI build this repository builds against (CI).
+          3. The release floor, when CohesionPackageVersion is set empty.
+        Never name a version that is absent from its feed.
     -->
     <PropertyGroup>
         <_CohesionSiblingFeed>$(CohesionRepositoryDirectory)..\cohesion\_out\packages</_CohesionSiblingFeed>
@@ -14,51 +13,43 @@
         <_CohesionSiblingFeed Condition="!Exists('$(_CohesionSiblingFeed)')">$(CohesionRepositoryDirectory)..\..\..\..\cohesion\_out\packages</_CohesionSiblingFeed>
         <RestoreAdditionalProjectSources Condition="Exists('$(_CohesionSiblingFeed)')">$(RestoreAdditionalProjectSources);$(_CohesionSiblingFeed)</RestoreAdditionalProjectSources>
 
+        <!--
+            The cohesion build this repository builds against: a CI package version from the GitHub
+            Packages feed, as cohesion's ci-packages.yml publishes it (main: 10.0.0-preview.0.ci.<run>,
+            a pull request: 10.0.0-preview.0.pr.<pr>.<run>). Packages built here depend on exactly
+            this version, so a consumer that pins both repositories' CI builds restores one cohesion
+            build. A pull request's versions are deleted when it closes: move the pin to a main build
+            once the pull request merges. Empty uses the release floor.
+        -->
+        <CohesionPackageVersion Condition="'$(CohesionPackageVersion)' == ''">10.0.0-preview.0.pr.1759.172</CohesionPackageVersion>
         <_CohesionPackageVersionFloor>[10.0.0-preview.1, )</_CohesionPackageVersionFloor>
         <_CohesionConsumedPackageVersion>$(_CohesionPackageVersionFloor)</_CohesionConsumedPackageVersion>
+        <_CohesionConsumedPackageVersion Condition="'$(CohesionPackageVersion)' != ''">[$(CohesionPackageVersion)]</_CohesionConsumedPackageVersion>
         <_CohesionConsumedPackageVersion Condition="Exists('$(_CohesionSiblingFeed)') AND '$(CohesionSiblingPackageVersion)' != ''">[$(CohesionSiblingPackageVersion)]</_CohesionConsumedPackageVersion>
     </PropertyGroup>
 
     <!-- #region Packages & Dependencies -->
     <ItemGroup>
-        <!-- Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). -->
+        <!--
+            Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). The
+            projects here reference ApplicationModel.Gateway, ApplicationModel.Hosting, Web.Hosting and
+            Web.Hosting.ApplicationModel; the rest are not referenced directly. They stay listed because
+            .github/scripts/Pack-CohesionSibling.ps1 reads every Assimalign.Cohesion item here as a root
+            of the closure it packs; an item no project references adds no PackageReference.
+        -->
         <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Definition" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway.ControlPlane" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <!-- Both platforms' end-to-end fixtures are ordinary Web resource programs. -->
+        <_CohesionPackage Include="Assimalign.Cohesion.Web" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
+        <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
     </ItemGroup>
     <ItemGroup>
-        <_CohesionPackage Include="Sharprompt" Version="3.1.1" />
         <_CohesionPackage Include="KubernetesClient" Version="17.0.14" />
-        <_CohesionPackage Include="NUlid" Version="1.7.2" />
-        <_CohesionPackage Include="System.Threading.RateLimiting" Version="10.0.0"/>
-        <_CohesionPackage Include="System.Security.Cryptography.Xml" Version="10.0.0" />
-    </ItemGroup>
-
-    <!-- Analyzer & Build Dependencies -->
-    <ItemGroup>
-        <_CohesionPackage Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" />
-        <_CohesionPackage Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
-        <_CohesionPackage Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.0.0">
-            <PrivateAssets>all</PrivateAssets>
-        </_CohesionPackage>
-        <_CohesionPackage Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.0.0">
-            <PrivateAssets>all</PrivateAssets>
-        </_CohesionPackage>
-        <_CohesionPackage Include="Microsoft.Build" Version="18.7.1">
-            <PrivateAssets>all</PrivateAssets>
-            <ExcludeAssets>all</ExcludeAssets>
-        </_CohesionPackage>
-        <_CohesionPackage Include="Microsoft.Build.Framework" Version="18.7.1">
-            <PrivateAssets>all</PrivateAssets>
-            <ExcludeAssets>all</ExcludeAssets>
-        </_CohesionPackage>
-        <_CohesionPackage Include="Microsoft.Build.Utilities.Core" Version="18.7.1">
-            <PrivateAssets>all</PrivateAssets>
-            <ExcludeAssets>all</ExcludeAssets>
-        </_CohesionPackage>
-        <_CohesionPackage Include="Microsoft.Build.Locator" Version="1.11.2" />
-        <_CohesionPackage Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" Version="1.1.4" />
     </ItemGroup>
 
     <!-- XUnit Test Dependencies-->
@@ -73,11 +64,6 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </_CohesionPackage>
-    </ItemGroup>
-
-    <!-- PowerShell Binary Module Dependencies  -->
-    <ItemGroup>
-        <_CohesionPackage Include="System.Management.Automation" Version="7.6.0-preview.5" />
     </ItemGroup>
 
     <!-- #region: Package Reference Update -->

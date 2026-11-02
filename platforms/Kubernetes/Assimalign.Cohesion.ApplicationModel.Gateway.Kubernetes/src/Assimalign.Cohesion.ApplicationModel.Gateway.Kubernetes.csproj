@@ -1,22 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes</RootNamespace>
+		<Description>The gateway half of the Cohesion Kubernetes platform: deploys a gateway's resources to a cluster as Deployments and Services, receives the publications and renewals their instances make through Leases, and calls their control planes through the API server's pod proxy.</Description>
+	</PropertyGroup>
 	<ItemGroup>
-		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel" />
 		<CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
 		<CohesionPackageReference Include="KubernetesClient" />
 	</ItemGroup>
 	<ItemGroup>
-		<CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Gateway.Containers" />
+		<!-- The protocol both halves of the platform share, compiled from the instance half's folder. -->
+		<Compile Include="..\..\Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes\shared\KubernetesProtocol.cs" Link="Internal\KubernetesProtocol.cs" />
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests" />
 	</ItemGroup>
-	<ItemGroup>
-		<None
-			Include="..\buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.props"
-			Pack="true"
-			PackagePath="buildTransitive\Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.props" />
-	</ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="../../scripts/New-CohesionKindCluster.ps1" LogicalName="cohesion/New-CohesionKindCluster.ps1" />
-  </ItemGroup>
 </Project>

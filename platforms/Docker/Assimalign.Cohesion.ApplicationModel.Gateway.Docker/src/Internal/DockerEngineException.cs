@@ -1,44 +1,26 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 
-namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker;
+namespace Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Internal;
 
+/// <summary>
+/// A Docker Engine API call that failed, with what the engine answered.
+/// </summary>
 internal sealed class DockerEngineException : HttpRequestException
 {
-    public DockerEngineException(
-        HttpMethod method,
-        Uri? requestUri,
-        HttpStatusCode statusCode,
-        string? responseBody,
-        Exception? innerException = null)
-        : base(CreateMessage(method, requestUri, statusCode, responseBody), innerException, statusCode)
+    public DockerEngineException(HttpMethod method, Uri? requestUri, HttpStatusCode? statusCode, string? detail, Exception? innerException = null)
+        : base(CreateMessage(method, requestUri, statusCode, detail), innerException, statusCode)
     {
-        Method = method;
-        RequestUri = requestUri;
-        ResponseBody = responseBody;
     }
 
-    public HttpMethod Method { get; }
-
-    public Uri? RequestUri { get; }
-
-    public string? ResponseBody { get; }
-
-    private static string CreateMessage(
-        HttpMethod method,
-        Uri? requestUri,
-        HttpStatusCode statusCode,
-        string? responseBody)
+    private static string CreateMessage(HttpMethod method, Uri? requestUri, HttpStatusCode? statusCode, string? detail)
     {
-        string location = requestUri?.ToString() ?? "the Docker Engine";
-        string message = $"Docker Engine request {method.Method} {location} failed with HTTP {(int)statusCode} ({statusCode}).";
+        string message = statusCode is { } status
+            ? string.Format(CultureInfo.CurrentCulture, ErrorMessages.EngineRequestFailed, method.Method, requestUri?.PathAndQuery, (int)status)
+            : string.Format(CultureInfo.CurrentCulture, ErrorMessages.EngineRequestUnanswered, method.Method, requestUri?.PathAndQuery);
 
-        if (!string.IsNullOrWhiteSpace(responseBody))
-        {
-            message = $"{message} {responseBody.Trim()}";
-        }
-
-        return message;
+        return string.IsNullOrWhiteSpace(detail) ? message : string.Concat(message, " ", detail.Trim());
     }
 }

@@ -9,8 +9,12 @@
     Packages staging feed. This script recreates the inner-loop layout on a CI runner: it clones cohesion to
     ../cohesion (the sibling path build/Targets/Build.References.Packages.targets probes), checks out the
     requested ref, builds cohesion's build tasks, then packs the transitive closure of every cohesion package
-    this repository consumes into ../cohesion/_out/packages. Restore then resolves the release floor from
-    that feed automatically; nothing here writes credentials or touches nuget.config.
+    this repository consumes into ../cohesion/_out/packages, at cohesion's local version (the canonical
+    prerelease plus .local) in both modes, so restore never has to choose between the sibling feed and a
+    GitHub Packages build of the same version. Restore uses the sibling packages only when it is given
+    that version as -p:CohesionSiblingPackageVersion=<version>; the script prints it, and on a runner
+    writes it to the step's GITHUB_OUTPUT as 'version', which the composite build action passes on.
+    Nothing here writes credentials or touches nuget.config.
 
     The roots are read from build/Targets/Build.References.Packages.targets (_CohesionPackage items whose id
     starts with Assimalign.Cohesion.), and the closure follows CohesionProjectReference and
@@ -25,9 +29,14 @@
 .EXAMPLE
     ./.github/scripts/Pack-CohesionSibling.ps1 -Ref feature/dx-design-buildout
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Ref')]
 param(
-    [Parameter(Mandatory)] [string] $Ref,
+    [Parameter(Mandatory, ParameterSetName = 'Ref')] [string] $Ref,
+    # The inner loop: pack the sibling checkout as it is, uncommitted changes included, at cohesion's
+    # local version (the canonical prerelease plus .local, as Install-Local packs it). Nothing is cloned
+    # or checked out, and the cached extracts of the packed versions are removed so restore reads the
+    # new packages. Build against them with -p:CohesionSiblingPackageVersion=<the version printed>.
+    [Parameter(Mandatory, ParameterSetName = 'Local')] [switch] $Local,
     [string] $SiblingDirectory,
     # Resolve the checkout and print the closure without building or packing (a dry run).
     [switch] $NoPack
@@ -43,16 +52,45 @@ function Invoke-Checked([string] $Description, [scriptblock] $Command) {
     if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE." }
 }
 
-# 1. Sibling checkout at the requested ref (branch, tag or SHA; the repository is public).
-if (-not (Test-Path (Join-Path $SiblingDirectory '.git'))) {
+# 1. Sibling checkout at the requested ref (branch, tag or SHA; the repository is public), or as it
+#    is for -Local.
+if ($Local) {
+    if (-not (Test-Path (Join-Path $SiblingDirectory '.git'))) { throw "No cohesion checkout at '$SiblingDirectory'." }
+}
+elseif (-not (Test-Path (Join-Path $SiblingDirectory '.git'))) {
     Invoke-Checked 'git clone' { git clone --no-checkout --filter=blob:none https://github.com/assimalign/cohesion.git $SiblingDirectory }
 }
 Push-Location $SiblingDirectory
 try {
-    Invoke-Checked 'git fetch' { git fetch --depth 1 origin $Ref }
-    Invoke-Checked 'git checkout' { git checkout --quiet --detach FETCH_HEAD }
+    if (-not $Local) {
+        Invoke-Checked 'git fetch' { git fetch --depth 1 origin $Ref }
+        Invoke-Checked 'git checkout' { git checkout --quiet --detach FETCH_HEAD }
+    }
     $commit = (git rev-parse --short HEAD).Trim()
-    Write-Host "cohesion sibling: $SiblingDirectory @ $commit ($Ref)"
+    Write-Host "cohesion sibling: $SiblingDirectory @ $commit ($(if ($Local) { 'working tree' } else { $Ref }))"
+
+    # The local version vector, as Install-Local stamps it, so every generated dependency version is
+    # the same .local identity. Both modes stamp it: the canonical version may also be on the GitHub
+    # Packages feed with other content, and restore must never choose between the two.
+    Import-Module (Join-Path $SiblingDirectory 'scripts' 'modules' 'CohesionLocalPackaging.psm1') -Force
+    $canonical = & (Join-Path $SiblingDirectory 'scripts' 'Get-CohesionVersion.ps1') -RepoRoot $SiblingDirectory
+    $version = Get-CohesionLocalPackageVersion -Version $canonical
+    $packProperties = @(
+        "-p:CohesionMajorVersion=$($version.MajorVersion)"
+        "-p:CohesionMinorVersion=$($version.MinorVersion)"
+        "-p:CohesionPatchVersion=$($version.PatchVersion)"
+        "-p:CohesionVersionPrefix=$($version.VersionPrefix)"
+        "-p:CohesionVersionSuffix=$($version.VersionSuffix)"
+        "-p:CohesionVersion=$($version.Version)"
+        "-p:VersionPrefix=$($version.VersionPrefix)"
+        "-p:VersionSuffix=$($version.VersionSuffix)"
+        "-p:PackageVersion=$($version.Version)"
+    )
+    Write-Host "local version: $($version.Version)"
+    if ($env:GITHUB_OUTPUT -and -not $NoPack) {
+        # The composite build action passes it to restore as CohesionSiblingPackageVersion.
+        "version=$($version.Version)" >> $env:GITHUB_OUTPUT
+    }
 
     # 2. Build tasks first: per-project builds fail with MSB4062 in a fresh checkout otherwise.
     if (-not $NoPack) {
@@ -95,11 +133,17 @@ try {
         return
     }
 
-    # 5. Pack the closure into the sibling feed.
+    # 5. Pack the closure into the sibling feed. A local pack replaces packages whose id and version
+    #    restore may already have extracted, so their cached extracts go first.
     New-Item -ItemType Directory -Force $feed | Out-Null
+    $globalPackages = (dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', ''
+    foreach ($id in $closure) {
+        $cached = Join-Path $globalPackages.Trim() $id.ToLowerInvariant() $version.Version
+        if (Test-Path $cached) { Remove-Item -LiteralPath $cached -Recurse -Force }
+    }
     foreach ($id in $closure) {
         Write-Host ("[{0:mm\:ss}] pack {1}" -f $sw.Elapsed, $id)
-        Invoke-Checked "dotnet pack $id" { dotnet pack $projects[$id] --configuration Release --nologo "-p:PackageOutputPath=$feed" }
+        Invoke-Checked "dotnet pack $id" { dotnet pack $projects[$id] --configuration Release --nologo "-p:PackageOutputPath=$feed" @packProperties }
     }
     $packed = @(Get-ChildItem $feed -Filter 'Assimalign.Cohesion.*.nupkg')
     Write-Host ("packed {0} nupkgs into {1} in {2:mm\:ss}" -f $packed.Count, $feed, $sw.Elapsed)

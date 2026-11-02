@@ -1,100 +1,79 @@
 # Docker (platform area)
 
-Docker realizes Cohesion application models through one pure `DockerPlanCompiler`, one
-level-triggered controller, and one events-plus-inspect observer. Podman's Docker-compatible API
-is the supported local engine. The application model and its validated `cohesion/plan/v1` plans
-remain the desired-state source.
+The Docker platform of Cohesion's application model, as a pair of halves (assimalign/cohesion#1759,
+contracts decision C5 "platform pairs"), on the Kubernetes pair's pattern: a gateway half that runs a
+gateway's resources as containers on a Docker-compatible engine, Podman's included, and an instance
+half each resource's program opts into. The gateway runs on the engine's host and pulls: it reaches
+each instance on the loopback port the engine publishes the container's control-plane port on, so a
+container needs no address of its gateway.
 
 ## Projects
 
-`Assimalign.Cohesion.ApplicationModel.Gateway.Docker` contains the gateway, compiler, controller,
-BCL Engine API client, observer, and daemon-free Compose-style renderer. Shared image-index and
-OCI infrastructure belongs to `platforms/Containers`.
+| Project | Half | Purpose |
+| --- | --- | --- |
+| `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | Gateway | `DockerInfrastructure`, the gateway's infrastructure provider (which is also its inbound channel) and instance client in one: each resource is one container per replica on the gateway's network under the resource's name, the gateway polls each container's published control-plane port for its instance's publication and renewals, and calls its control plane there. Talks to the engine's API directly, with no Docker SDK. `builder.UseDocker(infrastructure)`, `resource.WithDockerReplicas(count)`. |
+| `Assimalign.Cohesion.ApplicationModel.Hosting.Docker` | Instance | The gateway client a resource's program adds on its `ApplicationInstanceOptions`: `builder.Services.AddResource(name, options => options.UseDocker())`. Its `shared/DockerProtocol.cs` is the protocol both halves compile. |
+| `fixtures/WebProgram` | Test input | The end-to-end tests' resource program: an ordinary Web application that opts its resource into the platform. Built as a container image, never packed. |
 
-## Platform behavior
+```mermaid
+flowchart LR
+    GD["ApplicationModel.Gateway.Docker<br/>(gateway half)"] --> GW["ApplicationModel.Gateway"]
+    HD["ApplicationModel.Hosting.Docker<br/>(instance half)"] --> HO["ApplicationModel.Hosting"]
+    GD -. "links shared/DockerProtocol.cs" .-> HD
+    HD -. "links platforms/Shared/InstanceControlPlaneListener.cs" .-> SH["platforms/Shared"]
+    WP["fixtures/WebProgram"] --> HD
+    WP --> WH["Web.Hosting.ApplicationModel"]
+```
 
-- Each resource becomes one container on an application network with stable service aliases.
-  `DaemonSet` means one container on the selected engine; `Job` runs once. Unsupported replicas
-  fail validation before gathering instead of being collapsed.
-- Claims become named volumes. Configuration files are staged before start; Secret mounts,
-  bootstrap credentials, trust bundles, and explicit telemetry credentials use tmpfs paths and
-  sensitive archive entries. Sensitive data is never moved to a disk volume as a fallback.
-- Endpoint schemes come from `PortBinding.Scheme`; legacy omitted schemes retain the exposure,
-  HTTP-probe, then transport fallback. A nonempty endpoint certificate must name a Secret mount,
-  except case-insensitive `public`. Errors name both the endpoint and the invalid mount.
-- Explicit probes are preserved. When no readiness mapping exists and `plan.ControlPlane` names
-  an endpoint, readiness uses HTTP at that endpoint's port and control-plane path. Private probes
-  receive loopback-only ephemeral host bindings. An explicit `None` readiness mapping remains off.
-- The observer alone publishes local lifecycle and endpoints. Liveness failure publishes
-  non-gating `Degraded`; repeated failure can request a supervised restart. Restart policy comes
-  from `plan.Workload.RestartPolicy`, with manifest fallback only for legacy omission. `Always`,
-  `OnFailure`, and `Never` are gateway-supervised; Engine restart stays `no` to keep one restart
-  owner and restage sensitive inputs. Configuration/startup exits remain final. Jobs run once.
-- Stop gracefully stops containers and releases supervision while retaining persistent network
-  and claim state. Teardown deletes in reverse order and continues after failures. Shared networks
-  with custom controllers remain conservatively retained until their delete outcomes are exposed.
-- Source manifests may leave artifact.image null; the gateway resolves ArtifactRef.Self from the
-  image index. Package images remain digest-pinned and are checked against the index when supplied.
-  In Local, without an explicit ImageIndexPath, the shared Containers publisher invokes the apphost
-  SDK image target in Debug using the engine architecture (arm64 → linux-arm64, amd64 → linux-x64),
-  then reloads the index. The SDK owns freshness; each session invokes the target. Explicit indexes
-  skip publication. The apphost project comes from its own manifest; see the Kubernetes README
-  for the current embedded-manifest fallback. A pinned registry wins over ContainerRegistry.
-  Containers run by verified immutable engine image ID after archive load or digest pull.
+Arrows are references; the dotted ones are linked source, not references. How the halves talk, and
+the decisions behind it, are in the gateway half's
+[DESIGN.md](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md).
 
-## Command line, rendering, and control plane
+## Building
 
-`DockerGatewayCommandLine.Apply(options, args)` handles `--docker-host`, repeatable
-`--image-archive=<digest-reference>=<path>`, and `--control-plane-bind`. Every switch accepts either
-`--name=value` or `--name value`; missing values fail and unknown arguments are ignored. Bind
-values accept localhost or an IP, optionally with a port, or an absolute HTTP URI. A bare host uses
-port zero. The optional `ControlPlaneAddress` is an HTTP bind address; omitted means loopback and
-an ephemeral port.
+As for Kubernetes: CI builds both halves against the cohesion CI build that `CohesionPackageVersion`
+pins in `build/Targets/Build.References.Packages.targets`, and `ci-packages.yml` publishes them to
+GitHub Packages at a CI version of their own. Locally, build against the sibling cohesion checkout's
+packages:
 
-The provider metadata names the public static method as
-`global::Assimalign.Cohesion.ApplicationModel.Gateway.Docker.DockerGatewayCommandLine.Apply`.
-Generated SDK setup and `UseDockerGateway(args, configure)` apply CLI values before the configure
-callback. Common gateway options are applied by `ApplicationGatewayCommandLine`.
+```powershell
+pwsh -NoProfile -File .github/scripts/Pack-CohesionSibling.ps1 -Local
+dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/tests/Assimalign.Cohesion.ApplicationModel.Hosting.Docker.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local
+dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local
+```
 
-`IApplicationGatewayRenderer.RenderAsync` enables `--mode render --gateway docker`, preserving
-model and plan order and resolving only manifest/index artifact identities. It never gathers,
-opens an engine connection, or resolves credentials. Mount paths remain visible with empty preview
-content. Direct `IDockerComposeRenderer.Render` still requires resolved mount inputs. Output is a
-review document, not a Compose deployment controller.
+The gateway half's unit tests run the instance half in process: a fake engine lists a container
+whose control-plane port is published where the instance's client listens, so the channel and the
+instance client are tested over HTTP without an engine.
 
-The domain gateway's ControlPlane package supplies the listener and authenticated discovery.
-`GatewayControlPlane.Configure` uses `ExportDirectory` (default `.cohesion`) to publish
-`<application>/control-plane.json` beside `export.json`. Docker only selects the host bind address;
-it does not implement token policy. The listener serves authenticated
-`GET /cohesion/v1/application` and rejects invalid credentials.
+## The end-to-end tests on an engine
 
-## Delivery boundaries
+`DockerEndToEndTests` runs a gateway in the test process against a real engine:
 
-`ResourceInputs.TrustBundle`, when nonempty, becomes sensitive `/var/run/cohesion/trust.pem` with
-`AppEnvironment.Variables.TrustBundlePath`. The internal compiler-only `telemetryHeaders` input becomes
-sensitive `/var/run/cohesion/telemetry.headers` with `AppEnvironment.Variables.TelemetryHeadersPath`.
-Empty inputs add no file, tmpfs, or environment entry. The upstream telemetry carrier remains
-private, so normal Docker reconciliation cannot obtain those headers yet; Docker does not invent
-telemetry endpoint/protocol values. The public application trust key remains ordinary public data.
+- two instances of `orders-api` and a `storefront` whose setting is `orders-api`'s endpoint, a
+  request to the storefront on its published port, which it answers through `orders-api` on the
+  network, and a write through the gateway that every `orders-api` instance then answers;
+- a second gateway over the same network, without the first one's record, that adopts the container
+  the first left running;
+- a program that fails its start, which fails the gateway's start at once with the container's exit
+  and the program's last output.
 
-Sensitive archive upload occurs after container start, leaving a PID 1 bootstrap race. Live tmpfs
-visibility also depends on the engine's archive implementation; Moby's private archive filesystem
-view is an existing limitation. Hermetic compilation/staging coverage does not establish portable,
-atomic live sensitive-input population. The secure tmpfs design is retained while that seam is open.
+They are skipped unless `COHESION_DOCKER_E2E=1`. The engine is `COHESION_DOCKER_ENDPOINT`, else
+`DOCKER_HOST`, else the platform's default: on Windows the `docker_engine` pipe, which a Podman
+machine serves. Then:
 
-Port-forward management and cross-gateway topology integration remain open. Full real Docker/Podman
-end-to-end coverage remains item `.05` / #28; smoke tests skip without a compatible daemon. Engine
-pull has no private-registry auth carrier, and OCI-layout load still needs the real-daemon matrix.
+```powershell
+pwsh platforms/Docker/scripts/Publish-CohesionDockerFixtures.ps1
+$env:COHESION_DOCKER_E2E = '1'
+dotnet test platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj -p:CohesionSiblingPackageVersion=10.0.0-preview.1.local --filter "FullyQualifiedName~DockerEndToEndTests"
+```
 
-## Layering and AOT
+`Publish-CohesionDockerFixtures.ps1` builds the fixture image for the engine's architecture (a Podman
+machine on an arm64 host is linux/arm64) and loads it into the engine's store as
+`cohesion-docker-web:e2e` (`-Engine Podman` or `-Engine Docker`; the first on PATH by default). Each
+test runs on a network of its own and removes its containers and the network when it ends; set
+`COHESION_DOCKER_KEEP_NETWORK=1` to keep them to inspect.
 
-The shipped project depends only on generic ApplicationModel/Gateway contracts and shared Containers;
-COHPLT001 forbids resource-area ApplicationModel, Hosting, Application runtimes, and Microsoft.Extensions
-assemblies, and the layering rule also excludes area Client and ApplicationModel.Orchestration packages
-(review-enforced for now). The ControlPlane package reference is test-only here. The library's explicit
-`IsAotCompatible=true` and `RequiresJit=false` are the scoped item 36 choice, not a repository-wide
-mandate; the upstream SDK's early auto-AOT allowlist remains a separate integration concern.
-
-See the [project overview](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/OVERVIEW.md),
-[design](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/DESIGN.md), and
-[assembly reference](Assimalign.Cohesion.ApplicationModel.Gateway.Docker/docs/Assembly/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/OVERVIEW.md).
+First passed on 2026-10-31 on Windows ARM64 against a rootful Podman 5.8.6 WSL machine: three tests
+in 11 seconds, the first run included. `.github/workflows/e2e-docker.yml` runs them on GitHub's x64
+runners' Docker engine, on demand and weekly, and fails unless every test executed and passed.

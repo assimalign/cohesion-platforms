@@ -5,24 +5,21 @@
 	    Cohesion platform architecture rules, enforced at build time.
 	    ============================================================================
 
-	    COHPLT001 enforces platform-area layering rule 3 for every shipped project
-	    below platforms/**. Tests, samples, and examples are excluded by path. A
-	    platform project may consume the generic ApplicationModel contract, the
-	    ApplicationModel.Gateway base, and shared Containers projects only; it
-	    references no resource-area package. This target rejects:
+	    COHPLT001 enforces platform-areas rule 2 (layering) for every shipped project
+	    below platforms/**. Tests, samples, examples, and fixtures are excluded by
+	    path. A platform pair's gateway half consumes the ApplicationModel.Gateway
+	    contract package and its instance half the ApplicationModel.Hosting contract
+	    package; neither references a resource-area package. This target rejects:
 
-	      * an area-owned Assimalign.Cohesion.<Area>.ApplicationModel assembly;
-	      * an Assimalign.Cohesion.*.Hosting* composition/runtime assembly;
+	      * an area-owned Assimalign.Cohesion.<Area>.ApplicationModel assembly,
+	        including an area's <Area>.Hosting.ApplicationModel integration;
+	      * an Assimalign.Cohesion.<Area>.Hosting[.*] runtime module (the
+	        application model's own ApplicationModel.Hosting[.*] is allowed);
 	      * an Assimalign.Cohesion.<Area>.Application runtime assembly; or
 	      * a Microsoft.Extensions.* assembly.
 
-	    Rule 3 also excludes <Area>.Client and <Area>.ApplicationModel.Orchestration
-	    packages, but this target does not reject them yet: Gateway base packages
-	    built before the cohesion BYO-provider change (owner-approved 2026-09-25)
-	    carry five area clients transitively. Add both families to the pattern
-	    below once the consumed Cohesion floor carries a Gateway base without them;
-	    match resource-area client names, not every *.Client (library clients such
-	    as Assimalign.Cohesion.Dns.Client are not resource-area packages).
+	    Rule 2 also excludes <Area>.Client packages, and rule 1 forbids references
+	    between a pair's halves and between platforms; both are enforced in review.
 
 	    The target runs after ResolveAssemblyReferences and combines two views. The
 	    ProjectReference view catches graph-only references, including references
@@ -31,25 +28,17 @@
 	    resolved compile/runtime assembly closure, including transitive and
 	    package-delivered DLLs. The diagnostic de-duplicates and names every
 	    offending assembly.
-
-	    Deviates from the repo's former copied COHRES rule set per the owner-approved
-	    Developer-Experience Design, item 33 (signed 2026-09-06): this repository
-	    enforces the platform-specific COHPLT001 boundary.
 	-->
 
 	<PropertyGroup>
 		<_CohesionPlatformProjectPath>$([MSBuild]::MakeRelative('$(CohesionRepositoryDirectory)', '$(MSBuildProjectFullPath)'))</_CohesionPlatformProjectPath>
 		<_CohesionPlatformRuleApplies>false</_CohesionPlatformRuleApplies>
+		<!-- fixtures/ holds executable acceptance fixtures, resource programs a test deploys, which compose an
+		     area's runtime module on purpose; they are harnesses like tests/. -->
 		<_CohesionPlatformRuleApplies Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)^platforms[\\/]'))
-		                                         AND !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)(^|[\\/])(tests|samples|examples)([\\/]|$)'))">true</_CohesionPlatformRuleApplies>
+		                                         AND !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)(^|[\\/])(tests|samples|examples|fixtures)([\\/]|$)'))">true</_CohesionPlatformRuleApplies>
 	</PropertyGroup>
 
-	<!-- Deviates from the platform-areas rule 3 wording as first written ("any *.Hosting") per design decision: since cohesion item 23b
-	     the allowed Assimalign.Cohesion.ApplicationModel.Gateway base package itself depends on the opt-in Hosting.Resources library
-	     (shared ResourceCommand/ResourceMount types), which references the Core-only Hosting and Hosting.Health libraries, so the guard
-	     forbids AREA runtime modules (Assimalign.Cohesion.<Area>.Hosting[.*]) and leaves the base hosting trio to the Gateway base.
-	     The Gateway base references no resources/** package: store, certificate, trust, identity, and telemetry roles are explicit
-	     ApplicationProviders registrations an application makes in its gateway Program.cs, never gateway dependencies. -->
 	<Target Name="ValidateCohesionPlatformLayering"
 	        AfterTargets="ResolveAssemblyReferences"
 	        Condition="'$(_CohesionPlatformRuleApplies)' == 'true'">
@@ -61,8 +50,12 @@
 			<_CohesionPlatformRuntimeAssembly Include="@(ReferenceCopyLocalPaths)"
 			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Extension)', '(?i)^\.(dll|exe)$'))" />
 			<_CohesionPlatformCandidateAssembly Include="@(_CohesionPlatformRuntimeAssembly->'%(Filename)')" />
+			<!-- An instance half references the application model's own hosting contract,
+			     Assimalign.Cohesion.ApplicationModel.Hosting, which brings the Core-only Assimalign.Cohesion.Hosting; both are
+			     allowed, as are the instance halves themselves (ApplicationModel.Hosting.<Platform>). An area's runtime module
+			     (Assimalign.Cohesion.<Area>.Hosting[.*]) is not. -->
 			<_CohesionPlatformForbiddenAssembly Include="@(_CohesionPlatformCandidateAssembly)"
-			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\..+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
+			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\.(?!ApplicationModel\.Hosting(?:\.|$)).+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
 		</ItemGroup>
 
 		<RemoveDuplicates Inputs="@(_CohesionPlatformForbiddenAssembly)">
@@ -71,7 +64,7 @@
 
 		<Error Condition="'@(_CohesionPlatformForbiddenAssemblyUnique)' != ''"
 		       Code="COHPLT001"
-		       Text="Platform gateway layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. Shipped projects under platforms/** may reference the generic ApplicationModel contract, the Gateway base, and shared Containers libraries only; they may never reference an &lt;Area&gt;.ApplicationModel, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly (the Core-only Assimalign.Cohesion.Hosting, Hosting.Health and the opt-in Hosting.Resources arrive through the Gateway base package and are allowed). See .claude/rules/platform-areas.md." />
+		       Text="Platform layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. A shipped project under platforms/** references the ApplicationModel.Gateway contract (gateway half) or the ApplicationModel.Hosting contract (instance half) and the platform's own client library; it never references an &lt;Area&gt;.ApplicationModel or &lt;Area&gt;.Hosting.ApplicationModel package, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly. See .claude/rules/platform-areas.md." />
 	</Target>
 
 </Project>

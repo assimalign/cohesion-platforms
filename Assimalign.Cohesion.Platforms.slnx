@@ -34,20 +34,6 @@
 		<File Path="platforms/Directory.Build.props" />
 		<File Path="platforms/Directory.Build.targets" />
 	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/">
-		<File Path="platforms/Containers/README.md" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/">
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/OVERVIEW.md" />
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/DESIGN.md" />
-		<File Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/docs/IMAGE_INDEX.md" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/">
-		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/src/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.csproj" />
-	</Folder>
-	<Folder Name="/cohesion-platforms/platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/">
-		<Project Path="platforms/Containers/Assimalign.Cohesion.ApplicationModel.Gateway.Containers/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Containers.Tests.csproj" />
-	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Docker/">
 		<File Path="platforms/Docker/README.md" />
 	</Folder>
@@ -61,6 +47,25 @@
 	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/">
 		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Docker.Tests.csproj" />
 	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/">
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/OVERVIEW.md" />
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/shared/">
+		<File Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/shared/DockerProtocol.cs" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/src/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/src/Assimalign.Cohesion.ApplicationModel.Hosting.Docker.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/tests/">
+		<Project Path="platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker/tests/Assimalign.Cohesion.ApplicationModel.Hosting.Docker.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/fixtures/">
+		<Project Path="platforms/Docker/fixtures/WebProgram/WebProgram.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Docker/scripts/">
+		<File Path="platforms/Docker/scripts/Publish-CohesionDockerFixtures.ps1" />
+	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Kubernetes/">
 		<File Path="platforms/Kubernetes/README.md" />
 	</Folder>
@@ -73,5 +78,28 @@
 	</Folder>
 	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/">
 		<Project Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/docs/">
+		<File Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/docs/OVERVIEW.md" />
+		<File Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/docs/DESIGN.md" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/shared/">
+		<File Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/shared/KubernetesProtocol.cs" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/src/">
+		<Project Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/src/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/tests/">
+		<Project Path="platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes/tests/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes.Tests.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/fixtures/">
+		<Project Path="platforms/Kubernetes/fixtures/WebProgram/WebProgram.csproj" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Kubernetes/scripts/">
+		<File Path="platforms/Kubernetes/scripts/New-CohesionKindCluster.ps1" />
+		<File Path="platforms/Kubernetes/scripts/Publish-CohesionKindFixtures.ps1" />
+	</Folder>
+	<Folder Name="/cohesion-platforms/platforms/Shared/">
+		<File Path="platforms/Shared/InstanceControlPlaneListener.cs" />
 	</Folder>
 </Solution>

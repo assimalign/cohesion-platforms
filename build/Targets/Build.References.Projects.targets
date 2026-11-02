@@ -38,8 +38,8 @@
                                             run time.
     -->
     <ItemGroup>
-        <!-- Index code projects ONCE. This repo's code trees are platforms/ and sdks/. -->
-        <_CohesionProject Include="$(CohesionRepositoryDirectory)platforms\**\*.csproj;$(CohesionRepositoryDirectory)sdks\**\*.csproj" />
+        <!-- Index code projects ONCE. This repo's one code tree is platforms/. -->
+        <_CohesionProject Include="$(CohesionRepositoryDirectory)platforms\**\*.csproj" />
         <_CohesionProject Update="@(_CohesionProject)" ProjectId="%(_CohesionProject.Filename)" ProjectPath="%(_CohesionProject.Identity)" />
 
         <!-- Public refs -->

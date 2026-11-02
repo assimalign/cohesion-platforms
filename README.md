@@ -1,28 +1,27 @@
 # Cohesion Platforms
 
-The **deployment/hosting plane** for [Cohesion](https://github.com/assimalign/cohesion) —
-Assimalign's code-first, multi-service application framework for .NET.
+The **deployment plane** for [Cohesion](https://github.com/assimalign/cohesion) — Assimalign's
+code-first, multi-service application framework for .NET.
 
-Cohesion applications are described once as a desired-state graph of resources
-(`Assimalign.Cohesion.ApplicationModel`) and *realized* by a pluggable gateway
-(`Assimalign.Cohesion.ApplicationModel.Gateway`): the same application runs as local child
-processes, Docker containers, or Kubernetes workloads without changing application code. The
-cohesion repo ships the contracts, the guided gateway base, and the `LocalGateway`; **this repo
-implements the platform gateways**:
+A Cohesion application describes its resources once, as an application model, and a gateway deploys
+them onto a platform: the same resource programs run in process, as Docker containers, or as
+Kubernetes workloads. The cohesion repo ships the model, the gateway and instance contracts
+(`Assimalign.Cohesion.ApplicationModel.Gateway`, `Assimalign.Cohesion.ApplicationModel.Hosting`), and
+the in-process platform; **this repo implements the other platforms**.
 
-At application `Build()`, each resource-area planner produces a validated, platform-neutral
-`ResourcePlan` (`cohesion/plan/v1`). Exactly one compiler for the selected platform translates
-those plans into platform objects; compilers never dispatch on resource kind, area, or CLR type.
+Each platform is a pair of packages: a gateway half the gateway program uses
+(`builder.UseKubernetes(...)`, `builder.UseDocker(...)`), and an instance half each resource's program
+opts into on its `ApplicationInstanceOptions` (`builder.Services.AddResource(name, options => options.UseKubernetes())`, or `options.UseDocker()`). The two halves share one protocol
+file and never reference each other.
 
-| Area | Package | Target |
+| Area | Packages | Target |
 | --- | --- | --- |
-| [`platforms/Containers`](platforms/Containers/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Containers` | Shared container machinery (image index, OCI store, registry, test primitives) |
-| [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes` | Kubernetes clusters (Kind on Podman for development) |
-| [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker` | Docker-compatible engines (Podman locally) |
+| [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes`, `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` | Kubernetes clusters (kind on Podman for development) |
+| [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`, `Assimalign.Cohesion.ApplicationModel.Hosting.Docker` | Docker-compatible engines (Podman locally) |
 
 Delivery is tracked in the shared org [Project #13 "Cohesion"](https://github.com/orgs/assimalign/projects/13)
-under WBS program root `L04.01` (`Codebase = cohesion-platforms`); sequencing lives in
-[docs/PLATFORMS_PROGRAM_PLAN.md](docs/PLATFORMS_PROGRAM_PLAN.md).
+under WBS program root `L04.01` (`Codebase = cohesion-platforms`); what each platform does today and
+what comes next is in [docs/PLATFORMS_PROGRAM_PLAN.md](docs/PLATFORMS_PROGRAM_PLAN.md).
 
 ## Building
 
@@ -33,32 +32,28 @@ dotnet test platforms/<Area>/<Project>/tests/
 
 - .NET SDK is pinned in `global.json`; everything targets `net10.0` with `LangVersion=Preview`.
   Unlike the cohesion repo — whose libraries are hard-required to be AOT-compatible because they
-  are the deployed, performance-critical runtimes — the platform gateways carry **no AOT
-  mandate**: they are deploy-time control planes. Source-generated serialization remains the
-  default for hygiene.
+  are the deployed, performance-critical runtimes — the platform packages carry **no AOT
+  mandate**: their gateway halves are deploy-time control planes. Source-generated serialization
+  remains the default for hygiene.
 - The build system mirrors the cohesion repo: centralized MSBuild under `build/Targets/`,
   name-only `CohesionProjectReference` items, centrally pinned `CohesionPackageReference`
   versions, and a single `$(CohesionVersion)`.
 
 ### Getting the `Assimalign.Cohesion.*` packages
 
-The three centrally managed Cohesion dependencies use the release floor
-`[10.0.0-preview.1, )`. Published package identities are immutable per release: bump that floor
-to pick up a newer Cohesion line, and never pin a version that is absent from the configured feed.
+Every Cohesion package is consumed at one version (`build/Targets/Build.References.Packages.targets`):
 
-Restore resolves the floor or an explicit inner-loop identity from one of two places (see
-`nuget.config`):
+1. **A cohesion CI build** (CI and the default): `CohesionPackageVersion` pins a version cohesion's
+   `ci-packages.yml` published to `https://nuget.pkg.github.com/assimalign/index.json`
+   (`10.0.0-preview.0.ci.<run>` for its `main`, `10.0.0-preview.0.pr.<pr>.<run>` for a pull
+   request). Local use of the feed needs a token with `read:packages`; keep credentials outside this
+   repository.
+2. **The sibling checkout** (inner loop): `pwsh -NoProfile -File .github/scripts/Pack-CohesionSibling.ps1 -Local`
+   packs `../cohesion` as it is into its `_out/packages`, which restore appends automatically, and
+   `-p:CohesionSiblingPackageVersion=10.0.0-preview.1.local` selects it.
 
-1. **Sibling checkout (inner loop):** if `../cohesion/_out/packages` exists next to this repo, it
-   is appended automatically. Populate a complete local package set from the cohesion checkout
-   with `pwsh installer/scripts/Install-Local.ps1`, then select its exact identity with
-   `-p:CohesionSiblingPackageVersion=10.0.0-preview.1.local`. The property is honored only while
-   the sibling feed exists and is intentionally overridable for the next local line. The `.local`
-   prerelease sorts above the canonical prerelease; the exact sibling override therefore makes
-   the floor resolve to the inner-loop pack when both identities are present.
-2. **GitHub Packages:** `https://nuget.pkg.github.com/assimalign/index.json` is the immutable
-   release/staging source used by CI, where no sibling checkout exists. Local authenticated use
-   requires a token with `read:packages`; keep credentials outside this repository.
+`ci-packages.yml` publishes this repository's packages the same way, at a CI version of their own
+that depends on exactly the pinned cohesion build, so a consumer pins one build of each repository.
 
 ## Repository conventions
 
