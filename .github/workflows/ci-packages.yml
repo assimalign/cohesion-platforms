@@ -51,7 +51,7 @@ jobs:
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.actor != 'dependabot[bot]')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS || '{}')['ubuntu-24.04'] || 'ubuntu-24.04' }}
     timeout-minutes: 30
     # A newer commit on the same pull request cancels a pack in progress, never a publish.
     concurrency:
@@ -151,7 +151,7 @@ jobs:
   publish:
     name: publish ${{ needs.pack.outputs.version }} to GitHub Packages
     needs: pack
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS || '{}')['ubuntu-24.04'] || 'ubuntu-24.04' }}
     timeout-minutes: 15
     permissions:
       contents: read
