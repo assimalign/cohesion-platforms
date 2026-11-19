@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   kind:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS || '{}')['ubuntu-24.04'] || 'ubuntu-24.04' }}
     timeout-minutes: 40
     env:
       COHESION_KIND_CONTEXT: kind-cohesion
