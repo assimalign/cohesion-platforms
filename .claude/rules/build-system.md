@@ -70,3 +70,8 @@ This repo uses the same centralized-MSBuild model as the cohesion repo, minus co
 - `ci-packages.yml` is the only publisher. It publishes nothing until the fabric platform
   packages land. It has only a manual trigger for now, and its pack and publish jobs skip
   manual runs. See [Platform Areas](platform-areas.md#ci-and-packages).
+- Runners: a job's `runs-on` looks its GitHub-hosted label up in the `CI_RUNNERS` organization
+  variable (`${{ fromJSON(vars.CI_RUNNERS || '{}')[matrix.os] || matrix.os }}`), a JSON map from
+  hosted label to replacement label (Blacksmith since 2026-11). An omitted label or an unset variable
+  runs on GitHub's runner. The cohesion repository's `build-system.md` ("Runner selection") is the
+  canonical description.
