@@ -5,21 +5,15 @@
 	    Cohesion platform architecture rules, enforced at build time.
 	    ============================================================================
 
-	    COHPLT001 enforces platform-areas rule 2 (layering) for every shipped project
-	    below platforms/**. Tests, samples, examples, and fixtures are excluded by
-	    path. A platform pair's gateway half consumes the ApplicationModel.Gateway
-	    contract package and its instance half the ApplicationModel.Hosting contract
-	    package; neither references a resource-area package. This target rejects:
+	    COHPLT001 keeps shipped projects below platforms/** off resource-area
+	    packages and Microsoft.Extensions.*. Tests, samples, examples, and fixtures
+	    are excluded by path. This target rejects:
 
 	      * an area-owned Assimalign.Cohesion.<Area>.ApplicationModel assembly,
 	        including an area's <Area>.Hosting.ApplicationModel integration;
-	      * an Assimalign.Cohesion.<Area>.Hosting[.*] runtime module (the
-	        application model's own ApplicationModel.Hosting[.*] is allowed);
+	      * an Assimalign.Cohesion.<Area>.Hosting[.*] runtime module;
 	      * an Assimalign.Cohesion.<Area>.Application runtime assembly; or
 	      * a Microsoft.Extensions.* assembly.
-
-	    Rule 2 also excludes <Area>.Client packages, and rule 1 forbids references
-	    between a pair's halves and between platforms; both are enforced in review.
 
 	    The target runs after ResolveAssemblyReferences and combines two views. The
 	    ProjectReference view catches graph-only references, including references
@@ -33,8 +27,7 @@
 	<PropertyGroup>
 		<_CohesionPlatformProjectPath>$([MSBuild]::MakeRelative('$(CohesionRepositoryDirectory)', '$(MSBuildProjectFullPath)'))</_CohesionPlatformProjectPath>
 		<_CohesionPlatformRuleApplies>false</_CohesionPlatformRuleApplies>
-		<!-- fixtures/ holds executable acceptance fixtures, resource programs a test deploys, which compose an
-		     area's runtime module on purpose; they are harnesses like tests/. -->
+		<!-- Projects in fixtures/ are harnesses and may compose area runtime modules. -->
 		<_CohesionPlatformRuleApplies Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)^platforms[\\/]'))
 		                                         AND !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_CohesionPlatformProjectPath)', '(?i)(^|[\\/])(tests|samples|examples|fixtures)([\\/]|$)'))">true</_CohesionPlatformRuleApplies>
 	</PropertyGroup>
@@ -50,12 +43,8 @@
 			<_CohesionPlatformRuntimeAssembly Include="@(ReferenceCopyLocalPaths)"
 			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Extension)', '(?i)^\.(dll|exe)$'))" />
 			<_CohesionPlatformCandidateAssembly Include="@(_CohesionPlatformRuntimeAssembly->'%(Filename)')" />
-			<!-- An instance half references the application model's own hosting contract,
-			     Assimalign.Cohesion.ApplicationModel.Hosting, which brings the Core-only Assimalign.Cohesion.Hosting; both are
-			     allowed, as are the instance halves themselves (ApplicationModel.Hosting.<Platform>). An area's runtime module
-			     (Assimalign.Cohesion.<Area>.Hosting[.*]) is not. -->
 			<_CohesionPlatformForbiddenAssembly Include="@(_CohesionPlatformCandidateAssembly)"
-			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\.(?!ApplicationModel\.Hosting(?:\.|$)).+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
+			    Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '(?i)^(Assimalign\.Cohesion\..+\.ApplicationModel|Assimalign\.Cohesion\..+\.Hosting(?:\..+)?|Assimalign\.Cohesion\..+\.Application|Microsoft\.Extensions(?:\..*)?)$'))" />
 		</ItemGroup>
 
 		<RemoveDuplicates Inputs="@(_CohesionPlatformForbiddenAssembly)">
@@ -64,7 +53,7 @@
 
 		<Error Condition="'@(_CohesionPlatformForbiddenAssemblyUnique)' != ''"
 		       Code="COHPLT001"
-		       Text="Platform layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. A shipped project under platforms/** references the ApplicationModel.Gateway contract (gateway half) or the ApplicationModel.Hosting contract (instance half) and the platform's own client library; it never references an &lt;Area&gt;.ApplicationModel or &lt;Area&gt;.Hosting.ApplicationModel package, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly. See .claude/rules/platform-areas.md." />
+		       Text="Platform layering rule: '$(MSBuildProjectName)' references forbidden assembly or assemblies '@(_CohesionPlatformForbiddenAssemblyUnique, ', ')'. A shipped project under platforms/** never references an &lt;Area&gt;.ApplicationModel or &lt;Area&gt;.Hosting.ApplicationModel package, an &lt;Area&gt;.Hosting runtime module, an &lt;Area&gt;.Application runtime, or a Microsoft.Extensions.* assembly. See .claude/rules/platform-areas.md." />
 	</Target>
 
 </Project>

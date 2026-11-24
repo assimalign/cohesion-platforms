@@ -9,7 +9,7 @@ inputs:
     description: "Area folder name (e.g. Kubernetes, Docker)."
     required: true
   project:
-    description: "Project/assembly name (e.g. Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes)."
+    description: "Project/assembly name."
     required: true
   cohesion-ref:
     description: >-

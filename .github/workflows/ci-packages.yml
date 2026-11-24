@@ -1,8 +1,7 @@
 # Continuous package channel for downstream work (cohesion-examples first).
 #
-# Every push to main and every commit to an open same-repository pull request packs the shipped
-# platform packages and stages them in the Assimalign GitHub Packages feed at a unique CI version,
-# the same shape cohesion's own CI channel uses (cohesion's .github/workflows/ci-packages.yml):
+# The CI channel stages shipped platform packages in the Assimalign GitHub Packages feed.
+# It uses the same CI version format as cohesion's .github/workflows/ci-packages.yml:
 #
 #     canonical 10.0.0-preview.1  ->  main: 10.0.0-preview.0.ci.<run>
 #                                     PR:   10.0.0-preview.0.pr.<pr>.<run>
@@ -18,16 +17,9 @@
 name: CI Packages
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '.claude/**'
-      - 'docs/**'
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths-ignore:
-      - '.claude/**'
-      - 'docs/**'
+  # Manual dispatch only until the fabric platform packages land. With no packable projects,
+  # the pack job skips manual runs and the publish job skips with it.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,12 +27,7 @@ permissions:
   packages: read
 
 env:
-  # The shipped platform packages: both halves of every platform pair.
-  CI_PACKAGE_PROJECTS: >-
-    platforms/Docker/Assimalign.Cohesion.ApplicationModel.Gateway.Docker
-    platforms/Docker/Assimalign.Cohesion.ApplicationModel.Hosting.Docker
-    platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes
-    platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes
+  CI_PACKAGE_PROJECTS: ""
 
 jobs:
   pack:

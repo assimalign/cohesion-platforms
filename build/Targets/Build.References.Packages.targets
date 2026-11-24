@@ -31,22 +31,13 @@
     <!-- #region Packages & Dependencies -->
     <ItemGroup>
         <!--
-            Cohesion packages consumed from the cohesion repo (GitHub Packages / sibling feed). The
-            projects here reference ApplicationModel.Gateway, ApplicationModel.Hosting, Web.Hosting and
-            Web.Hosting.ApplicationModel; the rest are not referenced directly. They stay listed because
-            .github/scripts/Pack-CohesionSibling.ps1 reads every Assimalign.Cohesion item here as a root
-            of the closure it packs; an item no project references adds no PackageReference.
+            Central pins for cohesion packages from GitHub Packages or the sibling feed.
+            .github/scripts/Pack-CohesionSibling.ps1 uses each of these pins as a package root.
         -->
         <_CohesionPackage Include="Assimalign.Cohesion.Core" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Definition" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Gateway" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.ApplicationModel.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
-        <!-- Both platforms' end-to-end fixtures are ordinary Web resource programs. -->
         <_CohesionPackage Include="Assimalign.Cohesion.Web" Version="$(_CohesionConsumedPackageVersion)" />
         <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting" Version="$(_CohesionConsumedPackageVersion)" />
-        <_CohesionPackage Include="Assimalign.Cohesion.Web.Hosting.ApplicationModel" Version="$(_CohesionConsumedPackageVersion)" />
     </ItemGroup>
     <ItemGroup>
         <_CohesionPackage Include="KubernetesClient" Version="17.0.14" />
