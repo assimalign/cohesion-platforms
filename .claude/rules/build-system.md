@@ -23,15 +23,15 @@ This repo uses the same centralized-MSBuild model as the cohesion repo, minus co
 
 ## References
 
-- **Internal project references** use name-only items resolved by `build/Targets/Build.References.Projects.targets` (globbing `platforms/**/*.csproj`):
+- **Internal project references** use name-only items resolved by
+  `build/Targets/Build.References.Projects.targets` (globbing `platforms/**/*.csproj`).
+  `CohesionPrivateProjectReference` is the `PrivateAssets=all` variant.
+  Raw `ProjectReference` with relative paths is forbidden.
+- **NuGet packages**, including `Assimalign.Cohesion.*` packages from the cohesion repo,
+  use `CohesionPackageReference`, with the version declared centrally in
+  `build/Targets/Build.References.Packages.targets` first.
   ```xml
-  <CohesionProjectReference Include="Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes" />
-  ```
-  `CohesionPrivateProjectReference` is the `PrivateAssets=all` variant. Raw `ProjectReference` with relative paths is forbidden. A shipped platform project references no other platform project (`platform-areas.md` rule 1); test and fixture projects may.
-- **Linked source** is the one sanctioned way two shipped platform projects share code: a pair's protocol file (`<instance half>/shared/<Platform>Protocol.cs`) and `platforms/Shared/*.cs`, each pulled in with `<Compile Include="..." Link="Internal\..." />`.
-- **NuGet packages** — including the `Assimalign.Cohesion.*` packages from the cohesion repo — use `CohesionPackageReference`, with the version declared centrally in `build/Targets/Build.References.Packages.targets` first:
-  ```xml
-  <CohesionPackageReference Include="Assimalign.Cohesion.ApplicationModel.Gateway" />
+  <CohesionPackageReference Include="Assimalign.Cohesion.Core" />
   ```
   Raw `PackageReference` is forbidden. `KubernetesClient` is already pinned centrally.
 
@@ -61,17 +61,12 @@ This repo uses the same centralized-MSBuild model as the cohesion repo, minus co
   projects under `platforms/**` (tests, samples, examples, and fixtures excluded by path). It checks
   both the project-reference graph and the resolved assembly closure after
   `ResolveAssemblyReferences`, so package-delivered forbidden DLLs count, and reports every offending
-  assembly. The normative rule is `platform-areas.md` rule 2.
+  assembly. See [Platform Areas](platform-areas.md#layering).
 - If a platform rule becomes build-enforced or its enforcement changes, update
   `Build.Rules.targets`, `platform-areas.md`, and every affected area README in the same commit.
-- CI: a composite build action (`.github/actions/build`) builds `<area>/<Category>/<Project>/src` and
-  tests `<...>/tests` across a 3-OS matrix, invoked by one path-filtered workflow per platform
-  (`platform-<platform>.yml`, both halves in its matrix, plus a Linux job that builds the platform's
-  end-to-end fixture, which no test project references). The action never packs or publishes, and
-  the platform workflows hold `packages: read` only. `ci-packages.yml` is the only publisher: it packs
-  both halves of every pair at a CI version (`10.0.0-preview.0.ci.<run>`, or `.pr.<pr>.<run>`) and
-  publishes them to GitHub Packages. The canonical `10.0.0-preview.1` is never published from CI,
-  since it sorts above every CI version. The action's `cohesion-ref` input builds against a sibling
-  cohesion checkout at a ref, packed at cohesion's `.local` version and passed to restore as
-  `CohesionSiblingPackageVersion`; `e2e-<platform>.yml` runs a platform's end-to-end tests on demand and weekly. Details in
-  `platform-areas.md` ("CI and packages").
+- The composite build action (`.github/actions/build`) builds and tests one project.
+  Its `cohesion-ref` input builds against a sibling cohesion checkout at a ref, packed
+  at cohesion's `.local` version and passed to restore as `CohesionSiblingPackageVersion`.
+- `ci-packages.yml` is the only publisher. It publishes nothing until the fabric platform
+  packages land. It has only a manual trigger for now, and its pack and publish jobs skip
+  manual runs. See [Platform Areas](platform-areas.md#ci-and-packages).

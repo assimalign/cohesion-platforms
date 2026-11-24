@@ -12,7 +12,7 @@ Examples: `feat(database): add connection pooling support` · `fix(cache): resol
 ## Branch naming
 
 - `main` — production-ready · `development` — integration
-- `feature/{name}` — new features. Work tracked in the Cohesion GitHub Project uses `feature/<wbs>-<slug>` (e.g., `feature/L04.01.03.02-kubernetes-gateway-skeleton`)
+- `feature/{name}` — new features. Work tracked in the Cohesion GitHub Project uses `feature/<wbs>-<slug>` (e.g., `feature/L04.01.03.02-kubernetes-feature`)
 - `fix/{name}` — bug fixes · `docs/{name}` — documentation
 
 ## GitHub Project execution metadata

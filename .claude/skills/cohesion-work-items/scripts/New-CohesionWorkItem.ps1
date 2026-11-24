@@ -40,9 +40,9 @@
     ./New-CohesionWorkItem.ps1 -Search "websocket bootstrap http3"
 
 .EXAMPLE
-    # Scope-creep TASK discovered on feature branch feature/L04.01.03.02-kubernetes-gateway-skeleton.
+    # Scope-creep TASK discovered on feature branch feature/L04.01.03.02-kubernetes-feature.
     ./New-CohesionWorkItem.ps1 -As task -Title "Validate kubeconfig context selection against in-cluster config" `
-        -Summary "Hardening discovered while wiring the gateway skeleton; outside the original feature scope."
+        -Summary "A context-selection issue surfaced during implementation."
 
 .EXAMPLE
     # Out-of-feature scope -> sibling FEATURE under the area epic; Origin=DiscoveredFeature.

@@ -162,7 +162,7 @@ public static class DatabaseExtensions
 
 ### Library folder structure
 ```
-platforms/{Platform}/Assimalign.Cohesion.ApplicationModel.{Gateway|Hosting}.{Platform}/
+platforms/{Platform}/{Library}/
 ├── src/
 │   ├── Abstractions/      # Interfaces only
 │   ├── Extensions/        # Extension members
@@ -173,7 +173,6 @@ platforms/{Platform}/Assimalign.Cohesion.ApplicationModel.{Gateway|Hosting}.{Pla
 ├── docs/
 │   ├── OVERVIEW.md
 │   └── DESIGN.md
-├── shared/                # instance half only: {Platform}Protocol.cs, linked into both halves
 └── tests/
     ├── TestObjects/
     └── Shared/
@@ -248,10 +247,6 @@ internal sealed class TcpConnectionListener : ConnectionListener { /* ... */ }
 
 The interface remains the canonical public surface; concrete types derive from the base and stay `internal` where possible. Use the explicit-implementation forwarding only where the base can offer a richer, concrete-typed member; members without a richer counterpart are declared `public`/`protected abstract` directly.
 
-## Service composition
-
-This repo implements Cohesion's application model on concrete deployment targets: each platform is a pair, a gateway half that deploys a gateway's resources there (`IApplicationGatewayInfrastructureProvider` and `IApplicationGatewayInstanceClient`, from `Assimalign.Cohesion.ApplicationModel.Gateway`) and an instance half that a resource's program opts into (its gateway client, on `Assimalign.Cohesion.ApplicationModel.Hosting`). The halves share one linked protocol file and never reference each other, and no platform references another or any resource-area package; see `platform-areas.md`.
-
 ## Async / await
 
 1. **Async methods end in `Async`.**
@@ -277,12 +272,12 @@ This repo implements Cohesion's application model on concrete deployment targets
 
 ## AOT posture
 
-**This repo does not carry cohesion's AOT mandate** (owner decision, 2026-07-20). Gateways are deploy-time control planes, not hot-path services — the cohesion repo's libraries (the deployed runtimes that need the performance) keep the hard `IsAotCompatible` requirement; this repo does not, and `KubernetesClient`-style dependencies need no exception machinery.
+**This repo does not carry cohesion's AOT mandate** (owner decision, 2026-07-20). The cohesion repo's libraries keep the hard `IsAotCompatible` requirement.
 
 Keep the hygiene where it is free, because it also buys startup time and smaller closures:
 
 - Prefer source-generated `System.Text.Json` serializers over reflection-based serialization
 - No dynamic code generation at runtime, no `Assembly.LoadFrom()`
-- Exception: any code in this repo that ships *inside* deployed workloads (e.g., the sample resource runtime used by E2E tests) models a cohesion service and follows the cohesion AOT posture (`IsAotCompatible=true`, AOT-publishable)
+- Exception: any code in this repo that ships *inside* deployed workloads models a cohesion service and follows the cohesion AOT posture (`IsAotCompatible=true`, AOT-publishable)
 
 Reintroducing a repo-wide AOT mandate is an architectural decision requiring explicit owner confirmation.

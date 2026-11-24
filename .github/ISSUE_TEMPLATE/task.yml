@@ -15,7 +15,7 @@ body:
     attributes:
       label: Parent feature
       description: The feature this task belongs under.
-      placeholder: "#16 [L04.01.03.02] Kubernetes gateway skeleton + namespace controller"
+      placeholder: "[L04.01.NN.MM] Parent feature title"
     validations:
       required: true
   - type: textarea

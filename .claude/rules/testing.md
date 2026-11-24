@@ -14,8 +14,8 @@ public class DatabaseConnectionTests { }
 
 **Test method:** `{Method}_{Scenario}_{ExpectedBehavior}`, with the display name set through the `Fact`/`Theory` attribute
 ```csharp
-[Fact(DisplayName = "Cohesion Test [Gateway.Kubernetes] - Workload: The workload decides the plan")]
-public void GetChange_WithRunningWorkload_ShouldCompareTheWorkload()
+[Fact(DisplayName = "Cohesion Test [Cache] - Cache miss returns null")]
+public void Get_OnCacheMiss_ShouldReturnNull()
 {
     // Test implementation
 }
