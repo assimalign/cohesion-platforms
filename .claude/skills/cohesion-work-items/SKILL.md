@@ -26,10 +26,10 @@ parent/sub-issue links**; every item is added to Project #13.
 | Code | Level | Example | Parent of new item |
 | --- | --- | --- | --- |
 | `L04.01.NN` (3 seg) | **Area epic** | `[L04.01.03] Platforms - Kubernetes` | parent for a new **feature** |
-| `L04.01.NN.MM` (4 seg) | **Feature** | `[L04.01.03.02] …gateway skeleton` | parent for a new **task** |
+| `L04.01.NN.MM` (4 seg) | **Feature** | `[L04.01.03.02] …feature title` | parent for a new **task** |
 | `L04.01.NN.MM.PP` (5 seg) | **Task** | `[L04.01.03.02.01] …` | leaf |
 
-Your branch names the feature in flight: `feature/L04.01.03.02-kubernetes-gateway-skeleton` → feature `L04.01.03.02`.
+Your branch names the feature in flight: `feature/L04.01.03.02-kubernetes-feature` → feature `L04.01.03.02`.
 
 ## Step 1 — Classify the work before creating anything
 
@@ -72,7 +72,7 @@ sub-issue, and records the item in a per-branch manifest for PR close-out.
 # Scope-creep TASK on the current feature branch:
 .claude/skills/cohesion-work-items/scripts/New-CohesionWorkItem.ps1 -As task `
   -Title "Validate kubeconfig context selection against in-cluster config" `
-  -Summary "Hardening discovered while wiring the gateway skeleton; outside the original feature scope." `
+  -Summary "A context-selection issue surfaced during implementation." `
   -Acceptance "Reject ambiguous contexts with an actionable error.","Add targeted unit tests." `
   -Status "In progress"
 

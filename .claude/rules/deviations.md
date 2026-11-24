@@ -33,5 +33,4 @@ These are architectural commitments, not stylistic preferences — deviating has
 - No `Microsoft.Extensions.*` references
 - The `$(CohesionVersion)` single-source-of-truth chain
 - Never hardcoding a version on `<Import Sdk>`
-- The platform-pair rules in `platform-areas.md`: no references between a pair's halves or between platforms (they share linked source only), and no resource-area package (`<Area>.ApplicationModel`, `<Area>.Hosting` runtime modules and their `.ApplicationModel` integrations, `<Area>.Application`, `<Area>.Client`) or `Microsoft.Extensions.*` in a shipped platform project
-- The provider-contract revision rule: a plan's revision never carries settings' values or extensions, because the gateway drops a resource's recorded state on a new revision
+- Platform layering enforced by COHPLT001. See [Platform Areas](platform-areas.md#layering).

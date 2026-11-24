@@ -73,7 +73,6 @@ Mark each applicable item ✅ or ❌. If anything is ❌, fix it before reportin
 - [ ] Every library touched has a `docs/DESIGN.md` — if one was missing, it was created in this change (canonical example: `libraries/Dns/Assimalign.Cohesion.Dns/docs/DESIGN.md` in the cohesion repo)
 - [ ] If this change altered or extended a design decision (lifecycle, error model, contract shape, family layout, AOT posture, non-goals), `docs/DESIGN.md` was updated in the same commit
 - [ ] Public API additions have XML documentation; API reference pages belong in the `cohesion-docs` companion repository, not here
-- [ ] A change to a pair's shared protocol file was built and tested in both halves
 
 ## Deviations from rules
 

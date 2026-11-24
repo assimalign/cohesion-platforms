@@ -14,7 +14,7 @@ Markdown files use UPPERCASE names (`README.md`, `OVERVIEW.md`, `DESIGN.md`). Ex
 
 Cohesion has three layers of documentation, each with distinct purpose and audience.
 
-1. **Area-level `README.md`** — overview of a major area (e.g., `platforms/Kubernetes/`, `platforms/Docker/`)
+1. **Area-level `README.md`** — overview of a major area
 2. **Project-level docs** — `OVERVIEW.md` and `DESIGN.md` per project
 3. **XML doc comments** — on public APIs
 
@@ -33,7 +33,9 @@ Public API reference pages belong in the `cohesion-docs` companion repository; k
 
 Every library under `platforms/` must have a `docs/DESIGN.md`. The purpose is to make the *reasoning* behind the library's shape readable without re-deriving it from diffs, commit history, or code archaeology — when a future session surveys the code, `DESIGN.md` is what tells them why it looks the way it does.
 
-**Canonical example:** `platforms/Kubernetes/Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes/docs/DESIGN.md`. A platform pair's gateway half carries the pair's decisions, numbered per platform (`GK*` for Kubernetes, `GD*` for Docker), each dated, with what it supersedes and the alternatives it rejected; its instance half's `DESIGN.md` carries the instance side's (`HK*`, `HD*`). Open questions are numbered; a closed one is removed, and the decision that closed it says so.
+**Canonical example:** `../cohesion/libraries/Dns/Assimalign.Cohesion.Dns/docs/DESIGN.md`.
+
+Open questions are numbered; a closed one is removed, and the decision that closed it says so.
 
 **Typical sections** (adapt to the library — these aren't a rigid template):
 
@@ -62,14 +64,11 @@ A `DESIGN.md` that lags the code actively misleads — worse than not having one
 
 ## Area-level `README.md`
 
-Each major area root contains a `README.md` providing an overview. Examples:
-- `platforms/Kubernetes/README.md`
-- `platforms/Docker/README.md`
+Each major area root contains a `README.md` providing an overview.
 
 Area `README.md` files should summarize:
 - The purpose of the area
 - The major projects or services it contains
-- How the area fits as a platform pair: the gateway half, the instance half, and the protocol they share (`platform-areas.md`)
 - Important dependencies on other areas and on cohesion-repo packages
 - Links to project-level `OVERVIEW.md` and `DESIGN.md` files where relevant
 

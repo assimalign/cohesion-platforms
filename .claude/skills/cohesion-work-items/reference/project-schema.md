@@ -26,14 +26,14 @@ Work items carry their position in the title as `[<code>] <description>`. The hi
 | --- | --- | --- | --- | --- |
 | `L04.01.00` | 3 (`.00`) | Program root | `[L04.01.00] Cohesion - Deployment Platforms` | — |
 | `L04.01.NN` | 3 | **Area epic** | `[L04.01.03] Platforms - Kubernetes` | program root |
-| `L04.01.NN.MM` | 4 | **Feature** | `[L04.01.03.02] Kubernetes gateway skeleton…` | area epic |
+| `L04.01.NN.MM` | 4 | **Feature** | `[L04.01.03.02] …feature title` | area epic |
 | `L04.01.NN.MM.PP` | 5 | **Task** | `[L04.01.03.02.01] …` | feature |
 
 `L04.01` = Deployment Platforms program (cohesion repo programs are `L01.01` Foundation Libraries,
 `L01.02` SDK/Tooling/Delivery, `L02.01` Application Runtime, `L03.0x` product platforms). Area epics
 are titled `Platforms - <Area>`.
 
-Branch convention: `feature/<wbs>-<slug>` (e.g. `feature/L04.01.03.02-kubernetes-gateway-skeleton`).
+Branch convention: `feature/<wbs>-<slug>` (e.g. `feature/L04.01.03.02-kubernetes-feature`).
 The WBS in the branch names the **feature** currently in flight.
 
 ### Current area epics (parents for new sibling features)

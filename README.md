@@ -1,41 +1,21 @@
 # Cohesion Platforms
 
-The **deployment plane** for [Cohesion](https://github.com/assimalign/cohesion) — Assimalign's
+The **deployment plane** for [Cohesion](https://github.com/assimalign/cohesion), Assimalign's
 code-first, multi-service application framework for .NET.
 
-A Cohesion application describes its resources once, as an application model, and a gateway deploys
-them onto a platform: the same resource programs run in process, as Docker containers, or as
-Kubernetes workloads. The cohesion repo ships the model, the gateway and instance contracts
-(`Assimalign.Cohesion.ApplicationModel.Gateway`, `Assimalign.Cohesion.ApplicationModel.Hosting`), and
-the in-process platform; **this repo implements the other platforms**.
-
-Each platform is a pair of packages: a gateway half the gateway program uses
-(`builder.UseKubernetes(...)`, `builder.UseDocker(...)`), and an instance half each resource's program
-opts into on its `ApplicationInstanceOptions` (`builder.Services.AddResource(name, options => options.UseKubernetes())`, or `options.UseDocker()`). The two halves share one protocol
-file and never reference each other.
-
-| Area | Packages | Target |
-| --- | --- | --- |
-| [`platforms/Kubernetes`](platforms/Kubernetes/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Kubernetes`, `Assimalign.Cohesion.ApplicationModel.Hosting.Kubernetes` | Kubernetes clusters (kind on Podman for development) |
-| [`platforms/Docker`](platforms/Docker/README.md) | `Assimalign.Cohesion.ApplicationModel.Gateway.Docker`, `Assimalign.Cohesion.ApplicationModel.Hosting.Docker` | Docker-compatible engines (Podman locally) |
+This repository will hold each platform's fabric contract package and its drivers,
+`Assimalign.Cohesion.Fabric.<Platform>` and `Assimalign.Cohesion.Fabric.<Platform>.Drivers`.
+Those packages are planned for a later stage. See `../cohesion/.claude/rules/fabric.md`.
 
 Delivery is tracked in the shared org [Project #13 "Cohesion"](https://github.com/orgs/assimalign/projects/13)
-under WBS program root `L04.01` (`Codebase = cohesion-platforms`); what each platform does today and
-what comes next is in [docs/PLATFORMS_PROGRAM_PLAN.md](docs/PLATFORMS_PROGRAM_PLAN.md).
+under WBS program root `L04.01` (`Codebase = cohesion-platforms`). See the
+[platforms program plan](docs/PLATFORMS_PROGRAM_PLAN.md) for scope and sequencing.
 
-## Building
+## Build configuration
 
-```pwsh
-dotnet build Assimalign.Cohesion.Platforms.slnx
-dotnet test platforms/<Area>/<Project>/tests/
-```
-
-- .NET SDK is pinned in `global.json`; everything targets `net10.0` with `LangVersion=Preview`.
-  Unlike the cohesion repo — whose libraries are hard-required to be AOT-compatible because they
-  are the deployed, performance-critical runtimes — the platform packages carry **no AOT
-  mandate**: their gateway halves are deploy-time control planes. Source-generated serialization
-  remains the default for hygiene.
-- The build system mirrors the cohesion repo: centralized MSBuild under `build/Targets/`,
+- The .NET SDK is pinned in `global.json`. The build targets `net10.0` with `LangVersion=Preview`.
+- The platform packages carry **no AOT mandate**. Source-generated serialization remains the default.
+- The build system mirrors the cohesion repo with centralized MSBuild under `build/Targets/`,
   name-only `CohesionProjectReference` items, centrally pinned `CohesionPackageReference`
   versions, and a single `$(CohesionVersion)`.
 
@@ -52,8 +32,21 @@ Every Cohesion package is consumed at one version (`build/Targets/Build.Referenc
    packs `../cohesion` as it is into its `_out/packages`, which restore appends automatically, and
    `-p:CohesionSiblingPackageVersion=10.0.0-preview.1.local` selects it.
 
-`ci-packages.yml` publishes this repository's packages the same way, at a CI version of their own
-that depends on exactly the pinned cohesion build, so a consumer pins one build of each repository.
+`ci-packages.yml` publishes nothing until the fabric platform packages land. It has only a manual
+trigger for now, and its pack and publish jobs skip manual runs.
+
+## Local Kubernetes development
+
+[`scripts/New-CohesionKindCluster.ps1`](scripts/New-CohesionKindCluster.ps1) creates a kind cluster
+using Podman by default and configures its nodes to pull from a local registry at `localhost:5001`.
+On Windows, install `kind` (`winget install Kubernetes.kind` or Podman Desktop's Kind extension)
+and `kubectl`, and use a running rootful Podman machine.
+
+```powershell
+pwsh -NoProfile -File scripts/New-CohesionKindCluster.ps1
+```
+
+Pass `-Recreate` to recreate the cluster or `-Engine docker` to use a Docker engine.
 
 ## Repository conventions
 
